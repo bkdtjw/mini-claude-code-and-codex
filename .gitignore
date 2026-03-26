@@ -15,3 +15,7 @@ htmlcov/
 node_modules/
 frontend/dist/
 .DS_Store
+backend/config/providers.json
+uvicorn_run.out
+uvicorn_run.err
+backend/pytest-cache-files-*/

@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator; from typing import Any
 import httpx
 from backend.common import LLMError
 from backend.common.types import LLMRequest, LLMResponse, LLMUsage, ProviderConfig, StreamChunk, ToolCall
+from backend.config.http_client import load_http_client_config
 from .openai_adapter import OpenAICompatAdapter
 class OllamaAdapter(OpenAICompatAdapter):
     """本地 Ollama 适配器"""
@@ -17,7 +18,7 @@ class OllamaAdapter(OpenAICompatAdapter):
         self._provider = "ollama"
     async def test_connection(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=load_http_client_config().trust_env) as client:
                 response = await client.get(self._tags_url, headers=self._headers())
             return response.is_success
         except Exception:
@@ -26,7 +27,7 @@ class OllamaAdapter(OpenAICompatAdapter):
         try:
             payload = self._build_payload(request, stream=False)
             for attempt in range(1, self._max_retries + 1):
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
                     response = await client.post(self._url, headers=self._headers(), json=payload)
                 if response.status_code == 429 and attempt < self._max_retries:
                     await asyncio.sleep(float(attempt)); continue
@@ -44,7 +45,7 @@ class OllamaAdapter(OpenAICompatAdapter):
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         try:
             payload = self._build_payload(request, stream=True)
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
                 async with client.stream("POST", self._url, headers=self._headers(), json=payload) as response:
                     self._raise_for_status(response)
                     async for line in response.aiter_lines():

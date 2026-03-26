@@ -10,6 +10,7 @@ import httpx
 from backend.adapters.base import LLMAdapter
 from backend.common import LLMError
 from backend.common.types import LLMRequest, LLMResponse, LLMUsage, Message, ProviderConfig, StreamChunk, ToolCall, ToolDefinition
+from backend.config.http_client import load_http_client_config
 
 
 class AnthropicAdapter(LLMAdapter):
@@ -29,7 +30,7 @@ class AnthropicAdapter(LLMAdapter):
                 "max_tokens": 1,
                 "messages": [{"role": "user", "content": [{"type": "text", "text": "ping"}]}],
             }
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, trust_env=load_http_client_config().trust_env) as client:
                 response = await client.post(self._url, headers=self._headers(), json=payload)
             self._raise_for_status(response)
             return response.is_success
@@ -40,7 +41,7 @@ class AnthropicAdapter(LLMAdapter):
         try:
             payload = self._build_payload(request, stream=False)
             for attempt in range(1, self._max_retries + 1):
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
                     response = await client.post(self._url, headers=self._headers(), json=payload)
                 if response.status_code == 429 and attempt < self._max_retries:
                     await asyncio.sleep(float(attempt))
@@ -59,7 +60,7 @@ class AnthropicAdapter(LLMAdapter):
         try:
             payload = self._build_payload(request, stream=True)
             for attempt in range(1, self._max_retries + 1):
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
                     async with client.stream("POST", self._url, headers=self._headers(), json=payload) as response:
                         if response.status_code == 429 and attempt < self._max_retries:
                             await asyncio.sleep(float(attempt))

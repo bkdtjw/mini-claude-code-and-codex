@@ -1,25 +1,45 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
-from backend.common.types import ProviderType
+from pydantic import AliasChoices, BaseModel, Field
 
 
-class ProviderCreateRequest(BaseModel):
+class AddProviderRequest(BaseModel):
     name: str
-    provider_type: ProviderType
+    provider_type: str
     base_url: str
     api_key: str = ""
     default_model: str
     available_models: list[str] = Field(default_factory=list)
-    is_default: bool = False
     extra_headers: dict[str, str] = Field(default_factory=dict)
+
+
+class ProviderResponse(BaseModel):
+    """Provider response with masked api key preview."""
+
+    id: str
+    name: str
+    provider_type: str
+    base_url: str
+    api_key_preview: str = Field(validation_alias=AliasChoices("api_key_preview", "api_key"))
+    default_model: str
+    available_models: list[str] = Field(default_factory=list)
+    is_default: bool = False
     enabled: bool = True
+
+
+class TestConnectionResponse(BaseModel):
+    ok: bool
+    message: str
+    latency_ms: int
+
+
+class ProviderCreateRequest(AddProviderRequest):
+    pass
 
 
 class ProviderUpdateRequest(BaseModel):
     name: str | None = None
-    provider_type: ProviderType | None = None
+    provider_type: str | None = None
     base_url: str | None = None
     api_key: str | None = None
     default_model: str | None = None
@@ -27,19 +47,6 @@ class ProviderUpdateRequest(BaseModel):
     is_default: bool | None = None
     extra_headers: dict[str, str] | None = None
     enabled: bool | None = None
-
-
-class ProviderResponse(BaseModel):
-    id: str
-    name: str
-    provider_type: ProviderType
-    base_url: str
-    api_key: str
-    default_model: str
-    available_models: list[str] = Field(default_factory=list)
-    is_default: bool = False
-    extra_headers: dict[str, str] = Field(default_factory=dict)
-    enabled: bool = True
 
 
 class ProviderListResponse(BaseModel):
@@ -51,10 +58,8 @@ class ProviderDeleteResponse(BaseModel):
     message: str
 
 
-class ProviderTestResponse(BaseModel):
-    ok: bool
-    message: str
-    latency_ms: int
+class ProviderTestResponse(TestConnectionResponse):
+    pass
 
 
 class ProviderDefaultResponse(BaseModel):
@@ -63,9 +68,11 @@ class ProviderDefaultResponse(BaseModel):
 
 
 __all__ = [
+    "AddProviderRequest",
+    "ProviderResponse",
+    "TestConnectionResponse",
     "ProviderCreateRequest",
     "ProviderUpdateRequest",
-    "ProviderResponse",
     "ProviderListResponse",
     "ProviderDeleteResponse",
     "ProviderTestResponse",

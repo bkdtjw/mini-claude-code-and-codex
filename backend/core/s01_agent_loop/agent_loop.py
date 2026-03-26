@@ -50,6 +50,7 @@ class AgentLoop:
 
     async def run(self, user_message: str) -> Message:
         try:
+            self._aborted = False
             if not self._messages and self._config.system_prompt:
                 self._messages.append(Message(role="system", content=self._config.system_prompt))
             self._messages.append(Message(role="user", content=user_message))
