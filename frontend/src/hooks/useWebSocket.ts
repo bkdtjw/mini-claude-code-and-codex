@@ -85,11 +85,11 @@ export function useWebSocket(sessionId: string) {
       if (pendingCallsFromMessage.current) return;
 
       const exists = pendingToolCalls.current.some(
-        (call) => call.name === p.name && JSON.stringify(call.arguments) === JSON.stringify(p.arguments),
+        (call) => call.id === p.id || (call.name === p.name && JSON.stringify(call.arguments) === JSON.stringify(p.arguments)),
       );
       if (!exists) {
         pendingToolCalls.current.push({
-          id: makeId(),
+          id: p.id || makeId(),
           name: p.name,
           arguments: p.arguments,
         });
@@ -99,9 +99,11 @@ export function useWebSocket(sessionId: string) {
 
     const onToolResult = (payload: unknown) => {
       const p = payload as Extract<WsIncoming, { type: "tool_result" }>;
-      const nextCall = pendingToolCalls.current[pendingToolResults.current.length];
+      const nextCall =
+        pendingToolCalls.current.find((call) => call.id === p.toolCallId) ??
+        pendingToolCalls.current[pendingToolResults.current.length];
       pendingToolResults.current.push({
-        toolCallId: nextCall?.id || "",
+        toolCallId: p.toolCallId || nextCall?.id || "",
         output: p.output,
         isError: p.isError,
       });

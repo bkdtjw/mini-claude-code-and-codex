@@ -11,6 +11,10 @@ class ToolExecutor:
     def __init__(self, registry: ToolRegistry) -> None:
         self._registry = registry
 
+    @staticmethod
+    def _normalize_result(tool_call: ToolCall, result: ToolResult) -> ToolResult:
+        return result.model_copy(update={"tool_call_id": tool_call.id})
+
     async def execute(self, tool_call: ToolCall) -> ToolResult:
         try:
             tool = self._registry.get(tool_call.name)
@@ -22,7 +26,7 @@ class ToolExecutor:
                 )
             _, executor = tool
             try:
-                return await executor(tool_call.arguments)
+                return self._normalize_result(tool_call, await executor(tool_call.arguments))
             except Exception as exc:  # noqa: BLE001
                 return ToolResult(
                     tool_call_id=tool_call.id, output=str(exc), is_error=True

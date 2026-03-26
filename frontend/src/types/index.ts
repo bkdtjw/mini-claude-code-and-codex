@@ -45,8 +45,8 @@ export interface Provider {
 export type WsIncoming =
   | { type: "status"; status: AgentStatus }
   | { type: "message"; content: string; toolCalls?: ToolCall[] }
-  | { type: "tool_call"; name: string; arguments: Record<string, unknown> }
-  | { type: "tool_result"; output: string; isError: boolean }
+  | { type: "tool_call"; id: string; name: string; arguments: Record<string, unknown> }
+  | { type: "tool_result"; toolCallId: string; output: string; isError: boolean }
   | { type: "text"; content: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };

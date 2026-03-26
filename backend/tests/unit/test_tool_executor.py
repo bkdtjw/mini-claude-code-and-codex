@@ -27,6 +27,21 @@ async def test_execute_success_returns_result() -> None:
     result = await executor.execute(ToolCall(id="call_1", name="run_shell", arguments={}))
     assert result.is_error is False
     assert result.output == "ok"
+    assert result.tool_call_id == "call_1"
+
+
+@pytest.mark.asyncio
+async def test_execute_normalizes_tool_call_id_from_builtin_result() -> None:
+    async def ok_executor(_: dict[str, object]) -> ToolResult:
+        return ToolResult(output="ok")
+
+    registry = ToolRegistry()
+    registry.register(_make_definition("run_shell"), ok_executor)
+    executor = ToolExecutor(registry)
+    result = await executor.execute(ToolCall(id="call_9", name="run_shell", arguments={}))
+    assert result.is_error is False
+    assert result.output == "ok"
+    assert result.tool_call_id == "call_9"
 
 
 @pytest.mark.asyncio

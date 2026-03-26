@@ -119,3 +119,27 @@ async def test_events_emitted_for_status_and_tools() -> None:
     assert "status_change" in event_types
     assert "tool_call" in event_types
     assert "tool_result" in event_types
+
+
+@pytest.mark.asyncio
+async def test_run_stops_after_three_consecutive_tool_failures() -> None:
+    async def failing_tool(_: dict[str, object]) -> ToolResult:
+        return ToolResult(output="PermissionError [WinError 5] 拒绝访问。", is_error=True)
+
+    registry = ToolRegistry()
+    registry.register(_tool_def("bash"), failing_tool)
+    adapter = MockAdapter(
+        [
+            LLMResponse(content="", tool_calls=[ToolCall(id="tc_1", name="bash", arguments={"command": "dir"})]),
+            LLMResponse(content="", tool_calls=[ToolCall(id="tc_2", name="bash", arguments={"command": "dir /a"})]),
+            LLMResponse(content="", tool_calls=[ToolCall(id="tc_3", name="bash", arguments={"command": "cd && dir"})]),
+            LLMResponse(content="should not be reached"),
+        ]
+    )
+    loop = AgentLoop(AgentConfig(model="test-model", max_consecutive_tool_failures=3), adapter, registry)
+    result = await loop.run("查看目录")
+    assert "连续失败 3 次" in result.content
+    assert "PermissionError" in result.content
+    assert result.role == "assistant"
+    assert loop.status == "done"
+    assert len(adapter.requests) == 3

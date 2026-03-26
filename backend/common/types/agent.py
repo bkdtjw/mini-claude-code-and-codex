@@ -21,6 +21,7 @@ class AgentConfig(BaseModel):
     system_prompt: str = ""
     tools: list[str] = Field(default_factory=list)
     max_iterations: int = 20
+    max_consecutive_tool_failures: int = 3
 
 
 class AgentEvent(BaseModel):
