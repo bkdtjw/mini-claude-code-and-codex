@@ -7,6 +7,7 @@ from backend.api.routes.providers import provider_manager
 from backend.common.errors import AgentError
 from backend.common.types import AgentConfig, AgentEvent, Message, ToolCall, ToolResult
 from backend.core.s01_agent_loop import AgentLoop
+from backend.core.system_prompt import build_system_prompt
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 router = APIRouter()
@@ -67,14 +68,18 @@ def _event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
     return {"type": "error", "message": str(getattr(data, "message", data))}
 async def _run_loop(loop: AgentLoop, message: str, websocket: WebSocket, session_id: str) -> None:
     try:
-        await loop.run(message)
+        result = await loop.run(message)
+        try:
+            await websocket.send_json({"type": "done", "message": result.model_dump(mode="json") if result else None})
+        except Exception:
+            pass
     except asyncio.CancelledError:
-        pass
+        return
     except Exception as exc:  # noqa: BLE001
         try:
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
-            pass
+            return
     finally:
         session = _sessions.get(session_id)
         if session is not None:
@@ -100,9 +105,14 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                     adapter = await provider_manager.get_adapter(data.get("provider_id"))
                     registry = ToolRegistry()
                     permission_mode = data.get("permission_mode", "auto")
-                    if data.get("workspace"):
-                        register_builtin_tools(registry, str(data["workspace"]), mode=permission_mode)
-                    loop = AgentLoop(config=AgentConfig(model=model), adapter=adapter, tool_registry=registry)
+                    workspace = str(data.get("workspace", "")).strip() or None
+                    if workspace:
+                        register_builtin_tools(registry, workspace, mode=permission_mode)
+                    loop = AgentLoop(
+                        config=AgentConfig(model=model, system_prompt=build_system_prompt(workspace)),
+                        adapter=adapter,
+                        tool_registry=registry,
+                    )
                     manager._loops[session_id] = loop  # noqa: SLF001
                     async def on_event(event: AgentEvent, sid: str = session_id) -> None:
                         try:

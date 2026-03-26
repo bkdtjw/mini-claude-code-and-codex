@@ -2,73 +2,160 @@ import { useEffect, useRef } from "react";
 
 import { agentWs } from "@/lib/websocket";
 import { useSessionStore } from "@/stores/sessionStore";
-import type { Message, ToolCall, ToolResult, WsIncoming } from "@/types";
+import type { ToolCall, ToolResult, WsIncoming } from "@/types";
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-
-const normalizeDoneMessage = (raw: Message | undefined, pendingCalls: ToolCall[], pendingResults: ToolResult[], fallbackText: string): Message => ({
-  id: raw?.id ?? makeId(),
-  role: raw?.role ?? "assistant",
-  content: raw?.content ?? fallbackText,
-  toolCalls: raw?.toolCalls ?? (pendingCalls.length ? pendingCalls : undefined),
-  toolResults: raw?.toolResults ?? (pendingResults.length ? pendingResults : undefined),
-  timestamp: raw?.timestamp ?? new Date().toISOString(),
-});
 
 export function useWebSocket(sessionId: string) {
   const pendingToolCalls = useRef<ToolCall[]>([]);
   const pendingToolResults = useRef<ToolResult[]>([]);
+  const pendingContent = useRef("");
+  const pendingCallsFromMessage = useRef(false);
+  const waitingForToolResults = useRef(false);
 
   useEffect(() => {
     if (!sessionId) return;
-    const onText = (payload: unknown) => useSessionStore.getState().appendStreamText((payload as Extract<WsIncoming, { type: "text" }>).content);
-    const onStatus = (payload: unknown) => useSessionStore.getState().setStatus((payload as Extract<WsIncoming, { type: "status" }>).status);
-    const onToolCall = (payload: unknown) => {
-      const p = payload as Extract<WsIncoming, { type: "tool_call" }>;
-      pendingToolCalls.current.push({ id: makeId(), name: p.name, arguments: p.arguments });
-    };
-    const onToolResult = (payload: unknown) => {
-      const p = payload as Extract<WsIncoming, { type: "tool_result" }>;
-      pendingToolResults.current.push({ toolCallId: "", output: p.output, isError: p.isError });
-    };
-    const onMessage = (payload: unknown) => {
-      const p = payload as Extract<WsIncoming, { type: "message" }>;
+
+    const flushPendingMessage = () => {
+      const content = pendingContent.current;
+      const calls = pendingToolCalls.current;
+      const results = pendingToolResults.current;
+
+      if (!content && !calls.length) return;
+
       useSessionStore.getState().addMessage({
         id: makeId(),
         role: "assistant",
-        content: p.content,
-        toolCalls: p.toolCalls ?? (pendingToolCalls.current.length ? pendingToolCalls.current : undefined),
-        toolResults: pendingToolResults.current.length ? pendingToolResults.current : undefined,
+        content,
+        toolCalls: calls.length ? [...calls] : undefined,
+        toolResults: results.length ? [...results] : undefined,
         timestamp: new Date().toISOString(),
       });
+
+      pendingContent.current = "";
       pendingToolCalls.current = [];
       pendingToolResults.current = [];
-      useSessionStore.getState().clearStreamingText();
+      pendingCallsFromMessage.current = false;
+      waitingForToolResults.current = false;
     };
-    const onDone = (payload: unknown) => {
+
+    const onStatus = (payload: unknown) => {
+      const p = payload as Extract<WsIncoming, { type: "status" }>;
+      useSessionStore.getState().setStatus(p.status);
+    };
+
+    const onText = (payload: unknown) => {
+      const p = payload as Extract<WsIncoming, { type: "text" }>;
+      useSessionStore.getState().appendStreamText(p.content);
+    };
+
+    const onMessage = (payload: unknown) => {
+      const p = payload as Extract<WsIncoming, { type: "message" }>;
       const state = useSessionStore.getState();
-      const p = payload as Extract<WsIncoming, { type: "done" }>;
-      state.addMessage(normalizeDoneMessage(p.message, pendingToolCalls.current, pendingToolResults.current, state.streamingText));
-      pendingToolCalls.current = [];
-      pendingToolResults.current = [];
+
+      if (waitingForToolResults.current) {
+        flushPendingMessage();
+      }
+
+      if (p.toolCalls && p.toolCalls.length > 0) {
+        pendingContent.current = p.content || "";
+        pendingToolCalls.current = p.toolCalls.map((call) => ({
+          id: call.id || makeId(),
+          name: call.name,
+          arguments: call.arguments,
+        }));
+        pendingToolResults.current = [];
+        pendingCallsFromMessage.current = true;
+        waitingForToolResults.current = true;
+        state.clearStreamingText();
+        return;
+      }
+
       state.clearStreamingText();
+      state.addMessage({
+        id: makeId(),
+        role: "assistant",
+        content: p.content || state.streamingText,
+        timestamp: new Date().toISOString(),
+      });
     };
+
+    const onToolCall = (payload: unknown) => {
+      const p = payload as Extract<WsIncoming, { type: "tool_call" }>;
+      if (pendingCallsFromMessage.current) return;
+
+      const exists = pendingToolCalls.current.some(
+        (call) => call.name === p.name && JSON.stringify(call.arguments) === JSON.stringify(p.arguments),
+      );
+      if (!exists) {
+        pendingToolCalls.current.push({
+          id: makeId(),
+          name: p.name,
+          arguments: p.arguments,
+        });
+      }
+      waitingForToolResults.current = pendingToolCalls.current.length > 0;
+    };
+
+    const onToolResult = (payload: unknown) => {
+      const p = payload as Extract<WsIncoming, { type: "tool_result" }>;
+      const nextCall = pendingToolCalls.current[pendingToolResults.current.length];
+      pendingToolResults.current.push({
+        toolCallId: nextCall?.id || "",
+        output: p.output,
+        isError: p.isError,
+      });
+
+      if (
+        pendingToolCalls.current.length > 0 &&
+        pendingToolResults.current.length >= pendingToolCalls.current.length
+      ) {
+        flushPendingMessage();
+      }
+    };
+
+    const onDone = () => {
+      const state = useSessionStore.getState();
+
+      if (waitingForToolResults.current) {
+        flushPendingMessage();
+      }
+
+      if (state.streamingText) {
+        state.addMessage({
+          id: makeId(),
+          role: "assistant",
+          content: state.streamingText,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      state.clearStreamingText();
+      state.setStatus("done");
+    };
+
     const onError = (payload: unknown) => {
       const message = (payload as Extract<WsIncoming, { type: "error" }>).message;
+
+      if (waitingForToolResults.current) {
+        flushPendingMessage();
+      }
+
       useSessionStore.getState().setStatus("error");
       console.error("WebSocket error:", message);
     };
+
     agentWs.connect(sessionId);
-    agentWs.on("text", onText);
     agentWs.on("status", onStatus);
+    agentWs.on("text", onText);
     agentWs.on("message", onMessage);
     agentWs.on("tool_call", onToolCall);
     agentWs.on("tool_result", onToolResult);
     agentWs.on("done", onDone);
     agentWs.on("error", onError);
     return () => {
-      agentWs.off("text", onText);
       agentWs.off("status", onStatus);
+      agentWs.off("text", onText);
       agentWs.off("message", onMessage);
       agentWs.off("tool_call", onToolCall);
       agentWs.off("tool_result", onToolResult);
@@ -76,6 +163,9 @@ export function useWebSocket(sessionId: string) {
       agentWs.off("error", onError);
       pendingToolCalls.current = [];
       pendingToolResults.current = [];
+      pendingContent.current = "";
+      pendingCallsFromMessage.current = false;
+      waitingForToolResults.current = false;
       agentWs.close();
     };
   }, [sessionId]);
