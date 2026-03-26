@@ -15,6 +15,25 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.tool-shimmer {
+  background: linear-gradient(90deg, #666666 0%, #999999 25%, #cccccc 50%, #999999 75%, #666666 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
 /* Theme compatibility overrides for legacy utility classes */
 .bg-\[\#0d1117\] {
   background: #000000 !important;

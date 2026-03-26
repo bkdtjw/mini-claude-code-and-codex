@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import ToolCallCard from "@/components/chat/ToolCallCard";
+import ToolCallLine from "@/components/chat/ToolCallLine";
 import type { Message, ToolResult } from "@/types";
 
 interface MessageBubbleProps {
@@ -48,17 +48,24 @@ export default function MessageBubble({ message, isRunning = false }: MessageBub
   if (message.role === "tool") return null;
 
   const isUser = message.role === "user";
-  const bubbleClass = isUser ? "rounded-2xl bg-[#1a1a1a] px-4 py-3 text-[#e0e0e0]" : "bg-transparent px-0 py-0 text-[#e0e0e0]";
 
   return (
     <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[85%] ${bubbleClass}`}>
-        {renderMarkdown(message.content)}
+      <div className={`max-w-[85%] ${isUser ? "rounded-2xl bg-[#1a1a1a] px-4 py-3" : ""}`}>
+        {message.content ? renderMarkdown(message.content) : null}
         {!isUser && message.toolCalls?.length ? (
-          <div className="mt-3 space-y-2">
-            {message.toolCalls.map((call, index) => (
-              <ToolCallCard key={call.id || `${call.name}-${index}`} call={call} result={resultForCall(message.toolResults, call.id, index)} pending={isRunning && !resultForCall(message.toolResults, call.id, index)} />
-            ))}
+          <div className="mt-1 space-y-0.5">
+            {message.toolCalls.map((call, index) => {
+              const result = resultForCall(message.toolResults, call.id, index);
+              return (
+                <ToolCallLine
+                  key={call.id || index}
+                  call={call}
+                  result={result}
+                  pending={isRunning && !result}
+                />
+              );
+            })}
           </div>
         ) : null}
       </div>

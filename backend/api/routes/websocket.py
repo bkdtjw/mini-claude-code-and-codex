@@ -99,8 +99,9 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                         raise AgentError("MODEL_REQUIRED", "model is required")
                     adapter = await provider_manager.get_adapter(data.get("provider_id"))
                     registry = ToolRegistry()
+                    permission_mode = data.get("permission_mode", "auto")
                     if data.get("workspace"):
-                        register_builtin_tools(registry, str(data["workspace"]))
+                        register_builtin_tools(registry, str(data["workspace"]), mode=permission_mode)
                     loop = AgentLoop(config=AgentConfig(model=model), adapter=adapter, tool_registry=registry)
                     manager._loops[session_id] = loop  # noqa: SLF001
                     async def on_event(event: AgentEvent, sid: str = session_id) -> None:

@@ -15,7 +15,7 @@ interface SessionState {
   createSession: (model: string, providerId?: string) => Promise<string>;
   selectSession: (id: string) => void;
   deleteSession: (id: string) => Promise<void>;
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string) => Promise<void>;
   addMessage: (msg: Message) => void;
   appendStreamText: (text: string) => void;
   setStatus: (status: AgentStatus) => void;
@@ -90,18 +90,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
     if (wasCurrent && get().currentSessionId) get().selectSession(get().currentSessionId as string);
   },
-  sendMessage: (text: string) => {
+  sendMessage: async (text: string) => {
     const content = text.trim();
     if (!content) return;
-    const { currentModel, currentProviderId, workspace } = useAgentStore.getState();
-    const optimisticId = nextId();
-    set((state) => ({ messages: [...state.messages, { id: optimisticId, role: "user", content, timestamp: new Date().toISOString() }], streamingText: "" }));
-    const ok = agentWs.send({ type: "run", message: content, model: currentModel, provider_id: currentProviderId ?? undefined, workspace: workspace ?? undefined });
-    if (ok) {
-      set({ status: "thinking" });
+    const { currentModel, currentProviderId, workspace, permissionMode } = useAgentStore.getState();
+    const sessionId = get().currentSessionId;
+    if (!sessionId) return;
+
+    const userMsg = {
+      id: nextId(),
+      role: "user" as const,
+      content,
+      timestamp: new Date().toISOString(),
+    };
+
+    set((state) => ({
+      messages: [...state.messages, userMsg],
+      streamingText: "",
+      status: "thinking",
+    }));
+
+    try {
+      await agentWs.connect(sessionId);
+      agentWs.send({
+        type: "run",
+        message: content,
+        model: currentModel,
+        provider_id: currentProviderId ?? undefined,
+        workspace: workspace ?? undefined,
+        permission_mode: permissionMode,
+      });
       return;
+    } catch (error) {
+      console.error("send failed:", error);
+      set({ status: "error" });
     }
-    set((state) => ({ messages: state.messages.filter((item) => item.id !== optimisticId), status: "error" }));
   },
   addMessage: (msg: Message) => set((state) => ({ messages: [...state.messages, msg] })),
   appendStreamText: (text: string) => set((state) => ({ streamingText: `${state.streamingText}${text}` })),

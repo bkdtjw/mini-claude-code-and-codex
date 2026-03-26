@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import platform
 from typing import Any
 
 from backend.adapters.base import LLMAdapter
@@ -51,8 +52,12 @@ class AgentLoop:
     async def run(self, user_message: str) -> Message:
         try:
             self._aborted = False
-            if not self._messages and self._config.system_prompt:
-                self._messages.append(Message(role="system", content=self._config.system_prompt))
+            if not self._messages:
+                os_info = f"当前操作系统: {platform.system()} {platform.release()}。"
+                if platform.system() == "Windows":
+                    os_info += " 使用 cmd.exe 执行命令，用 dir 代替 ls，用 type 代替 cat，用 cd 代替 pwd。"
+                full_prompt = f"{os_info}\n{self._config.system_prompt}" if self._config.system_prompt else os_info
+                self._messages.append(Message(role="system", content=full_prompt))
             self._messages.append(Message(role="user", content=user_message))
             for _ in range(self._config.max_iterations):
                 self._status = "thinking"

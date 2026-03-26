@@ -17,6 +17,12 @@ const statusText = (status: AgentStatus): string => {
   return "就绪";
 };
 
+const modeLabels = {
+  readonly: "🔒 只读",
+  auto: "🛡️ 默认权限",
+  full: "⚡ 完全访问",
+} as const;
+
 export default function InputBar({ status, onSend, onAbort, compact = false }: InputBarProps) {
   const [text, setText] = useState("");
   const [reasoning, setReasoning] = useState("standard");
@@ -27,6 +33,9 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
   const providers = useAgentStore((state) => state.providers);
   const setModel = useAgentStore((state) => state.setModel);
   const setProvider = useAgentStore((state) => state.setProvider);
+  const workspace = useAgentStore((state) => state.workspace);
+  const permissionMode = useAgentStore((state) => state.permissionMode);
+  const setPermissionMode = useAgentStore((state) => state.setPermissionMode);
 
   const resize = () => {
     const textarea = textareaRef.current;
@@ -139,9 +148,24 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
           </div>
         </div>
       </div>
-      <div className="mx-auto mt-2 flex w-[85%] max-w-6xl items-center gap-4 text-xs text-[#555555]">
-        <span>📁 本地 ▾</span>
-        <span>🔒 默认权限 ▾</span>
+      <div className="mx-auto mt-1 flex w-full max-w-4xl items-center gap-3 text-xs text-[#555555]">
+        <button
+          type="button"
+          onClick={() => void useAgentStore.getState().openFolder()}
+          className="flex items-center gap-1 hover:text-[#999999]"
+        >
+          📁 {workspace ? workspace.split(/[/\\]/).pop() : "本地"} ▾
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const next = { readonly: "auto", auto: "full", full: "readonly" } as const;
+            setPermissionMode(next[permissionMode]);
+          }}
+          className="flex items-center gap-1 hover:text-[#999999]"
+        >
+          {modeLabels[permissionMode]} ▾
+        </button>
         {!compact ? <span className="ml-auto">{statusText(status)}</span> : null}
       </div>
     </div>

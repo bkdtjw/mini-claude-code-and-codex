@@ -66,7 +66,7 @@ async def chat_completions(request: ChatCompletionRequest) -> Any:
         adapter = await provider_manager.get_adapter(request.provider_id)
         registry = ToolRegistry()
         if request.workspace:
-            register_builtin_tools(registry, request.workspace)
+            register_builtin_tools(registry, request.workspace, mode=request.permission_mode)
         loop = AgentLoop(config=AgentConfig(model=request.model, system_prompt=""), adapter=adapter, tool_registry=registry)
         loop._messages = internal[:user_idx]  # noqa: SLF001
         user_message = internal[user_idx].content

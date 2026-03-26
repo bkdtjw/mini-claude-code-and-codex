@@ -1,4 +1,10 @@
-const { app, BrowserWindow, dialog } = require("electron");
+// 测试文件夹选择：
+// 1. npm start 启动 Electron
+// 2. 点击侧边栏 "选择项目文件夹"
+// 3. 选择一个文件夹（如桌面上的某个项目）
+// 4. 新建对话，发送 "读一下当前目录有什么文件"
+// 5. Agent 应该调用 Read 或 Bash 工具，返回该文件夹下的文件列表
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
@@ -7,6 +13,19 @@ let mainWindow = null;
 let backendProcess = null;
 const BACKEND_PORT = 8000;
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+
+ipcMain.handle("select-folder", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"],
+    title: "选择项目文件夹",
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("get-cwd", () => {
+  return process.cwd();
+});
 
 function getBackendPath() {
   if (!app.isPackaged) return null;

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import MessageBubble from "@/components/chat/MessageBubble";
-import LoadingDots from "@/components/common/LoadingDots";
 import type { AgentStatus, Message } from "@/types";
 
 interface MessageListProps {
@@ -9,12 +8,6 @@ interface MessageListProps {
   status: AgentStatus;
   streamingText: string;
 }
-
-const statusText = (status: AgentStatus): string => {
-  if (status === "thinking") return "思考中...";
-  if (status === "tool_calling") return "执行工具...";
-  return "运行中...";
-};
 
 export default function MessageList({ messages, status, streamingText }: MessageListProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -37,7 +30,11 @@ export default function MessageList({ messages, status, streamingText }: Message
           <MessageBubble
             key={message.id}
             message={message}
-            isRunning={Boolean(lastAssistantWithTools && message.id === lastAssistantWithTools && (status === "thinking" || status === "tool_calling"))}
+            isRunning={Boolean(
+              lastAssistantWithTools &&
+                message.id === lastAssistantWithTools &&
+                (status === "thinking" || status === "tool_calling"),
+            )}
           />
         ))}
         {streamingText ? (
@@ -46,10 +43,9 @@ export default function MessageList({ messages, status, streamingText }: Message
             <span className="inline-block h-4 w-2 animate-pulse bg-[#e0e0e0]" />
           </div>
         ) : null}
-        {status === "thinking" || status === "tool_calling" ? (
-          <div className="flex items-center gap-2 text-sm text-[#666666]">
-            <LoadingDots />
-            {statusText(status)}
+        {(status === "thinking" || status === "tool_calling") && !streamingText ? (
+          <div className="tool-shimmer py-1 text-sm">
+            {status === "thinking" ? "正在思考" : "正在执行工具"}
           </div>
         ) : null}
         <div ref={endRef} />

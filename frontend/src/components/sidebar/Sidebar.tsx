@@ -17,6 +17,8 @@ export default function Sidebar() {
   const currentModel = useAgentStore((state) => state.currentModel);
   const currentProviderId = useAgentStore((state) => state.currentProviderId);
   const loadProviders = useAgentStore((state) => state.loadProviders);
+  const workspace = useAgentStore((state) => state.workspace);
+  const workspaceName = workspace?.split(/[/\\]/).pop();
 
   useEffect(() => {
     void loadSessions();
@@ -42,6 +44,15 @@ export default function Sidebar() {
           <span>✏️</span>
           <span>新线程</span>
         </button>
+        <button
+          type="button"
+          onClick={() => void useAgentStore.getState().openFolder()}
+          className="mt-2 w-full rounded-md border border-[#252525] bg-[#0a0a0a] px-3 py-2 text-left text-xs text-[#8b949e] transition hover:bg-[#1a1a1a]"
+        >
+          <span className="mr-2">📁</span>
+          {workspaceName ?? "选择项目文件夹..."}
+        </button>
+        {workspace ? <div className="truncate px-1 text-[10px] text-[#555555]">{workspace}</div> : null}
         <button type="button" onClick={() => navigate("/")} className={actionBtnClass}>
           <span>⏱</span>
           <span>自动化</span>

@@ -16,6 +16,7 @@ class ChatCompletionRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
     provider_id: str | None = None
     workspace: str | None = None
+    permission_mode: str = "auto"
 
 
 class ChatCompletionChoice(BaseModel):
