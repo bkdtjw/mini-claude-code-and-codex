@@ -46,9 +46,14 @@ async def list_sessions() -> SessionListResponse:
 @router.get("/{id}")
 async def get_session(id: str) -> dict[str, Any]:
     try:
+        from backend.api.routes.websocket import manager
+
         session = _sessions.get(id)
         if session is None:
             raise HTTPException(status_code=404, detail={"code": "SESSION_NOT_FOUND", "message": f"Session not found: {id}"})
+        loop = manager.get_loop(id)
+        if loop and loop.messages:
+            session = session.model_copy(update={"messages": loop.messages})
         return session.model_dump(mode="json")
     except HTTPException:
         raise
@@ -59,8 +64,11 @@ async def get_session(id: str) -> dict[str, Any]:
 @router.delete("/{id}")
 async def delete_session(id: str) -> dict[str, Any]:
     try:
+        from backend.api.routes.websocket import manager
+
         if _sessions.pop(id, None) is None:
             raise HTTPException(status_code=404, detail={"code": "SESSION_NOT_FOUND", "message": f"Session not found: {id}"})
+        manager.clear_session(id)
         return {"ok": True, "message": "Session deleted"}
     except HTTPException:
         raise

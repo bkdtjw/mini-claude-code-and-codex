@@ -22,11 +22,11 @@ const getTitle = (session: Session): string => {
 
 export default function SessionList({ sessions, currentSessionId, onSelect, onDelete }: SessionListProps) {
   if (!sessions.length) {
-    return <div className="rounded-md border border-dashed border-[#30363d] p-4 text-sm text-[#8b949e]">还没有会话，点击上方 New Chat 开始。</div>;
+    return <div className="px-3 py-6 text-sm text-[#666666]">暂无线程</div>;
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-0.5">
       {sessions.map((session) => {
         const active = session.id === currentSessionId;
         return (
@@ -34,14 +34,17 @@ export default function SessionList({ sessions, currentSessionId, onSelect, onDe
             key={session.id}
             type="button"
             onClick={() => onSelect(session.id)}
-            className={`group w-full rounded-md border px-3 py-2 text-left transition ${
-              active ? "border-[#30363d] bg-[#1f2937]" : "border-transparent bg-transparent hover:border-[#30363d] hover:bg-[#0d1117]"
+            className={`group w-full rounded-md px-3 py-2 text-left transition ${
+              active ? "bg-[#1a1a1a]" : "hover:bg-[#1a1a1a]"
             }`}
           >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm text-[#e6edf3]">{getTitle(session)}</div>
-                <div className="mt-1 text-xs text-[#8b949e]">{formatTime(session.createdAt)}</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="text-xs text-[#666666]">📁</span>
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-[#e0e0e0]">{getTitle(session)}</div>
+                  <div className="text-[11px] text-[#666666]">{formatTime(session.createdAt)}</div>
+                </div>
               </div>
               <span
                 role="button"
@@ -57,9 +60,9 @@ export default function SessionList({ sessions, currentSessionId, onSelect, onDe
                     onDelete(session.id);
                   }
                 }}
-                className="opacity-0 transition group-hover:opacity-100 text-xs text-[#8b949e] hover:text-[#e6edf3]"
+                className="opacity-0 transition group-hover:opacity-100 text-xs text-[#666666] hover:text-[#e0e0e0]"
               >
-                删除
+                ✕
               </span>
             </div>
           </button>

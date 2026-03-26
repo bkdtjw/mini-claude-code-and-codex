@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format
+.PHONY: install dev test lint format build-backend build-frontend build-windows build-all
 
 install:
 	pip install -r requirements.txt
@@ -20,3 +20,16 @@ lint:
 
 format:
 	ruff format backend/
+
+
+build-backend:
+	python backend/build_backend.py
+
+build-frontend:
+	cd frontend && npm run build
+
+build-windows:
+	scripts\build-windows.bat
+
+build-all: build-backend build-frontend
+	cd electron && npm run build

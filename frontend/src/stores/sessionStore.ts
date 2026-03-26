@@ -94,26 +94,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const content = text.trim();
     if (!content) return;
     const { currentModel, currentProviderId, workspace } = useAgentStore.getState();
-    set((state) => ({ messages: [...state.messages, { id: nextId(), role: "user", content, timestamp: new Date().toISOString() }], streamingText: "" }));
-    try {
-      agentWs.send({ type: "run", message: content, model: currentModel, provider_id: currentProviderId ?? undefined, workspace: workspace ?? undefined });
+    const optimisticId = nextId();
+    set((state) => ({ messages: [...state.messages, { id: optimisticId, role: "user", content, timestamp: new Date().toISOString() }], streamingText: "" }));
+    const ok = agentWs.send({ type: "run", message: content, model: currentModel, provider_id: currentProviderId ?? undefined, workspace: workspace ?? undefined });
+    if (ok) {
       set({ status: "thinking" });
-    } catch (error) {
-      console.error("sendMessage failed", error);
-      set({ status: "error" });
+      return;
     }
+    set((state) => ({ messages: state.messages.filter((item) => item.id !== optimisticId), status: "error" }));
   },
   addMessage: (msg: Message) => set((state) => ({ messages: [...state.messages, msg] })),
   appendStreamText: (text: string) => set((state) => ({ streamingText: `${state.streamingText}${text}` })),
   setStatus: (status: AgentStatus) => set({ status }),
   clearStreamingText: () => set({ streamingText: "" }),
   abortRun: () => {
-    try {
-      agentWs.send({ type: "abort" });
-    } catch (error) {
-      console.error("abort failed", error);
-    } finally {
-      set({ status: "idle", streamingText: "" });
-    }
+    const ok = agentWs.send({ type: "abort" });
+    if (!ok) console.warn("abort skipped: websocket not connected");
+    set({ status: "idle", streamingText: "" });
   },
 }));

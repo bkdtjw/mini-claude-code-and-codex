@@ -1,3 +1,6 @@
+﻿import os
+import sys
+
 from pydantic_settings import BaseSettings
 
 
@@ -12,7 +15,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/agent_studio.db"
     auth_secret: str = "change-me-in-production"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": os.path.join(os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ".", ".env"),
+        "env_file_encoding": "utf-8",
+    }
 
 
 settings = Settings()

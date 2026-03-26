@@ -32,23 +32,30 @@ export default function Sidebar() {
     }
   };
 
+  const actionBtnClass =
+    "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-[#e0e0e0] transition hover:bg-[#1a1a1a]";
+
   return (
-    <aside className="flex h-screen w-[260px] shrink-0 flex-col border-l border-r border-[#30363d] bg-[#161b22]">
-      <div className="border-b border-[#30363d] px-4 py-4">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-sm font-semibold tracking-wide text-[#e6edf3]">Agent Studio</h1>
-          <span className="text-xs text-[#8b949e]">v0.1.0</span>
-        </div>
-        <button
-          type="button"
-          onClick={handleNewChat}
-          className="mt-4 w-full rounded-md bg-[#238636] px-3 py-2 text-sm font-medium text-white transition hover:brightness-110"
-        >
-          New Chat
+    <aside className="flex h-screen w-[260px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0a0a0a]">
+      <div className="space-y-1 px-2 pb-2 pt-3">
+        <button type="button" onClick={handleNewChat} className={actionBtnClass}>
+          <span>✏️</span>
+          <span>新线程</span>
+        </button>
+        <button type="button" onClick={() => navigate("/")} className={actionBtnClass}>
+          <span>⏱</span>
+          <span>自动化</span>
+        </button>
+        <button type="button" onClick={() => navigate("/")} className={actionBtnClass}>
+          <span>⚡</span>
+          <span>技能</span>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3">
+      <div className="mx-2 border-t border-[#1a1a1a]" />
+
+      <div className="px-5 pt-3 text-[11px] uppercase tracking-wide text-[#666666]">线程</div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
         <SessionList
           sessions={sessions}
           currentSessionId={currentSessionId}
@@ -63,15 +70,11 @@ export default function Sidebar() {
         />
       </div>
 
-      <div className="border-t border-[#30363d] px-4 py-3">
-        <button
-          type="button"
-          onClick={() => navigate("/settings")}
-          className="w-full rounded-md border border-[#30363d] bg-[#0d1117] px-3 py-2 text-left text-sm text-[#58a6ff] transition hover:bg-[#1c2128]"
-        >
-          Settings
+      <div className="border-t border-[#1a1a1a] px-2 py-2">
+        <button type="button" onClick={() => navigate("/settings")} className={actionBtnClass}>
+          <span>⚙</span>
+          <span>设置</span>
         </button>
-        <div className="mt-2 text-xs text-[#8b949e]">Model: {currentModel || "未设置"}</div>
       </div>
     </aside>
   );

@@ -2,6 +2,8 @@ import type { Provider, Session } from "@/types";
 
 type JsonBody = Record<string, unknown> | unknown[];
 
+const API_BASE = import.meta.env.VITE_API_BASE || "";
+
 interface SessionResponse {
   id: string;
   config: { model?: string; provider?: string };
@@ -48,10 +50,11 @@ const toProvider = (item: ProviderResponse): Provider => ({
 });
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
   const headers = new Headers(options.headers);
   const body = options.body;
   if (body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(url, { ...options, headers });
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {

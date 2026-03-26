@@ -11,7 +11,7 @@ interface MessageBubbleProps {
 const renderInline = (text: string): ReactNode[] =>
   text.split(/(`[^`]+`)/g).map((part, index) =>
     part.startsWith("`") && part.endsWith("`") ? (
-      <code key={index} className="rounded bg-[#1c2128] px-1 py-0.5 text-xs text-[#e6edf3]">
+      <code key={index} className="rounded bg-[#1a1a1a] px-1 py-0.5 text-xs text-[#e0e0e0]">
         {part.slice(1, -1)}
       </code>
     ) : (
@@ -26,13 +26,13 @@ const renderMarkdown = (content: string): ReactNode[] => {
       const match = block.match(/^([a-zA-Z0-9_-]+)\n([\s\S]*)$/);
       const code = match ? match[2] : block;
       return (
-        <pre key={index} className="my-2 overflow-x-auto rounded-md bg-[#1c2128] p-3 text-xs text-[#e6edf3]">
+        <pre key={index} className="my-2 overflow-x-auto rounded-xl bg-[#1a1a1a] p-3 text-xs text-[#e0e0e0]">
           <code>{code}</code>
         </pre>
       );
     }
     return (
-      <p key={index} className="whitespace-pre-wrap text-sm leading-6 text-[#e6edf3]">
+      <p key={index} className="whitespace-pre-wrap text-sm leading-7 text-[#e0e0e0]">
         {renderInline(block)}
       </p>
     );
@@ -48,11 +48,11 @@ export default function MessageBubble({ message, isRunning = false }: MessageBub
   if (message.role === "tool") return null;
 
   const isUser = message.role === "user";
-  const bubbleClass = isUser ? "bg-[#1f6feb] text-white" : "bg-[#21262d] text-[#e6edf3]";
+  const bubbleClass = isUser ? "rounded-2xl bg-[#1a1a1a] px-4 py-3 text-[#e0e0e0]" : "bg-transparent px-0 py-0 text-[#e0e0e0]";
 
   return (
     <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[85%] rounded-xl px-4 py-3 ${bubbleClass}`}>
+      <div className={`max-w-[85%] ${bubbleClass}`}>
         {renderMarkdown(message.content)}
         {!isUser && message.toolCalls?.length ? (
           <div className="mt-3 space-y-2">

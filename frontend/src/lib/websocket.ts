@@ -2,6 +2,8 @@ import type { AgentStatus, Message, ToolCall, WsIncoming } from "@/types";
 
 type Handler = (payload: unknown) => void;
 
+const WS_BASE = import.meta.env.VITE_WS_BASE || "";
+
 class AgentWebSocket {
   private ws: WebSocket | null = null;
   private handlers: Map<string, Handler[]> = new Map();
@@ -15,7 +17,13 @@ class AgentWebSocket {
     this.manuallyClosed = false;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
     if (this.ws) this.ws.close();
-    const url = `ws://localhost:8000/ws/${encodeURIComponent(sessionId)}`;
+    let url: string;
+    if (WS_BASE) {
+      url = `${WS_BASE}/ws/${encodeURIComponent(sessionId)}`;
+    } else {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      url = `${protocol}//${window.location.host}/ws/${encodeURIComponent(sessionId)}`;
+    }
     this.ws = new WebSocket(url);
     this.ws.onopen = (event) => {
       this.reconnectAttempts = 0;
@@ -41,9 +49,13 @@ class AgentWebSocket {
     };
   }
 
-  send(data: { type: string; [key: string]: unknown }): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error("WebSocket is not connected");
+  send(data: { type: string; [key: string]: unknown }): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn("WebSocket is not connected, skip send:", data.type);
+      return false;
+    }
     this.ws.send(JSON.stringify(data));
+    return true;
   }
 
   on(type: string, handler: Handler): void {

@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 venv/
 dist/
+build/
 *.egg-info/
 data/
 .pytest_cache/
@@ -19,3 +20,4 @@ backend/config/providers.json
 uvicorn_run.out
 uvicorn_run.err
 backend/pytest-cache-files-*/
+_MEI*/

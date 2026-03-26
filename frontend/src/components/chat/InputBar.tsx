@@ -1,24 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useAgentStore } from "@/stores/agentStore";
 import type { AgentStatus } from "@/types";
 
 interface InputBarProps {
   status: AgentStatus;
   onSend: (text: string) => void;
   onAbort: () => void;
+  compact?: boolean;
 }
 
 const statusText = (status: AgentStatus): string => {
   if (status === "thinking") return "思考中...";
   if (status === "tool_calling") return "执行工具...";
   if (status === "error") return "请求失败，请重试";
-  return "";
+  return "就绪";
 };
 
-export default function InputBar({ status, onSend, onAbort }: InputBarProps) {
+export default function InputBar({ status, onSend, onAbort, compact = false }: InputBarProps) {
   const [text, setText] = useState("");
+  const [reasoning, setReasoning] = useState("standard");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const running = status === "thinking" || status === "tool_calling";
+  const currentModel = useAgentStore((state) => state.currentModel);
+  const currentProviderId = useAgentStore((state) => state.currentProviderId);
+  const providers = useAgentStore((state) => state.providers);
+  const setModel = useAgentStore((state) => state.setModel);
+  const setProvider = useAgentStore((state) => state.setProvider);
 
   const resize = () => {
     const textarea = textareaRef.current;
@@ -41,9 +49,13 @@ export default function InputBar({ status, onSend, onAbort }: InputBarProps) {
     setText("");
   };
 
+  const currentProvider = providers.find((item) => item.id === currentProviderId);
+  const modelOptions = currentProvider?.availableModels.length ? currentProvider.availableModels : [currentModel];
+  const sendEnabled = Boolean(text.trim()) || running;
+
   return (
-    <div className="shrink-0 border-t border-[#30363d] bg-[#161b22] px-4 py-3">
-      <div className="mx-auto flex w-full max-w-4xl items-end gap-3">
+    <div className={`shrink-0 ${compact ? "" : "pb-2"} pt-2`}>
+      <div className="mx-auto w-[85%] max-w-6xl rounded-2xl bg-[#1a1a1a] px-5 py-4">
         <textarea
           ref={textareaRef}
           value={text}
@@ -56,25 +68,82 @@ export default function InputBar({ status, onSend, onAbort }: InputBarProps) {
             }
           }}
           rows={1}
-          placeholder="发送消息... (Ctrl+Enter)"
-          className="max-h-36 min-h-[44px] flex-1 resize-none rounded-md border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-[#e6edf3] outline-none placeholder:text-[#8b949e] focus:border-[#58a6ff]"
+          placeholder="向 Agent Studio 提问，@ 添加文件，/ 调出命令"
+          className="max-h-36 min-h-[56px] w-full resize-none bg-transparent text-sm text-[#e0e0e0] outline-none placeholder:text-[#555555]"
         />
-        {running ? (
-          <button type="button" onClick={onAbort} className="h-11 rounded-md bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-500">
-            停止
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!text.trim()}
-            className="h-11 rounded-md bg-[#238636] px-4 text-lg text-white disabled:cursor-not-allowed disabled:opacity-50 hover:brightness-110"
-          >
-            ↑
-          </button>
-        )}
+        <div className="mt-2 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-[#666666]">
+            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-[#252525]">
+              ➕
+            </button>
+            <select
+              value={currentModel}
+              onChange={(event) => setModel(event.target.value)}
+              className="rounded-md bg-transparent px-2 py-1 text-xs text-[#e0e0e0] outline-none hover:bg-[#252525]"
+            >
+              {modelOptions.map((model) => (
+                <option key={model} value={model} className="bg-[#1a1a1a] text-[#e0e0e0]">
+                  {model} ▾
+                </option>
+              ))}
+            </select>
+            <select
+              value={currentProviderId ?? ""}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value) setProvider(value);
+              }}
+              className="rounded-md bg-transparent px-2 py-1 text-xs text-[#e0e0e0] outline-none hover:bg-[#252525]"
+            >
+              {providers.length ? (
+                providers.map((provider) => (
+                  <option key={provider.id} value={provider.id} className="bg-[#1a1a1a] text-[#e0e0e0]">
+                    {provider.name} ▾
+                  </option>
+                ))
+              ) : (
+                <option value="" className="bg-[#1a1a1a] text-[#e0e0e0]">
+                  Provider ▾
+                </option>
+              )}
+            </select>
+            <select
+              value={reasoning}
+              onChange={(event) => setReasoning(event.target.value)}
+              className="rounded-md bg-transparent px-2 py-1 text-xs text-[#e0e0e0] outline-none hover:bg-[#252525]"
+            >
+              <option value="standard" className="bg-[#1a1a1a] text-[#e0e0e0]">
+                标准 ▾
+              </option>
+              <option value="fast" className="bg-[#1a1a1a] text-[#e0e0e0]">
+                快速 ▾
+              </option>
+              <option value="deep" className="bg-[#1a1a1a] text-[#e0e0e0]">
+                深度 ▾
+              </option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm text-[#666666] hover:bg-[#252525] hover:text-[#e0e0e0]">
+              🎤
+            </button>
+            <button
+              type="button"
+              onClick={running ? onAbort : handleSend}
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs ${
+                sendEnabled ? "bg-[#ffffff] text-[#000000]" : "bg-[#333333] text-[#777777]"
+              }`}
+            >
+              {running ? "⏹" : "⬆"}
+            </button>
+          </div>
+        </div>
       </div>
-      {statusText(status) ? <div className="mx-auto mt-2 w-full max-w-4xl text-xs text-[#8b949e]">{statusText(status)}</div> : null}
+      <div className="mx-auto mt-2 flex w-[85%] max-w-6xl items-center gap-4 text-xs text-[#555555]">
+        <span>📁 本地 ▾</span>
+        <span>🔒 默认权限 ▾</span>
+        {!compact ? <span className="ml-auto">{statusText(status)}</span> : null}
+      </div>
     </div>
   );
 }

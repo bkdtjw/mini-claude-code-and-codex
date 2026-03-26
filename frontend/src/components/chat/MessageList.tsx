@@ -13,7 +13,7 @@ interface MessageListProps {
 const statusText = (status: AgentStatus): string => {
   if (status === "thinking") return "思考中...";
   if (status === "tool_calling") return "执行工具...";
-  return "处理中...";
+  return "运行中...";
 };
 
 export default function MessageList({ messages, status, streamingText }: MessageListProps) {
@@ -31,8 +31,8 @@ export default function MessageList({ messages, status, streamingText }: Message
   }, [messages, status, streamingText]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-5 py-4">
-      <div className="mx-auto w-full max-w-4xl space-y-4">
+    <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="mx-auto w-full max-w-5xl space-y-5">
         {messages.map((message) => (
           <MessageBubble
             key={message.id}
@@ -41,15 +41,13 @@ export default function MessageList({ messages, status, streamingText }: Message
           />
         ))}
         {streamingText ? (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] rounded-xl bg-[#21262d] px-4 py-3 text-sm text-[#e6edf3]">
-              <p className="whitespace-pre-wrap leading-6">{streamingText}</p>
-              <span className="inline-block h-4 w-2 animate-pulse bg-[#58a6ff]" />
-            </div>
+          <div className="max-w-[90%] text-sm text-[#e0e0e0]">
+            <p className="whitespace-pre-wrap leading-7">{streamingText}</p>
+            <span className="inline-block h-4 w-2 animate-pulse bg-[#e0e0e0]" />
           </div>
         ) : null}
         {status === "thinking" || status === "tool_calling" ? (
-          <div className="flex items-center gap-2 text-sm text-[#8b949e]">
+          <div className="flex items-center gap-2 text-sm text-[#666666]">
             <LoadingDots />
             {statusText(status)}
           </div>

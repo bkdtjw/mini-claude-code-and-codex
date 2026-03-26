@@ -10,7 +10,44 @@ body,
 
 body {
   margin: 0;
-  background: #0d1117;
-  color: #c9d1d9;
+  background: #000000;
+  color: #e0e0e0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Theme compatibility overrides for legacy utility classes */
+.bg-\[\#0d1117\] {
+  background: #000000 !important;
+}
+
+.bg-\[\#161b22\] {
+  background: #0a0a0a !important;
+}
+
+.bg-\[\#1c2128\],
+.bg-\[\#1f2937\],
+.bg-\[\#21262d\] {
+  background: #1a1a1a !important;
+}
+
+.hover\:bg-\[\#1c2128\]:hover,
+.hover\:bg-\[\#0d1117\]:hover,
+.hover\:bg-\[\#1f2937\]:hover {
+  background: #252525 !important;
+}
+
+.border-\[\#30363d\] {
+  border-color: #1a1a1a !important;
+}
+
+.bg-\[\#1c2128\].border-\[\#30363d\] {
+  border-color: #252525 !important;
+}
+
+.text-\[\#e6edf3\] {
+  color: #e0e0e0 !important;
+}
+
+.text-\[\#8b949e\] {
+  color: #666666 !important;
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from backend.api.routes.sessions import _sessions
 from backend.api.routes.providers import provider_manager
 from backend.common.errors import AgentError
 from backend.common.types import AgentConfig, AgentEvent, Message, ToolCall, ToolResult
@@ -22,8 +23,9 @@ class ConnectionManager:
             raise AgentError("WS_CONNECT_ERROR", str(exc)) from exc
     async def disconnect(self, session_id: str) -> None:
         try:
-            loop = self._loops.pop(session_id, None)
-            if loop:
+            loop = self._loops.get(session_id)
+            if loop is not None:
+                self._sync_messages(session_id, loop)
                 loop.abort()
             task = self._tasks.pop(session_id, None)
             if task and not task.done():
@@ -31,6 +33,24 @@ class ConnectionManager:
             self._connections.pop(session_id, None)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_DISCONNECT_ERROR", str(exc)) from exc
+
+    def clear_session(self, session_id: str) -> None:
+        try:
+            loop = self._loops.pop(session_id, None)
+            if loop is not None:
+                self._sync_messages(session_id, loop)
+                loop.abort()
+            task = self._tasks.pop(session_id, None)
+            if task and not task.done():
+                task.cancel()
+            self._connections.pop(session_id, None)
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError("WS_CLEAR_SESSION_ERROR", str(exc)) from exc
+
+    def _sync_messages(self, session_id: str, loop: AgentLoop) -> None:
+        session = _sessions.get(session_id)
+        if session is not None:
+            _sessions[session_id] = session.model_copy(update={"messages": loop.messages})
     def get_loop(self, session_id: str) -> AgentLoop | None:
         return self._loops.get(session_id)
 manager = ConnectionManager()
@@ -45,16 +65,20 @@ def _event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
     if event.type == "tool_result" and isinstance(data, ToolResult):
         return {"type": "tool_result", "output": data.output, "is_error": data.is_error}
     return {"type": "error", "message": str(getattr(data, "message", data))}
-async def _run_loop(loop: AgentLoop, message: str, websocket: WebSocket) -> None:
+async def _run_loop(loop: AgentLoop, message: str, websocket: WebSocket, session_id: str) -> None:
     try:
         await loop.run(message)
     except asyncio.CancelledError:
-        return
+        pass
     except Exception as exc:  # noqa: BLE001
         try:
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
-            return
+            pass
+    finally:
+        session = _sessions.get(session_id)
+        if session is not None:
+            _sessions[session_id] = session.model_copy(update={"messages": loop.messages})
 @router.websocket("/ws/{session_id}")
 async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
@@ -91,7 +115,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 if not user_message:
                     await websocket.send_json({"type": "error", "message": "message is required"})
                     continue
-                task = asyncio.create_task(_run_loop(loop, user_message, websocket))
+                task = asyncio.create_task(_run_loop(loop, user_message, websocket, session_id))
                 task.add_done_callback(lambda _: manager._tasks.pop(session_id, None))  # noqa: SLF001
                 manager._tasks[session_id] = task  # noqa: SLF001
             elif msg_type == "abort":

@@ -1,0 +1,46 @@
+{
+  "name": "agent-studio-desktop",
+  "version": "0.1.0",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "dependencies": {
+    "electron-is-dev": "^3.0.1"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.agent-studio.desktop",
+    "productName": "Agent Studio",
+    "win": {
+      "target": "nsis",
+      "icon": "icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/backend/agent-studio-backend.exe",
+        "to": "backend/agent-studio-backend.exe"
+      },
+      {
+        "from": "../dist/frontend",
+        "to": "frontend"
+      }
+    ],
+    "directories": {
+      "output": "../dist/electron"
+    }
+  }
+}
