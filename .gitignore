@@ -17,6 +17,8 @@ node_modules/
 frontend/dist/
 .DS_Store
 backend/config/providers.json
+backend/config/mcp_servers.json
+backend/tests/.tmp*/
 uvicorn_run.out
 uvicorn_run.err
 backend/pytest-cache-files-*/

@@ -10,6 +10,8 @@ interface SessionResponse {
   status: Session["status"];
   created_at: string;
   message_count: number;
+  title?: string;
+  workspace?: string;
 }
 
 interface SessionListResponse {
@@ -35,6 +37,8 @@ const toSession = (item: SessionResponse): Session => ({
   status: item.status,
   createdAt: item.created_at,
   messageCount: item.message_count,
+  title: item.title ?? "",
+  workspace: item.workspace ?? "",
 });
 
 const toProvider = (item: ProviderResponse): Provider => ({

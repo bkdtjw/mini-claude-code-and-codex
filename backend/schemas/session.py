@@ -12,6 +12,10 @@ class CreateSessionRequest(BaseModel):
     workspace: str | None = None
 
 
+class UpdateSessionTitleRequest(BaseModel):
+    title: str
+
+
 class SessionResponse(BaseModel):
     id: str
     config: dict[str, Any]
@@ -26,6 +30,7 @@ class SessionListResponse(BaseModel):
 
 __all__ = [
     "CreateSessionRequest",
+    "UpdateSessionTitleRequest",
     "SessionResponse",
     "SessionListResponse",
 ]

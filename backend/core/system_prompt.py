@@ -22,6 +22,7 @@ def build_system_prompt(workspace: str | None = None) -> str:
     ]
     if workspace:
         parts.append(f"当前工作目录: {workspace}")
+    parts.append("不要用加粗星号。")
     parts.append("回复使用中文。")
     return "\n".join(part for part in parts if part)
 

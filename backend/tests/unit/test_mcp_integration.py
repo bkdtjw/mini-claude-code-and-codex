@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+from backend.common.types import MCPServerConfig, MCPToolInfo, MCPToolResult
+from backend.core.s02_tools import ToolRegistry
+from backend.core.s02_tools.mcp import MCPClient, MCPServerManager, MCPToolBridge
+
+
+class FakeMCPClient(MCPClient):
+    def __init__(self, server_config: MCPServerConfig) -> None:
+        self._server_config = server_config
+        self._connected = False
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    async def connect(self) -> None:
+        self._connected = True
+
+    async def disconnect(self) -> None:
+        self._connected = False
+
+    async def list_tools(self) -> list[MCPToolInfo]:
+        return [
+            MCPToolInfo(
+                name="echo",
+                description="Echo input text",
+                input_schema={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+                server_id=self._server_config.id,
+            )
+        ]
+
+    async def call_tool(self, name: str, arguments: dict[str, object]) -> MCPToolResult:
+        self.calls.append((name, arguments))
+        return MCPToolResult(content=f"echo:{arguments.get('text', '')}")
+
+
+def _make_config_path() -> str:
+    root = Path(__file__).resolve().parents[1] / ".tmp_mcp"
+    root.mkdir(exist_ok=True)
+    temp_dir = root / uuid4().hex
+    temp_dir.mkdir()
+    path = temp_dir / "mcp_servers.json"
+    path.write_text(json.dumps({"servers": []}), encoding="utf-8")
+    return str(path)
+
+
+def _server_config() -> MCPServerConfig:
+    return MCPServerConfig(
+        id="filesystem",
+        name="File System",
+        transport="stdio",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-filesystem"],
+        enabled=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_manager_persists_and_lists_status() -> None:
+    config_path = _make_config_path()
+    manager = MCPServerManager(config_path=config_path, client_factory=FakeMCPClient)
+    server_id = await manager.add_server(_server_config())
+    statuses = await manager.list_servers()
+    payload = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    assert server_id == "filesystem"
+    assert len(statuses) == 1
+    assert statuses[0].connected is True
+    assert statuses[0].tool_count == 1
+    assert payload["servers"][0]["id"] == "filesystem"
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_bridge_registers_prefixed_tools() -> None:
+    config_path = _make_config_path()
+    manager = MCPServerManager(config_path=config_path, client_factory=FakeMCPClient)
+    await manager.add_server(_server_config())
+    registry = ToolRegistry()
+    bridge = MCPToolBridge(manager, registry)
+    count = await bridge.sync_all()
+    tool = registry.get("mcp__filesystem__echo")
+    assert count == 1
+    assert tool is not None
+    definition, executor = tool
+    result = await executor({"text": "hello"})
+    assert definition.category == "mcp"
+    assert result.output == "echo:hello"
+    assert result.is_error is False

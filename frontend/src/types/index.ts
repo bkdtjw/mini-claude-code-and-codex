@@ -28,6 +28,8 @@ export interface Session {
   status: AgentStatus;
   createdAt: string;
   messageCount: number;
+  title: string;
+  workspace: string;
 }
 
 export interface Provider {

@@ -13,6 +13,7 @@ ToolCategory = Literal[
     "browser",
     "git",
     "code-analysis",
+    "mcp",
 ]
 
 

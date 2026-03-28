@@ -41,31 +41,30 @@ export default function Sidebar() {
     <aside className="flex h-screen w-[260px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0a0a0a]">
       <div className="space-y-1 px-2 pb-2 pt-3">
         <button type="button" onClick={handleNewChat} className={actionBtnClass}>
-          <span>✏️</span>
-          <span>新线程</span>
+          <span className="w-4 text-center">+</span>
+          <span>新建对话</span>
         </button>
         <button
           type="button"
           onClick={() => void useAgentStore.getState().openFolder()}
           className="mt-2 w-full rounded-md border border-[#252525] bg-[#0a0a0a] px-3 py-2 text-left text-xs text-[#8b949e] transition hover:bg-[#1a1a1a]"
         >
-          <span className="mr-2">📁</span>
           {workspaceName ?? "选择项目文件夹..."}
         </button>
         {workspace ? <div className="truncate px-1 text-[10px] text-[#555555]">{workspace}</div> : null}
         <button type="button" onClick={() => navigate("/")} className={actionBtnClass}>
-          <span>⏱</span>
-          <span>自动化</span>
+          <span className="w-4 text-center">#</span>
+          <span>总览</span>
         </button>
         <button type="button" onClick={() => navigate("/")} className={actionBtnClass}>
-          <span>⚡</span>
+          <span className="w-4 text-center">*</span>
           <span>技能</span>
         </button>
       </div>
 
       <div className="mx-2 border-t border-[#1a1a1a]" />
 
-      <div className="px-5 pt-3 text-[11px] uppercase tracking-wide text-[#666666]">线程</div>
+      <div className="px-5 pt-3 text-[11px] uppercase tracking-wide text-[#666666]">会话</div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
         <SessionList
           sessions={sessions}
@@ -83,7 +82,7 @@ export default function Sidebar() {
 
       <div className="border-t border-[#1a1a1a] px-2 py-2">
         <button type="button" onClick={() => navigate("/settings")} className={actionBtnClass}>
-          <span>⚙</span>
+          <span className="w-4 text-center">=</span>
           <span>设置</span>
         </button>
       </div>

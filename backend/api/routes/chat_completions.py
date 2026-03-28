@@ -8,12 +8,15 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from backend.api.routes.mcp import mcp_server_manager
 from backend.api.routes.providers import provider_manager
 from backend.common import AgentError, LLMError
 from backend.common.types import AgentConfig, Message, ToolCall, ToolResult
+from backend.config.settings import settings as app_settings
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
+from backend.core.s02_tools.mcp import MCPToolBridge
 from backend.schemas.completion import ChatCompletionChoice, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionUsage
 
 router = APIRouter(tags=["completions"])
@@ -65,8 +68,16 @@ async def chat_completions(request: ChatCompletionRequest) -> Any:
             raise HTTPException(status_code=400, detail={"code": "INVALID_MESSAGES", "message": "No user message found"})
         adapter = await provider_manager.get_adapter(request.provider_id)
         registry = ToolRegistry()
-        if request.workspace:
-            register_builtin_tools(registry, request.workspace, mode=request.permission_mode)
+        register_builtin_tools(
+            registry,
+            request.workspace,
+            mode=request.permission_mode,
+            adapter=adapter,
+            default_model=request.model,
+            feishu_webhook_url=app_settings.feishu_webhook_url or None,
+            feishu_secret=app_settings.feishu_webhook_secret or None,
+        )
+        await MCPToolBridge(mcp_server_manager, registry).sync_all()
         loop = AgentLoop(config=AgentConfig(model=request.model, system_prompt=""), adapter=adapter, tool_registry=registry)
         loop._messages = internal[:user_idx]  # noqa: SLF001
         user_message = internal[user_idx].content
