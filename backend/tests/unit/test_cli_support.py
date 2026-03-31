@@ -10,15 +10,8 @@ import pytest
 
 from backend.adapters.base import LLMAdapter
 from backend.adapters.provider_manager import ProviderManager
-from backend.cli_support import (
-    CliArgs,
-    CliCommand,
-    CliPrinter,
-    create_session,
-    handle_command,
-    parse_args,
-)
-from backend.common.types import LLMRequest, LLMResponse, ProviderConfig, ProviderType, StreamChunk
+from backend.cli_support import CliArgs, CliCommand, CliPrinter, create_session, handle_command, parse_args
+from backend.common.types import LLMRequest, LLMResponse, Message, ProviderConfig, ProviderType, StreamChunk
 from backend.core.s02_tools.mcp import MCPServerManager
 
 
@@ -35,27 +28,41 @@ class FakeAdapter(LLMAdapter):
 
 
 class FakeProviderManager(ProviderManager):
-    def __init__(self, provider: ProviderConfig) -> None:
-        self._provider = provider
+    def __init__(self, providers: list[ProviderConfig]) -> None:
+        self._providers = providers
         self._adapter = FakeAdapter()
 
     async def list_all(self) -> list[ProviderConfig]:
-        return [self._provider]
+        return list(self._providers)
 
     async def get_adapter(self, provider_id: str | None = None) -> LLMAdapter:
         return self._adapter
 
 
-def _provider() -> ProviderConfig:
+def _provider(
+    provider_id: str,
+    name: str,
+    default_model: str,
+    available_models: list[str],
+    is_default: bool = False,
+) -> ProviderConfig:
     return ProviderConfig(
-        id="provider-1",
-        name="Test Provider",
+        id=provider_id,
+        name=name,
         provider_type=ProviderType.OPENAI_COMPAT,
         base_url="https://example.com",
         api_key="",
-        default_model="test-model",
-        is_default=True,
+        default_model=default_model,
+        available_models=available_models,
+        is_default=is_default,
     )
+
+
+def _providers() -> list[ProviderConfig]:
+    return [
+        _provider("provider-1", "Test Provider", "test-model", ["test-model", "new-model"], is_default=True),
+        _provider("provider-2", "Alt Provider", "alt-model", ["alt-model"]),
+    ]
 
 
 def _make_workspace() -> str:
@@ -84,31 +91,59 @@ async def test_create_session_uses_default_provider_model_and_tools() -> None:
     workspace = _make_workspace()
     session = await create_session(
         CliArgs(workspace=workspace),
-        manager=FakeProviderManager(_provider()),
+        manager=FakeProviderManager(_providers()),
         mcp_manager=_make_empty_mcp_manager(),
     )
     tool_names = [tool.name for tool in session.registry.list_definitions()]
     assert session.state.model == "test-model"
     assert session.state.provider_id == "provider-1"
+    assert session.state.available_models == ["test-model", "new-model"]
     assert tool_names == ["Read", "Write", "Bash", "dispatch_agent"]
 
 
 @pytest.mark.asyncio
-async def test_handle_command_switches_model_and_rebuilds_session() -> None:
+async def test_handle_command_switches_model_and_preserves_history() -> None:
     workspace = _make_workspace()
     session = await create_session(
         CliArgs(workspace=workspace),
-        manager=FakeProviderManager(_provider()),
+        manager=FakeProviderManager(_providers()),
         mcp_manager=_make_empty_mcp_manager(),
     )
     await session.loop.run("hello")
-    result = await handle_command(
-        session,
-        CliCommand(name="/model", argument="new-model"),
-        CliPrinter(),
-    )
+    result = await handle_command(session, CliCommand(name="/model", argument="new-model"), CliPrinter())
     assert result.session.state.model == "new-model"
-    assert result.session.loop.messages == []
+    assert [message.role for message in result.session.loop.messages] == ["system", "user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_handle_command_switches_provider_and_clears_provider_metadata() -> None:
+    workspace = _make_workspace()
+    session = await create_session(
+        CliArgs(workspace=workspace),
+        manager=FakeProviderManager(_providers()),
+        mcp_manager=_make_empty_mcp_manager(),
+    )
+    session.loop._messages = [  # noqa: SLF001
+        Message(role="system", content="system"),
+        Message(role="assistant", content="answer", provider_metadata={"reasoning_content": "step"}),
+    ]
+    result = await handle_command(session, CliCommand(name="/provider", argument="Alt Provider"), CliPrinter())
+    assert result.session.state.provider_id == "provider-2"
+    assert result.session.state.model == "alt-model"
+    assert result.session.loop.messages[1].provider_metadata == {}
+
+
+@pytest.mark.asyncio
+async def test_handle_command_rejects_model_from_other_provider() -> None:
+    workspace = _make_workspace()
+    session = await create_session(
+        CliArgs(workspace=workspace),
+        manager=FakeProviderManager(_providers()),
+        mcp_manager=_make_empty_mcp_manager(),
+    )
+    result = await handle_command(session, CliCommand(name="/model", argument="alt-model"), CliPrinter())
+    assert result.session.state.provider_id == "provider-1"
+    assert result.session.state.model == "test-model"
 
 
 @pytest.mark.asyncio
@@ -116,7 +151,7 @@ async def test_handle_command_clear_resets_existing_history() -> None:
     workspace = _make_workspace()
     session = await create_session(
         CliArgs(workspace=workspace),
-        manager=FakeProviderManager(_provider()),
+        manager=FakeProviderManager(_providers()),
         mcp_manager=_make_empty_mcp_manager(),
     )
     await session.loop.run("hello")
@@ -131,12 +166,8 @@ async def test_handle_command_switches_workspace() -> None:
     new_workspace = _make_workspace()
     session = await create_session(
         CliArgs(workspace=workspace),
-        manager=FakeProviderManager(_provider()),
+        manager=FakeProviderManager(_providers()),
         mcp_manager=_make_empty_mcp_manager(),
     )
-    result = await handle_command(
-        session,
-        CliCommand(name="/workspace", argument=new_workspace),
-        CliPrinter(),
-    )
+    result = await handle_command(session, CliCommand(name="/workspace", argument=new_workspace), CliPrinter())
     assert result.session.state.workspace == new_workspace

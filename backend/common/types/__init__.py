@@ -1,4 +1,4 @@
-from .agent import AgentConfig, AgentEvent, AgentEventHandler, AgentStatus
+from .agent import AgentConfig, AgentEvent, AgentEventHandler, AgentEventType, AgentStatus
 from .llm import LLMRequest, LLMResponse, LLMUsage, ProviderConfig, ProviderType
 from .mcp import MCPServerConfig, MCPServerStatus, MCPToolInfo, MCPToolResult
 from .message import Message, Role, StreamChunk, ToolCall, ToolResult, generate_id
@@ -13,6 +13,7 @@ from .tool import (
 
 __all__ = [
     "AgentStatus",
+    "AgentEventType",
     "AgentConfig",
     "AgentEvent",
     "AgentEventHandler",

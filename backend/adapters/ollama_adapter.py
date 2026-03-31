@@ -76,6 +76,15 @@ class OllamaAdapter(OpenAICompatAdapter):
     def _parse_response(self, data: dict[str, Any]) -> LLMResponse:
         msg, usage = data.get("message", {}), data
         calls = [ToolCall(id=tc.get("id", ""), name=tc.get("function", {}).get("name", ""), arguments=tc.get("function", {}).get("arguments", {}) or {}) for tc in msg.get("tool_calls", []) or []]
-        return LLMResponse(content=msg.get("content", "") or "", tool_calls=calls, usage=LLMUsage(prompt_tokens=usage.get("prompt_eval_count", 0), completion_tokens=usage.get("eval_count", 0)))
+        provider_metadata: dict[str, Any] = {}
+        reasoning = msg.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning:
+            provider_metadata["reasoning_content"] = reasoning
+        return LLMResponse(
+            content=msg.get("content", "") or "",
+            tool_calls=calls,
+            usage=LLMUsage(prompt_tokens=usage.get("prompt_eval_count", 0), completion_tokens=usage.get("eval_count", 0)),
+            provider_metadata=provider_metadata,
+        )
     def _headers(self) -> dict[str, str]:
         return {"content-type": "application/json", **self._extra_headers}

@@ -5,7 +5,7 @@ import signal
 
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError, LLMError
-from backend.common.types import AgentConfig, AgentEventHandler, ProviderConfig
+from backend.common.types import AgentConfig, AgentEventHandler, Message, ProviderConfig
 from backend.config.settings import settings
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
@@ -40,6 +40,22 @@ def _build_registry(state: CliState) -> ToolRegistry:
     return registry
 
 
+def _clone_messages(
+    messages: list[Message],
+    system_prompt: str,
+    clear_provider_metadata: bool,
+) -> list[Message]:
+    restored = [Message(role="system", content=system_prompt)]
+    for message in messages:
+        if message.role == "system":
+            continue
+        cloned = message.model_copy(deep=True)
+        if clear_provider_metadata:
+            cloned.provider_metadata = {}
+        restored.append(cloned)
+    return restored
+
+
 async def create_session(
     args: CliArgs,
     manager: ProviderManager | None = None,
@@ -69,6 +85,13 @@ async def create_session(
             default_model=args.model or provider.default_model,
             feishu_webhook_url=settings.feishu_webhook_url or None,
             feishu_secret=settings.feishu_webhook_secret or None,
+            youtube_api_key=settings.youtube_api_key or None,
+            youtube_proxy_url=settings.youtube_proxy_url or None,
+            twitter_username=settings.twitter_username or None,
+            twitter_email=settings.twitter_email or None,
+            twitter_password=settings.twitter_password or None,
+            twitter_proxy_url=settings.twitter_proxy_url or None,
+            twitter_cookies_file=settings.twitter_cookies_file or None,
         )
         await MCPToolBridge(resolved_mcp_manager, registry).sync_all()
         loop = AgentLoop(
@@ -91,6 +114,7 @@ async def create_session(
                 provider_id=provider.id,
                 provider_name=provider.name,
                 model=args.model or provider.default_model,
+                available_models=list(provider.available_models),
                 workspace=workspace,
                 permission_mode=args.permission_mode,
             ),
@@ -104,17 +128,24 @@ async def create_session(
 
 async def rebuild_session(session: CliSession, update: SessionUpdate) -> CliSession:
     try:
-        return await create_session(
+        rebuilt = await create_session(
             CliArgs(
                 workspace=update.workspace or session.state.workspace,
                 model=update.model or session.state.model,
-                provider=session.state.provider_id,
+                provider=update.provider or session.state.provider_id,
                 permission_mode=update.permission_mode or session.state.permission_mode,
             ),
             manager=session.manager,
             mcp_manager=session.mcp_manager,
             event_handler=session.event_handler,
         )
+        if update.preserve_history and session.loop.messages:
+            rebuilt.loop._messages = _clone_messages(  # noqa: SLF001
+                session.loop.messages,
+                rebuilt.loop._config.system_prompt,  # noqa: SLF001
+                update.clear_provider_metadata,
+            )
+        return rebuilt
     except (CliError, LLMError):
         raise
     except Exception as exc:

@@ -16,5 +16,5 @@ class LLMAdapter(ABC):
         pass
 
     @abstractmethod
-    async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
+    def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         pass

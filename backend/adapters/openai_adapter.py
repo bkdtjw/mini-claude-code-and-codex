@@ -91,6 +91,9 @@ class OpenAICompatAdapter(LLMAdapter):
         for msg in messages:
             if msg.role == "assistant":
                 item: dict[str, Any] = {"role": "assistant", "content": msg.content}
+                reasoning = msg.provider_metadata.get("reasoning_content")
+                if isinstance(reasoning, str) and reasoning:
+                    item["reasoning_content"] = reasoning
                 if msg.tool_calls:
                     item["tool_calls"] = [{"id": c.id, "type": "function", "function": {"name": c.name, "arguments": json.dumps(c.arguments, ensure_ascii=False)}} for c in msg.tool_calls]
                 result.append(item)
@@ -107,7 +110,17 @@ class OpenAICompatAdapter(LLMAdapter):
         message = (data.get("choices") or [{}])[0].get("message", {})
         tool_calls = [ToolCall(id=tc.get("id", ""), name=tc.get("function", {}).get("name", ""), arguments=self._parse_args(tc.get("function", {}).get("arguments", ""))) for tc in message.get("tool_calls", []) or []]
         usage = data.get("usage", {})
-        return LLMResponse(id=data.get("id", ""), content=message.get("content", "") or "", tool_calls=tool_calls, usage=LLMUsage(prompt_tokens=usage.get("prompt_tokens", 0), completion_tokens=usage.get("completion_tokens", 0)))
+        provider_metadata: dict[str, Any] = {}
+        reasoning = message.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning:
+            provider_metadata["reasoning_content"] = reasoning
+        return LLMResponse(
+            id=data.get("id", ""),
+            content=message.get("content", "") or "",
+            tool_calls=tool_calls,
+            usage=LLMUsage(prompt_tokens=usage.get("prompt_tokens", 0), completion_tokens=usage.get("completion_tokens", 0)),
+            provider_metadata=provider_metadata,
+        )
     def _parse_stream_line(self, raw: str, tool_chunks: dict[int, dict[str, str]]) -> list[StreamChunk]:
         try:
             data = json.loads(raw)

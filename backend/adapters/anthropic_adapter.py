@@ -106,7 +106,9 @@ class AnthropicAdapter(LLMAdapter):
         result: list[dict[str, Any]] = []
         for msg in messages:
             if msg.role == "assistant":
-                content = [{"type": "text", "text": msg.content}] if msg.content else []
+                content = [block for block in msg.provider_metadata.get("thinking_blocks", []) if isinstance(block, dict)]
+                if msg.content:
+                    content.append({"type": "text", "text": msg.content})
                 for call in msg.tool_calls or []:
                     content.append({"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments})
                 result.append({"role": "assistant", "content": content or [{"type": "text", "text": ""}]})
@@ -122,10 +124,22 @@ class AnthropicAdapter(LLMAdapter):
         return [{"name": tool.name, "description": tool.description, "input_schema": tool.parameters.model_dump()} for tool in tools]
 
     def _parse_response(self, data: dict[str, Any]) -> LLMResponse:
-        content = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-        tool_calls = [ToolCall(id=b.get("id", ""), name=b.get("name", ""), arguments=b.get("input", {})) for b in data.get("content", []) if b.get("type") == "tool_use"]
+        content_blocks = data.get("content", [])
+        content = "".join(block.get("text", "") for block in content_blocks if block.get("type") == "text")
+        tool_calls = [ToolCall(id=block.get("id", ""), name=block.get("name", ""), arguments=block.get("input", {})) for block in content_blocks if block.get("type") == "tool_use"]
         usage = data.get("usage", {})
-        return LLMResponse(id=data.get("id", ""), content=content, tool_calls=tool_calls, usage=LLMUsage(prompt_tokens=usage.get("input_tokens", 0), completion_tokens=usage.get("output_tokens", 0)))
+        provider_metadata: dict[str, Any] = {}
+        thinking_blocks = [block for block in content_blocks if block.get("type") == "thinking"]
+        if thinking_blocks:
+            provider_metadata["thinking_blocks"] = thinking_blocks
+            provider_metadata["thinking"] = "".join(str(block.get("thinking", "")) for block in thinking_blocks)
+        return LLMResponse(
+            id=data.get("id", ""),
+            content=content,
+            tool_calls=tool_calls,
+            usage=LLMUsage(prompt_tokens=usage.get("input_tokens", 0), completion_tokens=usage.get("output_tokens", 0)),
+            provider_metadata=provider_metadata,
+        )
 
     def _parse_stream_line(self, event_type: str, raw: str) -> StreamChunk | None:
         if raw == "[DONE]" or event_type == "message_stop":

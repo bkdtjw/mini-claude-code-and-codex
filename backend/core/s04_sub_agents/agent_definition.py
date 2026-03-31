@@ -35,12 +35,12 @@ class AgentDefinitionLoader:
                 return None
             config, body = self._split_frontmatter(raw)
             return AgentRole(
-                name=str(config.get("name", role_name)),
-                description=str(config.get("description", "")),
+                name=self._parse_text(config.get("name"), role_name),
+                description=self._parse_text(config.get("description"), ""),
                 system_prompt=body.strip(),
-                allowed_tools=list(config.get("allowed_tools", [])),
-                max_iterations=int(config.get("max_iterations", 10)),
-                model=str(config.get("model", "")),
+                allowed_tools=self._parse_allowed_tools(config.get("allowed_tools")),
+                max_iterations=self._parse_max_iterations(config.get("max_iterations")),
+                model=self._parse_text(config.get("model"), ""),
             )
         except AgentError:
             raise
@@ -74,7 +74,10 @@ class AgentDefinitionLoader:
         if not raw.startswith("---"):
             return {}, raw
         lines = raw.splitlines()
-        end_index = next((index for index in range(1, len(lines)) if lines[index].strip() == "---"), -1)
+        end_index = next(
+            (index for index in range(1, len(lines)) if lines[index].strip() == "---"),
+            -1,
+        )
         if end_index < 0:
             return {}, raw
         frontmatter = self._parse_frontmatter(lines[1:end_index])
@@ -97,6 +100,24 @@ class AgentDefinitionLoader:
         if value.isdigit():
             return int(value)
         return value.strip("\"'")
+
+    @staticmethod
+    def _parse_text(value: object, default: str) -> str:
+        return value if isinstance(value, str) else default
+
+    @staticmethod
+    def _parse_allowed_tools(value: object) -> list[str]:
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, str)]
+        return []
+
+    @staticmethod
+    def _parse_max_iterations(value: object) -> int:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return 10
 
 
 __all__ = ["AgentDefinitionLoader", "AgentRole"]

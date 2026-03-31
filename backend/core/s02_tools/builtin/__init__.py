@@ -25,6 +25,13 @@ def register_builtin_tools(
     agents_dir: str | None = None,
     feishu_webhook_url: str | None = None,
     feishu_secret: str | None = None,
+    youtube_api_key: str | None = None,
+    youtube_proxy_url: str | None = None,
+    twitter_username: str | None = None,
+    twitter_email: str | None = None,
+    twitter_password: str | None = None,
+    twitter_proxy_url: str | None = None,
+    twitter_cookies_file: str | None = None,
 ) -> None:
     """根据权限模式注册不同的工具集。"""
     tools = [create_read_tool(workspace)] if workspace else []
@@ -37,6 +44,44 @@ def register_builtin_tools(
             spawner = SubAgentSpawner(adapter, registry, loader, default_model)
             lifecycle = SubAgentLifecycle(timeout=120.0)
             tools.append(create_dispatch_agent_tool(spawner, lifecycle))
+
+    resolved_youtube_api_key = youtube_api_key or os.environ.get("YOUTUBE_API_KEY", "")
+    if resolved_youtube_api_key:
+        try:
+            from .youtube_search import create_youtube_search_tool
+
+            resolved_youtube_proxy = youtube_proxy_url or os.environ.get("YOUTUBE_PROXY_URL", "")
+            tools.append(
+                create_youtube_search_tool(
+                    api_key=resolved_youtube_api_key,
+                    proxy_url=resolved_youtube_proxy,
+                )
+            )
+        except ImportError:
+            pass
+
+    resolved_twitter_username = twitter_username or os.environ.get("TWITTER_USERNAME", "")
+    resolved_twitter_email = twitter_email or os.environ.get("TWITTER_EMAIL", "")
+    resolved_twitter_password = twitter_password or os.environ.get("TWITTER_PASSWORD", "")
+    if (resolved_twitter_username or resolved_twitter_email) and resolved_twitter_password:
+        try:
+            from .x_client import XClientConfig
+            from .x_search import create_x_search_tool
+
+            tools.append(
+                create_x_search_tool(
+                    XClientConfig(
+                        username=resolved_twitter_username,
+                        email=resolved_twitter_email,
+                        password=resolved_twitter_password,
+                        proxy_url=twitter_proxy_url or os.environ.get("TWITTER_PROXY_URL", ""),
+                        cookies_file=twitter_cookies_file
+                        or os.environ.get("TWITTER_COOKIES_FILE", "twitter_cookies.json"),
+                    )
+                )
+            )
+        except ImportError:
+            pass
 
     feishu_url = feishu_webhook_url or os.environ.get("FEISHU_WEBHOOK_URL", "")
     resolved_feishu_secret = feishu_secret or os.environ.get("FEISHU_WEBHOOK_SECRET", "")

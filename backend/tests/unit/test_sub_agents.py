@@ -34,6 +34,14 @@ def _make_workspace() -> str:
     return str(workspace)
 
 
+def _make_agents_dir() -> Path:
+    root = Path(__file__).resolve().parents[1] / ".tmp_sub_agents"
+    root.mkdir(exist_ok=True)
+    agents_dir = root / f"agents_{uuid4().hex}"
+    agents_dir.mkdir()
+    return agents_dir
+
+
 def test_agent_definition_loader_reads_reviewer_role() -> None:
     loader = AgentDefinitionLoader()
     role = loader.load_role("reviewer")
@@ -41,6 +49,30 @@ def test_agent_definition_loader_reads_reviewer_role() -> None:
     assert role.name == "reviewer"
     assert role.allowed_tools == ["Read", "Bash"]
     assert role.max_iterations == 8
+
+
+def test_agent_definition_loader_falls_back_for_invalid_frontmatter() -> None:
+    agents_dir = _make_agents_dir()
+    agent_file = agents_dir / "broken.md"
+    agent_file.write_text(
+        "\n".join(
+            [
+                "---",
+                "name: broken",
+                "allowed_tools: nope",
+                "max_iterations: many",
+                "---",
+                "system prompt body",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    loader = AgentDefinitionLoader(str(agents_dir))
+    role = loader.load_role("broken")
+    assert role is not None
+    assert role.name == "broken"
+    assert role.allowed_tools == []
+    assert role.max_iterations == 10
 
 
 @pytest.mark.asyncio

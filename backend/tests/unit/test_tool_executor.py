@@ -83,3 +83,17 @@ async def test_execute_batch_multiple_tools() -> None:
     results = await executor.execute_batch(calls)
     assert [item.output for item in results] == ["a", "Unknown tool: missing", "c"]
     assert [item.is_error for item in results] == [False, True, False]
+
+
+@pytest.mark.asyncio
+async def test_execute_truncates_large_output() -> None:
+    async def large_executor(_: dict[str, object]) -> ToolResult:
+        return ToolResult(output=("a" * 7000) + ("b" * 7000))
+
+    registry = ToolRegistry()
+    registry.register(_make_definition("large"), large_executor)
+    executor = ToolExecutor(registry)
+    result = await executor.execute(ToolCall(id="call_large", name="large", arguments={}))
+    assert result.output.startswith("a" * 6000)
+    assert result.output.endswith("b" * 6000)
+    assert "[truncated 2000 characters]" in result.output

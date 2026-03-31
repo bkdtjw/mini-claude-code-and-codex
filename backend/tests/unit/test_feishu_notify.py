@@ -26,10 +26,13 @@ class InvalidJsonResponse(FakeResponse):
 
 class FakeAsyncClient:
     calls: list[tuple[str, dict[str, Any]]] = []
+    init_args: list[tuple[float, bool]] = []
     response = FakeResponse(200, {"StatusCode": 0, "StatusMessage": "success"})
 
-    def __init__(self, timeout: float) -> None:
+    def __init__(self, timeout: float, trust_env: bool) -> None:
         self.timeout = timeout
+        self.trust_env = trust_env
+        self.init_args.append((timeout, trust_env))
 
     async def __aenter__(self) -> FakeAsyncClient:
         return self
@@ -45,6 +48,7 @@ class FakeAsyncClient:
 @pytest.mark.asyncio
 async def test_feishu_notify_sends_text_message(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeAsyncClient.calls = []
+    FakeAsyncClient.init_args = []
     FakeAsyncClient.response = FakeResponse(200, {"StatusCode": 0, "StatusMessage": "success"})
     monkeypatch.setattr(feishu_module.httpx, "AsyncClient", FakeAsyncClient)
     _, execute = create_feishu_notify_tool("https://open.feishu.cn/open-apis/bot/v2/hook/test-token")
@@ -52,11 +56,13 @@ async def test_feishu_notify_sends_text_message(monkeypatch: pytest.MonkeyPatch)
     assert result.is_error is False
     assert FakeAsyncClient.calls[0][1]["msg_type"] == "text"
     assert FakeAsyncClient.calls[0][1]["content"]["text"] == "hello feishu"
+    assert FakeAsyncClient.init_args[0] == (10.0, False)
 
 
 @pytest.mark.asyncio
 async def test_feishu_notify_sends_post_message_with_sign(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeAsyncClient.calls = []
+    FakeAsyncClient.init_args = []
     FakeAsyncClient.response = FakeResponse(200, {"StatusCode": 0, "StatusMessage": "success"})
     monkeypatch.setattr(feishu_module.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(feishu_module.time, "time", lambda: 1700000000)
@@ -98,12 +104,13 @@ def test_register_builtin_tools_adds_feishu_without_workspace() -> None:
 @pytest.mark.asyncio
 async def test_feishu_notify_handles_invalid_json_response(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeAsyncClient.calls = []
+    FakeAsyncClient.init_args = []
     FakeAsyncClient.response = InvalidJsonResponse(200, {})
     monkeypatch.setattr(feishu_module.httpx, "AsyncClient", FakeAsyncClient)
     _, execute = create_feishu_notify_tool("https://open.feishu.cn/open-apis/bot/v2/hook/test-token")
     result = await execute({"content": "hello feishu"})
     assert result.is_error is True
-    assert "有效 JSON" in result.output
+    assert "valid JSON" in result.output
 
 
 @pytest.mark.asyncio
@@ -111,6 +118,7 @@ async def test_register_builtin_tools_reads_feishu_secret_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeAsyncClient.calls = []
+    FakeAsyncClient.init_args = []
     FakeAsyncClient.response = FakeResponse(200, {"StatusCode": 0, "StatusMessage": "success"})
     monkeypatch.setattr(feishu_module.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(feishu_module.time, "time", lambda: 1700000000)
@@ -125,3 +133,16 @@ async def test_register_builtin_tools_reads_feishu_secret_from_env(
     assert result.is_error is False
     assert FakeAsyncClient.calls[0][1]["timestamp"] == "1700000000"
     assert "sign" in FakeAsyncClient.calls[0][1]
+
+
+@pytest.mark.asyncio
+async def test_feishu_notify_ignores_broken_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    FakeAsyncClient.calls = []
+    FakeAsyncClient.init_args = []
+    FakeAsyncClient.response = FakeResponse(200, {"StatusCode": 0, "StatusMessage": "success"})
+    monkeypatch.setattr(feishu_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setenv("NO_PROXY", "*127.0.0.1，localhost，.local，192.168.0.0")
+    _, execute = create_feishu_notify_tool("https://open.feishu.cn/open-apis/bot/v2/hook/test-token")
+    result = await execute({"content": "hello feishu"})
+    assert result.is_error is False
+    assert FakeAsyncClient.init_args[0][1] is False

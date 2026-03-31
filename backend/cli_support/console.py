@@ -5,6 +5,7 @@ import os
 from collections.abc import Sequence
 
 from backend.common.errors import AgentError, LLMError
+from backend.common.types import ProviderConfig
 
 from .display import CliPrinter
 from .models import CliArgs, CliCommand, CliCommandResult, CliError, CliSession, SessionUpdate
@@ -12,9 +13,11 @@ from .session import rebuild_session, run_request
 
 HELP_TEXT = "\n".join(
     [
-        "可用命令：",
-        "  /help                 显示此帮助",
+        "可用命令:",
+        "  /help                 显示帮助",
         "  /clear                清空对话历史",
+        "  /provider             列出 provider",
+        "  /provider <name>      切换 provider",
         "  /model <name>         切换模型",
         "  /workspace <path>     切换工作目录",
         "  /tools                显示当前工具列表",
@@ -29,12 +32,7 @@ def parse_args(argv: Sequence[str] | None = None) -> CliArgs:
     parser.add_argument("-m", "--model", default=None, help="model name")
     parser.add_argument("-p", "--provider", default=None, help="provider id or name")
     parser.add_argument("--mcp-config", default=None, help="path to MCP server config")
-    parser.add_argument(
-        "--permission-mode",
-        choices=["readonly", "auto", "full"],
-        default="auto",
-        help="tool permission mode",
-    )
+    parser.add_argument("--permission-mode", choices=["readonly", "auto", "full"], default="auto", help="tool permission mode")
     namespace = parser.parse_args(list(argv) if argv is not None else None)
     return CliArgs(
         workspace=os.path.abspath(namespace.workspace),
@@ -72,11 +70,37 @@ def _read_multiline_input(printer: CliPrinter) -> str | None:
         lines.append(line)
 
 
-async def handle_command(
-    session: CliSession,
-    command: CliCommand,
-    printer: CliPrinter,
-) -> CliCommandResult:
+def _find_provider(providers: list[ProviderConfig], target: str) -> ProviderConfig | None:
+    needle = target.strip().lower()
+    return next((item for item in providers if needle in {item.id.lower(), item.name.lower()}), None)
+
+
+def _find_model_owner(providers: list[ProviderConfig], model: str) -> ProviderConfig | None:
+    return next((item for item in providers if model in item.available_models), None)
+
+
+def _format_provider_lines(providers: list[ProviderConfig], current_id: str) -> str:
+    lines = ["[info] 当前 provider 列表:"]
+    for provider in providers:
+        marker = "*" if provider.id == current_id else "-"
+        suffix = " (default)" if provider.is_default else ""
+        lines.append(f"{marker} {provider.name} [{provider.id}] -> {provider.default_model}{suffix}")
+    return "\n".join(lines)
+
+
+def _provider_switch_message(provider: ProviderConfig, model: str) -> str:
+    models = ", ".join(provider.available_models or [provider.default_model])
+    return "\n".join(
+        [
+            f"[info] 已切换到 provider {provider.name}",
+            f"       model: {model}",
+            f"       models: {models}",
+            "       history: preserved, provider metadata cleared",
+        ]
+    )
+
+
+async def handle_command(session: CliSession, command: CliCommand, printer: CliPrinter) -> CliCommandResult:
     try:
         if command.name in {"/exit", "/quit"}:
             printer.print_info("bye.")
@@ -91,22 +115,42 @@ async def handle_command(
             session.loop.reset()
             printer.print_info("[info] 对话历史已清空。")
             return CliCommandResult(session=session)
+        if command.name == "/provider":
+            providers = await session.manager.list_all()
+            if not command.argument:
+                printer.print_info(_format_provider_lines(providers, session.state.provider_id))
+                return CliCommandResult(session=session)
+            target = _find_provider(providers, command.argument)
+            if target is None:
+                printer.print_info(f"[error] provider 不存在: {command.argument}")
+                return CliCommandResult(session=session)
+            if target.id == session.state.provider_id:
+                printer.print_info(f"[info] 当前 provider 已是 {target.name}")
+                return CliCommandResult(session=session)
+            updated = await rebuild_session(session, SessionUpdate(provider=target.id, model=target.default_model, preserve_history=True, clear_provider_metadata=True))
+            printer.print_info(_provider_switch_message(target, updated.state.model))
+            return CliCommandResult(session=updated)
         if command.name == "/model":
             if not command.argument:
                 printer.print_info(f"[info] 当前模型: {session.state.model}")
                 return CliCommandResult(session=session)
-            updated = await rebuild_session(session, SessionUpdate(model=command.argument))
-            printer.print_info(f"[info] 已切换到模型 {updated.state.model}，历史已清空。")
+            providers = await session.manager.list_all()
+            owner = _find_model_owner(providers, command.argument)
+            if owner is not None and owner.id != session.state.provider_id:
+                printer.print_info(f"[!] 当前 provider 是 {session.state.provider_name}，模型 {command.argument} 不在其可用模型列表中。\n    请先用 /provider {owner.name} 切换到 {owner.name} provider。")
+                return CliCommandResult(session=session)
+            if session.state.available_models and command.argument not in session.state.available_models:
+                printer.print_info(f"[error] 当前 provider 不支持模型: {command.argument}")
+                return CliCommandResult(session=session)
+            updated = await rebuild_session(session, SessionUpdate(model=command.argument, preserve_history=True))
+            printer.print_info(f"[info] 已切换到模型 {updated.state.model}，对话历史已保留。")
             return CliCommandResult(session=updated)
         if command.name == "/workspace":
             if not command.argument:
                 printer.print_info(f"[info] 当前工作目录: {session.state.workspace}")
                 return CliCommandResult(session=session)
-            updated = await rebuild_session(
-                session,
-                SessionUpdate(workspace=_normalize_value(command.argument)),
-            )
-            printer.print_info(f"[info] 已切换工作目录到 {updated.state.workspace}，历史已清空。")
+            updated = await rebuild_session(session, SessionUpdate(workspace=_normalize_value(command.argument)))
+            printer.print_info(f"[info] 已切换工作目录到 {updated.state.workspace}，对话历史已清空。")
             return CliCommandResult(session=updated)
         printer.print_info("[error] 未知命令，输入 /help 查看可用命令。")
         return CliCommandResult(session=session)

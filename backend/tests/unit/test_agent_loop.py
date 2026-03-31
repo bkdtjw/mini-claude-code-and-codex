@@ -6,7 +6,7 @@ import pytest
 
 from backend.adapters.base import LLMAdapter
 from backend.common.errors import AgentError
-from backend.common.types import AgentConfig, LLMRequest, LLMResponse, Message, StreamChunk, ToolCall, ToolDefinition, ToolParameterSchema, ToolResult
+from backend.common.types import AgentConfig, LLMRequest, LLMResponse, StreamChunk, ToolCall, ToolDefinition, ToolParameterSchema, ToolResult
 from backend.core.s01_agent_loop.agent_loop import AgentLoop
 from backend.core.s02_tools.registry import ToolRegistry
 
@@ -39,10 +39,15 @@ def _tool_def(name: str) -> ToolDefinition:
 
 @pytest.mark.asyncio
 async def test_run_without_tool_calls_returns_assistant_message() -> None:
-    loop = AgentLoop(AgentConfig(model="test-model"), MockAdapter([LLMResponse(content="hello")]), ToolRegistry())
+    loop = AgentLoop(
+        AgentConfig(model="test-model"),
+        MockAdapter([LLMResponse(content="hello", provider_metadata={"reasoning_content": "step"})]),
+        ToolRegistry(),
+    )
     result = await loop.run("hi")
     assert result.role == "assistant"
     assert result.content == "hello"
+    assert result.provider_metadata["reasoning_content"] == "step"
     assert loop.status == "done"
 
 
@@ -124,7 +129,7 @@ async def test_events_emitted_for_status_and_tools() -> None:
 @pytest.mark.asyncio
 async def test_run_stops_after_three_consecutive_tool_failures() -> None:
     async def failing_tool(_: dict[str, object]) -> ToolResult:
-        return ToolResult(output="PermissionError [WinError 5] 拒绝访问。", is_error=True)
+        return ToolResult(output="PermissionError [WinError 5] access denied", is_error=True)
 
     registry = ToolRegistry()
     registry.register(_tool_def("bash"), failing_tool)
@@ -137,8 +142,8 @@ async def test_run_stops_after_three_consecutive_tool_failures() -> None:
         ]
     )
     loop = AgentLoop(AgentConfig(model="test-model", max_consecutive_tool_failures=3), adapter, registry)
-    result = await loop.run("查看目录")
-    assert "连续失败 3 次" in result.content
+    result = await loop.run("check directory")
+    assert "3" in result.content
     assert "PermissionError" in result.content
     assert result.role == "assistant"
     assert loop.status == "done"

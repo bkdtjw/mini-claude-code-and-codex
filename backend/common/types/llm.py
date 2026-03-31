@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +46,7 @@ class LLMResponse(BaseModel):
     content: str
     tool_calls: list[ToolCall] = Field(default_factory=list)
     usage: LLMUsage = Field(default_factory=LLMUsage)
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 __all__ = [

@@ -24,6 +24,19 @@ def _load_tool_results(payload: str | None) -> list[ToolResult] | None:
     return [ToolResult.model_validate(item) for item in json.loads(payload)]
 
 
+def _dump_provider_metadata(metadata: dict[str, object]) -> str | None:
+    if not metadata:
+        return None
+    return json.dumps(metadata, ensure_ascii=False)
+
+
+def _load_provider_metadata(payload: str | None) -> dict[str, object]:
+    if not payload:
+        return {}
+    loaded = json.loads(payload)
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def to_message_record(session_id: str, message: Message) -> MessageRecord:
     return MessageRecord(
         id=message.id,
@@ -32,6 +45,7 @@ def to_message_record(session_id: str, message: Message) -> MessageRecord:
         content=message.content,
         tool_calls_json=_dump_models(message.tool_calls),
         tool_results_json=_dump_models(message.tool_results),
+        provider_metadata_json=_dump_provider_metadata(message.provider_metadata),
         timestamp=message.timestamp,
     )
 
@@ -44,6 +58,7 @@ def to_message(record: MessageRecord) -> Message:
         tool_calls=_load_tool_calls(record.tool_calls_json),
         tool_results=_load_tool_results(record.tool_results_json),
         timestamp=record.timestamp,
+        provider_metadata=_load_provider_metadata(record.provider_metadata_json),
     )
 
 

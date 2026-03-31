@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.common.types import Session, SessionConfig
 from backend.schemas.session import CreateSessionRequest, SessionListResponse, SessionResponse, UpdateSessionTitleRequest
 from backend.storage import SessionStore
+from .websocket_support import serialize_session_for_client
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -66,7 +67,7 @@ async def get_session(id: str, request: Request) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail={"code": "SESSION_NOT_FOUND", "message": f"Session not found: {id}"})
         loop = manager.get_loop(id)
         messages = loop.messages if loop and loop.messages else await store.get_messages(id)
-        return session.model_copy(update={"messages": messages}).model_dump(mode="json")
+        return serialize_session_for_client(session, messages)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

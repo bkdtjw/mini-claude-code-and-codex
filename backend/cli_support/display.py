@@ -26,6 +26,13 @@ STATUS_MESSAGES = {
 }
 
 
+def _thinking_label(model: str) -> str | None:
+    lowered = model.lower()
+    if "thinking" in lowered or lowered.endswith("-r1") or "reasoner" in lowered:
+        return "auto"
+    return None
+
+
 class CliPrinter:
     def __init__(self) -> None:
         self._last_status = ""
@@ -42,15 +49,18 @@ class CliPrinter:
             f"provider: {session.state.provider_name}  model: {session.state.model}",
             f"workspace: {short_workspace(session.state.workspace)}",
         ]
+        thinking = _thinking_label(session.state.model)
+        if thinking is not None:
+            lines.append(f"thinking: {thinking}")
         print("")
         print(frame(lines))
         print("")
         self.print_tools(session)
         print("")
         print("  commands")
-        print("    /help  /clear  /model <name>  /workspace <path>  /tools  /exit")
+        print("    /help  /clear  /provider <name>  /model <name>  /workspace <path>  /tools  /exit")
         print("")
-        print(f"  {self._paint('tips: 空行提交 · Ctrl+C 中断 · Ctrl+D 退出', '90')}")
+        print(f"  {self._paint('tips: 空行提交 | Ctrl+C 中断 | Ctrl+D 退出', '90')}")
         print("")
 
     def print_tools(self, session: CliSession) -> None:
@@ -89,7 +99,7 @@ class CliPrinter:
         self._last_status = ""
         label = self._summarize_call(tool_call)
         self._tool_runs[tool_call.id] = ToolRun(label=label, started_at=timestamp)
-        print(self._paint(f"• {label}", "36"))
+        print(self._paint(f">> {label}", "36"))
 
     def _handle_tool_result(self, result: ToolResult, timestamp: datetime) -> None:
         self._last_status = ""
@@ -98,11 +108,11 @@ class CliPrinter:
         preview_lines = format_output(result.output or "")
         if result.is_error:
             summary = preview_lines[0] if preview_lines else "工具执行失败"
-            print(self._paint(f"✗ 失败 ({elapsed}): {summary}", "31"))
+            print(self._paint(f"x 失败 ({elapsed}): {summary}", "31"))
             for line in preview_lines[1:]:
                 print(f"  {line}")
             return
-        print(self._paint(f"✓ 完成 ({elapsed})", "32"))
+        print(self._paint(f"ok 完成 ({elapsed})", "32"))
         for line in preview_lines:
             print(f"  {line}")
 

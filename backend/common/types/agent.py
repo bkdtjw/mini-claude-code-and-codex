@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Literal, TypeAlias
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 AgentStatus = Literal[
     "idle",
     "thinking",
+    "compacting",
     "tool_calling",
     "waiting_approval",
     "done",
+    "error",
+]
+
+AgentEventType = Literal[
+    "status_change",
+    "message",
+    "tool_call",
+    "tool_result",
     "error",
 ]
 
@@ -25,16 +35,17 @@ class AgentConfig(BaseModel):
 
 
 class AgentEvent(BaseModel):
-    type: Literal["status_change", "message", "tool_call", "tool_result", "error"]
+    type: AgentEventType
     data: Any = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
-AgentEventHandler: TypeAlias = Callable[[AgentEvent], Awaitable[None] | None]
+type AgentEventHandler = Callable[[AgentEvent], Awaitable[None] | None]
 
 
 __all__ = [
     "AgentStatus",
+    "AgentEventType",
     "AgentConfig",
     "AgentEvent",
     "AgentEventHandler",

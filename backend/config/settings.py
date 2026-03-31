@@ -18,9 +18,19 @@ class Settings(BaseSettings):
     auth_secret: str = "change-me-in-production"
     feishu_webhook_url: str = ""
     feishu_webhook_secret: str = ""
+    youtube_api_key: str = ""
+    youtube_proxy_url: str = ""
+    twitter_username: str = ""
+    twitter_email: str = ""
+    twitter_password: str = ""
+    twitter_proxy_url: str = ""
+    twitter_cookies_file: str = "twitter_cookies.json"
 
     model_config = {
-        "env_file": os.path.join(os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ".", ".env"),
+        "env_file": os.path.join(
+            os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ".",
+            ".env",
+        ),
         "env_file_encoding": "utf-8",
     }
 

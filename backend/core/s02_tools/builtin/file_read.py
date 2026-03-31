@@ -4,6 +4,8 @@ import os
 
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
+MAX_READ_BYTES = 100 * 1024
+
 
 def _is_safe_path(path: str) -> bool:
     if not path or os.path.isabs(path):
@@ -12,13 +14,12 @@ def _is_safe_path(path: str) -> bool:
 
 
 def create_read_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
-    """返回 (定义, 执行函数) 的 tuple，方便直接传给 registry.register()"""
     definition = ToolDefinition(
         name="Read",
-        description="读取指定路径的文件内容",
+        description="Read the contents of a file by relative path.",
         category="file-ops",
         parameters=ToolParameterSchema(
-            properties={"path": {"type": "string", "description": "相对文件路径"}},
+            properties={"path": {"type": "string", "description": "Relative file path"}},
             required=["path"],
         ),
     )
@@ -34,6 +35,11 @@ def create_read_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
                 return ToolResult(output="Invalid path", is_error=True)
             if not os.path.isfile(full_path):
                 return ToolResult(output=f"File not found: {relative_path}", is_error=True)
+            if os.path.getsize(full_path) > MAX_READ_BYTES:
+                return ToolResult(
+                    output=f"File too large to read: {relative_path} exceeds 100KB",
+                    is_error=True,
+                )
             with open(full_path, "r", encoding="utf-8") as file:
                 return ToolResult(output=file.read())
         except Exception as exc:  # noqa: BLE001

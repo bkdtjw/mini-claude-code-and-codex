@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError
@@ -34,14 +34,18 @@ class CliCommand(BaseModel):
 
 class SessionUpdate(BaseModel):
     model: str | None = None
+    provider: str | None = None
     workspace: str | None = None
     permission_mode: PermissionMode | None = None
+    preserve_history: bool = False
+    clear_provider_metadata: bool = False
 
 
 class CliState(BaseModel):
     provider_id: str
     provider_name: str
     model: str
+    available_models: list[str] = Field(default_factory=list)
     workspace: str
     permission_mode: PermissionMode
 

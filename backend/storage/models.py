@@ -44,6 +44,7 @@ class MessageRecord(Base):
     content: Mapped[str] = mapped_column(Text, default="", nullable=False)
     tool_calls_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_results_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     session: Mapped[SessionRecord] = relationship(back_populates="messages")
 

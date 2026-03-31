@@ -16,6 +16,7 @@ htmlcov/
 node_modules/
 frontend/dist/
 .DS_Store
+twitter_cookies.json
 backend/config/providers.json
 backend/config/mcp_servers.json
 backend/tests/.tmp*/

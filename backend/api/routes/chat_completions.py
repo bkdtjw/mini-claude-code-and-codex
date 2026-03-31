@@ -44,7 +44,18 @@ def _openai_messages_to_internal(messages: list[dict]) -> list[Message]:
         role = item.get("role", "user")
         if role == "assistant":
             calls = [ToolCall(id=tc.get("id", ""), name=tc.get("function", {}).get("name", ""), arguments=_parse_args(tc.get("function", {}).get("arguments", ""))) for tc in item.get("tool_calls", []) or []]
-            out.append(Message(role="assistant", content=_to_text(item.get("content")), tool_calls=calls or None))
+            provider_metadata: dict[str, Any] = {}
+            reasoning = item.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning:
+                provider_metadata["reasoning_content"] = reasoning
+            out.append(
+                Message(
+                    role="assistant",
+                    content=_to_text(item.get("content")),
+                    tool_calls=calls or None,
+                    provider_metadata=provider_metadata,
+                )
+            )
         elif role == "tool":
             res = ToolResult(tool_call_id=item.get("tool_call_id", ""), output=_to_text(item.get("content")))
             out.append(Message(role="tool", content="", tool_results=[res]))
@@ -76,6 +87,13 @@ async def chat_completions(request: ChatCompletionRequest) -> Any:
             default_model=request.model,
             feishu_webhook_url=app_settings.feishu_webhook_url or None,
             feishu_secret=app_settings.feishu_webhook_secret or None,
+            youtube_api_key=app_settings.youtube_api_key or None,
+            youtube_proxy_url=app_settings.youtube_proxy_url or None,
+            twitter_username=app_settings.twitter_username or None,
+            twitter_email=app_settings.twitter_email or None,
+            twitter_password=app_settings.twitter_password or None,
+            twitter_proxy_url=app_settings.twitter_proxy_url or None,
+            twitter_cookies_file=app_settings.twitter_cookies_file or None,
         )
         await MCPToolBridge(mcp_server_manager, registry).sync_all()
         loop = AgentLoop(config=AgentConfig(model=request.model, system_prompt=""), adapter=adapter, tool_registry=registry)

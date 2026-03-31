@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from sqlalchemy import event
+from sqlalchemy import event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -41,10 +41,20 @@ def build_session_factory(database_url: str) -> tuple[AsyncEngine, SessionFactor
 engine, session_factory = build_session_factory(settings.database_url)
 
 
+def _ensure_message_columns(connection: object) -> None:
+    inspector = inspect(connection)
+    if "messages" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("messages")}
+    if "provider_metadata_json" not in columns:
+        connection.execute(text("ALTER TABLE messages ADD COLUMN provider_metadata_json TEXT"))
+
+
 async def init_db(target_engine: AsyncEngine | None = None) -> None:
     try:
         async with (target_engine or engine).begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            await connection.run_sync(_ensure_message_columns)
     except Exception as exc:  # noqa: BLE001
         raise AgentError("DB_INIT_ERROR", str(exc)) from exc
 

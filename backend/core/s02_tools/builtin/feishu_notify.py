@@ -11,6 +11,8 @@ import httpx
 
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
+REQUEST_TIMEOUT_SECONDS = 10.0
+
 
 def _generate_sign(secret: str) -> tuple[str, str]:
     timestamp = str(int(time.time()))
@@ -29,60 +31,81 @@ def create_feishu_notify_tool(
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="feishu_notify",
-        description="发送消息到飞书群。支持纯文本和富文本格式。",
+        description="Send a message to a Feishu bot webhook.",
         category="shell",
         parameters=ToolParameterSchema(
             properties={
-                "content": {"type": "string", "description": "消息正文内容"},
-                "title": {"type": "string", "description": "消息标题（可选，填写后以富文本格式发送）"},
+                "content": {"type": "string", "description": "Message body"},
+                "title": {
+                    "type": "string",
+                    "description": "Optional rich-text title",
+                },
             },
             required=["content"],
         ),
     )
-    default_url = webhook_url or os.environ.get("FEISHU_WEBHOOK_URL", "")
+    resolved_url = (webhook_url or os.environ.get("FEISHU_WEBHOOK_URL", "")).strip()
 
     async def execute(args: dict[str, Any]) -> ToolResult:
         try:
             content = str(args.get("content", "")).strip()
             if not content:
-                return ToolResult(output="content 不能为空", is_error=True)
-            url = default_url
-            if not url:
-                return ToolResult(output="未配置 FEISHU_WEBHOOK_URL", is_error=True)
+                return ToolResult(output="content cannot be empty", is_error=True)
+            if not resolved_url:
+                return ToolResult(output="FEISHU_WEBHOOK_URL is not configured", is_error=True)
             title = str(args.get("title", "")).strip()
-            if title:
-                body: dict[str, Any] = {
-                    "msg_type": "post",
-                    "content": {
-                        "post": {
-                            "zh_cn": {
-                                "title": title,
-                                "content": [[{"tag": "text", "text": content}]],
-                            }
-                        }
-                    },
-                }
-            else:
-                body = {"msg_type": "text", "content": {"text": content}}
-            if secret:
-                ts, sign = _generate_sign(secret)
-                body["timestamp"] = ts
-                body["sign"] = sign
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(url, json=body)
-            if resp.status_code >= 400:
-                return ToolResult(output=f"飞书发送失败: HTTP {resp.status_code}", is_error=True)
+            body = _build_request_body(content=content, title=title, secret=secret)
             try:
-                data = resp.json()
+                async with httpx.AsyncClient(
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                    trust_env=False,
+                ) as client:
+                    response = await client.post(resolved_url, json=body)
+            except httpx.HTTPError as exc:
+                return ToolResult(output=f"Feishu request failed: {exc}", is_error=True)
+            if response.status_code >= 400:
+                return ToolResult(
+                    output=f"Feishu request failed with HTTP {response.status_code}",
+                    is_error=True,
+                )
+            try:
+                data = response.json()
             except ValueError:
-                return ToolResult(output="飞书发送失败: 响应不是有效 JSON", is_error=True)
+                return ToolResult(
+                    output="Feishu request failed: response is not valid JSON",
+                    is_error=True,
+                )
             if data.get("StatusCode", data.get("code")) == 0:
-                return ToolResult(output=f"飞书消息发送成功: {title or '(纯文本)'}")
-            return ToolResult(
-                output=f"飞书发送失败: {data.get('StatusMessage', data.get('msg', str(data)))}",
-                is_error=True,
-            )
+                label = title or "(text)"
+                return ToolResult(output=f"Feishu message sent: {label}")
+            error_message = data.get("StatusMessage", data.get("msg", str(data)))
+            return ToolResult(output=f"Feishu request failed: {error_message}", is_error=True)
         except Exception as exc:  # noqa: BLE001
             return ToolResult(output=str(exc), is_error=True)
 
     return definition, execute
+
+
+def _build_request_body(content: str, title: str, secret: str | None) -> dict[str, Any]:
+    if title:
+        body: dict[str, Any] = {
+            "msg_type": "post",
+            "content": {
+                "post": {
+                    "zh_cn": {
+                        "title": title,
+                        "content": [[{"tag": "text", "text": content}]],
+                    }
+                }
+            },
+        }
+    else:
+        body = {"msg_type": "text", "content": {"text": content}}
+    if secret:
+        timestamp, sign = _generate_sign(secret)
+        body["timestamp"] = timestamp
+        body["sign"] = sign
+    return body
+
+
+__all__ = ["create_feishu_notify_tool"]

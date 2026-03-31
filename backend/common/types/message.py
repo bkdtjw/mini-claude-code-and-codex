@@ -32,6 +32,7 @@ class Message(BaseModel):
     tool_calls: list[ToolCall] | None = None
     tool_results: list[ToolResult] | None = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class StreamChunk(BaseModel):

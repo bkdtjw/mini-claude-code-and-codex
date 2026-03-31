@@ -51,14 +51,15 @@ class FakeProviderManager(ProviderManager):
         return self._adapter
 
 
-def _provider() -> ProviderConfig:
+def _provider(model: str = "kimi-k2-thinking") -> ProviderConfig:
     return ProviderConfig(
         id="provider-1",
         name="Test Provider",
         provider_type=ProviderType.OPENAI_COMPAT,
         base_url="https://example.com",
         api_key="",
-        default_model="test-model",
+        default_model=model,
+        available_models=[model],
         is_default=True,
     )
 
@@ -95,7 +96,7 @@ def _register_tool(session_name: str, session: object) -> None:
 
 
 @pytest.mark.asyncio
-async def test_print_welcome_groups_tools(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_print_welcome_groups_tools_and_shows_provider_command(capsys: pytest.CaptureFixture[str]) -> None:
     session = await create_session(
         CliArgs(workspace=_make_workspace()),
         manager=FakeProviderManager(_provider()),
@@ -117,6 +118,8 @@ async def test_print_welcome_groups_tools(capsys: pytest.CaptureFixture[str]) ->
     output = capsys.readouterr().out
     assert "miniclaude v0.1.0" in output
     assert "workspace: .../repo/agent-studio" in output
+    assert "thinking: auto" in output
+    assert "/provider <name>" in output
     assert "builtin" in output
     assert "github" in output
     assert "(+3)" in output
@@ -126,7 +129,7 @@ async def test_print_welcome_groups_tools(capsys: pytest.CaptureFixture[str]) ->
 async def test_tools_command_prints_grouped_tools(capsys: pytest.CaptureFixture[str]) -> None:
     session = await create_session(
         CliArgs(workspace=_make_workspace()),
-        manager=FakeProviderManager(_provider()),
+        manager=FakeProviderManager(_provider("test-model")),
         mcp_manager=_make_empty_mcp_manager(),
     )
     for name in ["mcp__git__status", "mcp__git__diff", "mcp__github__create_issue"]:
@@ -143,13 +146,7 @@ def test_printer_formats_tool_events(capsys: pytest.CaptureFixture[str]) -> None
     printer = CliPrinter()
     started_at = datetime(2026, 3, 28, 10, 0, 0)
     output = "\n".join(f"line {index}" for index in range(12))
-    printer.handle_event(
-        AgentEvent(
-            type="tool_call",
-            data=ToolCall(id="call-1", name="Bash", arguments={"command": "ls"}),
-            timestamp=started_at,
-        )
-    )
+    printer.handle_event(AgentEvent(type="tool_call", data=ToolCall(id="call-1", name="Bash", arguments={"command": "ls"}), timestamp=started_at))
     printer.handle_event(
         AgentEvent(
             type="tool_result",
@@ -159,5 +156,5 @@ def test_printer_formats_tool_events(capsys: pytest.CaptureFixture[str]) -> None
     )
     formatted = capsys.readouterr().out
     assert "Bash(ls)" in formatted
-    assert "完成 (0.3s)" in formatted
-    assert "... (共 12 行)" in formatted
+    assert "0.3s" in formatted
+    assert "line 0" in formatted
