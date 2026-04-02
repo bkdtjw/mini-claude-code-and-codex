@@ -55,3 +55,8 @@ curl http://localhost:8000/v1/chat/completions \
   -H "Authorization: Bearer your-key" \
   -d '{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"读一下 main.py"}],"stream":true}'
 ```
+
+## SubAgent 能力
+
+- 已支持 `dispatch_agent` 子 Agent 派生。
+- 已支持并行子任务：传入 `tasks`（数组）和可选 `max_concurrent`（默认 3）即可并发执行。
