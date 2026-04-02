@@ -25,7 +25,9 @@ class DispatchAgentArgs(BaseModel):
         if self.task is None and not self.tasks:
             raise ValueError("Either 'task' or 'tasks' must be provided.")
         if self.max_concurrent < 1:
-            raise ValueError("'max_concurrent' must be at least 1.")
+            raise ValueError(
+                f"'max_concurrent' must be at least 1, got {self.max_concurrent}."
+            )
         return self
 
 

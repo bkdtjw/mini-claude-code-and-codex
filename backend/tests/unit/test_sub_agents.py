@@ -150,20 +150,24 @@ async def test_dispatch_agent_parallel_respects_max_concurrent_floor() -> None:
 
 
 class SlowAdapter(LLMAdapter):
-    current: int = 0
-    peak: int = 0
+    def __init__(self) -> None:
+        self.current = 0
+        self.peak = 0
+        self._lock = asyncio.Lock()
 
     async def test_connection(self) -> bool:
         return True
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        type(self).current += 1
-        type(self).peak = max(type(self).peak, type(self).current)
+        async with self._lock:
+            self.current += 1
+            self.peak = max(self.peak, self.current)
         try:
             await asyncio.sleep(0.05)
             return LLMResponse(content="ok")
         finally:
-            type(self).current -= 1
+            async with self._lock:
+                self.current -= 1
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         if False:
@@ -172,14 +176,13 @@ class SlowAdapter(LLMAdapter):
 
 @pytest.mark.asyncio
 async def test_dispatch_agent_parallel_honors_max_concurrent() -> None:
-    SlowAdapter.current = 0
-    SlowAdapter.peak = 0
+    adapter = SlowAdapter()
     registry = ToolRegistry()
     register_builtin_tools(
         registry,
         _make_workspace(),
         mode="auto",
-        adapter=SlowAdapter(),
+        adapter=adapter,
         default_model="test-model",
     )
     tool = registry.get("dispatch_agent")
@@ -187,4 +190,4 @@ async def test_dispatch_agent_parallel_honors_max_concurrent() -> None:
     _, executor = tool
     result = await executor({"tasks": ["t1", "t2", "t3"], "max_concurrent": 1})
     assert result.is_error is False
-    assert SlowAdapter.peak == 1
+    assert adapter.peak == 1
