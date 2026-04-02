@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from uuid import uuid4
@@ -104,3 +105,89 @@ async def test_dispatch_agent_child_registry_excludes_recursive_tool() -> None:
     result = await executor({"role": "reviewer", "task": "审查 websocket"})
     assert result.is_error is False
     assert result.output == "tools:Bash,Read"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_agent_supports_parallel_tasks() -> None:
+    registry = ToolRegistry()
+    register_builtin_tools(
+        registry,
+        _make_workspace(),
+        mode="auto",
+        adapter=FakeAdapter(),
+        default_model="test-model",
+    )
+    tool = registry.get("dispatch_agent")
+    assert tool is not None
+    _, executor = tool
+    result = await executor(
+        {
+            "role": "reviewer",
+            "tasks": ["审查 websocket", "审查 session"],
+            "max_concurrent": 2,
+        }
+    )
+    assert result.is_error is False
+    assert result.output == "tools:Bash,Read\n\n---\n\ntools:Bash,Read"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_agent_parallel_respects_max_concurrent_floor() -> None:
+    registry = ToolRegistry()
+    register_builtin_tools(
+        registry,
+        _make_workspace(),
+        mode="auto",
+        adapter=FakeAdapter(),
+        default_model="test-model",
+    )
+    tool = registry.get("dispatch_agent")
+    assert tool is not None
+    _, executor = tool
+    result = await executor({"tasks": ["a"], "max_concurrent": 0})
+    assert result.is_error is True
+    assert "max_concurrent" in result.output
+
+
+class SlowAdapter(LLMAdapter):
+    def __init__(self) -> None:
+        self.current = 0
+        self.peak = 0
+        self._lock = asyncio.Lock()
+
+    async def test_connection(self) -> bool:
+        return True
+
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        async with self._lock:
+            self.current += 1
+            self.peak = max(self.peak, self.current)
+        try:
+            await asyncio.sleep(0.05)
+            return LLMResponse(content="ok")
+        finally:
+            async with self._lock:
+                self.current -= 1
+
+    async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
+        if False:
+            yield StreamChunk(type="done")
+
+
+@pytest.mark.asyncio
+async def test_dispatch_agent_parallel_honors_max_concurrent() -> None:
+    adapter = SlowAdapter()
+    registry = ToolRegistry()
+    register_builtin_tools(
+        registry,
+        _make_workspace(),
+        mode="auto",
+        adapter=adapter,
+        default_model="test-model",
+    )
+    tool = registry.get("dispatch_agent")
+    assert tool is not None
+    _, executor = tool
+    result = await executor({"tasks": ["t1", "t2", "t3"], "max_concurrent": 1})
+    assert result.is_error is False
+    assert adapter.peak == 1
