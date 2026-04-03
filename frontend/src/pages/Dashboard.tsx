@@ -15,8 +15,10 @@ export default function Dashboard() {
   const provider = providers.find((item) => item.id === providerId);
   const workspaceName = workspace?.split(/[/\\]/).pop();
 
-  const startChat = async (_prompt?: string) => {
+  const startChat = async (prompt?: string) => {
     const id = await createSession(model, providerId ?? undefined);
+    const initialPrompt = prompt?.trim();
+    if (initialPrompt) await useSessionStore.getState().sendMessage(initialPrompt);
     navigate(`/session/${id}`);
   };
 
@@ -49,17 +51,29 @@ export default function Dashboard() {
           </div>
 
           <div className="mb-3 flex flex-wrap justify-center gap-3">
-            <button type="button" onClick={() => void startChat()} className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]">
+            <button
+              type="button"
+              onClick={() => void startChat("在此仓库中构建一个经典贪吃蛇游戏")}
+              className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]"
+            >
               <div className="text-lg">🎮</div>
               <p className="mt-2 text-sm text-[#cccccc]">在此仓库中构建一个经典贪吃蛇游戏</p>
             </button>
-            <button type="button" onClick={() => void startChat()} className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]">
+            <button
+              type="button"
+              onClick={() => void startChat("创建一份总结此应用的 PDF")}
+              className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]"
+            >
               <div className="text-lg">📄</div>
               <p className="mt-2 text-sm text-[#cccccc]">创建一份总结此应用的 PDF</p>
             </button>
-            <button type="button" onClick={() => void startChat()} className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]">
+            <button
+              type="button"
+              onClick={() => void startChat("你觉得我的项目怎么样，有什么未来的迭代方向呢😁现在只是理清思路")}
+              className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]"
+            >
               <div className="text-lg">📝</div>
-              <p className="mt-2 text-sm text-[#cccccc]">创建一个计划来...</p>
+              <p className="mt-2 text-sm text-[#cccccc]">你觉得我的项目怎么样，有什么未来的迭代方向呢😁现在只是理清思路</p>
             </button>
           </div>
 
