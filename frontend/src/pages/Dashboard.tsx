@@ -4,6 +4,14 @@ import InputBar from "@/components/chat/InputBar";
 import { useAgentStore } from "@/stores/agentStore";
 import { useSessionStore } from "@/stores/sessionStore";
 
+const SUGGESTION_PROMPTS = [
+  { icon: "🎮", text: "在此仓库中构建一个经典贪吃蛇游戏" },
+  { icon: "📄", text: "创建一份总结此应用的 PDF" },
+  { icon: "📝", text: "你觉得我的项目怎么样，有什么未来的迭代方向呢😁现在只是理清思路" },
+] as const;
+const MAX_SESSION_READY_ATTEMPTS = 5;
+const SESSION_READY_WAIT_MS = 20;
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const createSession = useSessionStore((state) => state.createSession);
@@ -17,9 +25,23 @@ export default function Dashboard() {
 
   const startChat = async (prompt?: string) => {
     const id = await createSession(model, providerId ?? undefined);
-    const initialPrompt = prompt?.trim();
-    if (initialPrompt) await useSessionStore.getState().sendMessage(initialPrompt);
     navigate(`/session/${id}`);
+    const initialPrompt = prompt?.trim();
+    if (!initialPrompt) return;
+    const sessionStore = useSessionStore.getState();
+    if (sessionStore.currentSessionId !== id) sessionStore.selectSession(id);
+    let attempts = 0;
+    let currentSessionId = useSessionStore.getState().currentSessionId;
+    while (currentSessionId !== id && attempts < MAX_SESSION_READY_ATTEMPTS) {
+      attempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, SESSION_READY_WAIT_MS));
+      currentSessionId = useSessionStore.getState().currentSessionId;
+    }
+    if (currentSessionId !== id) {
+      console.warn("starter prompt send skipped: session not ready", { targetSessionId: id, currentSessionId });
+      return;
+    }
+    await useSessionStore.getState().sendMessage(initialPrompt);
   };
 
   return (
@@ -51,30 +73,17 @@ export default function Dashboard() {
           </div>
 
           <div className="mb-3 flex flex-wrap justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => void startChat("在此仓库中构建一个经典贪吃蛇游戏")}
-              className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]"
-            >
-              <div className="text-lg">🎮</div>
-              <p className="mt-2 text-sm text-[#cccccc]">在此仓库中构建一个经典贪吃蛇游戏</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => void startChat("创建一份总结此应用的 PDF")}
-              className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]"
-            >
-              <div className="text-lg">📄</div>
-              <p className="mt-2 text-sm text-[#cccccc]">创建一份总结此应用的 PDF</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => void startChat("你觉得我的项目怎么样，有什么未来的迭代方向呢😁现在只是理清思路")}
-              className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]"
-            >
-              <div className="text-lg">📝</div>
-              <p className="mt-2 text-sm text-[#cccccc]">你觉得我的项目怎么样，有什么未来的迭代方向呢😁现在只是理清思路</p>
-            </button>
+            {SUGGESTION_PROMPTS.map((item) => (
+              <button
+                key={item.text}
+                type="button"
+                onClick={() => void startChat(item.text)}
+                className="w-56 rounded-xl bg-[#1a1a1a] px-4 py-4 text-left transition hover:bg-[#252525]"
+              >
+                <div className="text-lg">{item.icon}</div>
+                <p className="mt-2 text-sm text-[#cccccc]">{item.text}</p>
+              </button>
+            ))}
           </div>
 
           <InputBar status="idle" onSend={(text) => void startChat(text)} onAbort={() => {}} compact />
