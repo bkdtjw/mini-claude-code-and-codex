@@ -9,8 +9,9 @@ const SUGGESTION_PROMPTS = [
   { icon: "📄", text: "创建一份总结此应用的 PDF" },
   { icon: "📝", text: "你觉得我的项目怎么样，有什么未来的迭代方向呢😁现在只是理清思路" },
 ] as const;
+// Wait up to ~500ms for the freshly created session to become current before auto-sending starter text.
 const MAX_SESSION_READY_ATTEMPTS = 5;
-const SESSION_READY_WAIT_MS = 20;
+const SESSION_READY_WAIT_MS = 100;
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -38,7 +39,10 @@ export default function Dashboard() {
       currentSessionId = useSessionStore.getState().currentSessionId;
     }
     if (currentSessionId !== id) {
-      console.warn("starter prompt send skipped: session not ready", { targetSessionId: id, currentSessionId });
+      console.warn("starter prompt send skipped: session not ready; increase MAX_SESSION_READY_ATTEMPTS or SESSION_READY_WAIT_MS if frequent", {
+        targetSessionId: id,
+        currentSessionId,
+      });
       return;
     }
     await useSessionStore.getState().sendMessage(initialPrompt);
