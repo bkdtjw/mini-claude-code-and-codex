@@ -4,8 +4,13 @@ import os
 from typing import Literal
 
 from backend.adapters.base import LLMAdapter
-from backend.core.s02_tools.registry import ToolRegistry
-from backend.core.s04_sub_agents import AgentDefinitionLoader, SubAgentLifecycle, SubAgentSpawner
+from backend.config.settings import settings as app_settings
+from backend.core.s02_tools import ToolRegistry
+from backend.core.s04_sub_agents import (
+    AgentDefinitionLoader,
+    SubAgentLifecycle,
+    SubAgentSpawner,
+)
 
 from .bash import create_bash_tool
 from .dispatch_agent import create_dispatch_agent_tool
@@ -44,6 +49,24 @@ def register_builtin_tools(
             spawner = SubAgentSpawner(adapter, registry, loader, default_model)
             lifecycle = SubAgentLifecycle(timeout=120.0)
             tools.append(create_dispatch_agent_tool(spawner, lifecycle))
+            try:
+                from backend.core.s04_sub_agents import OrchestratorConfig
+
+                from .orchestrate_agents import create_orchestrate_agents_tool
+            except ImportError:
+                pass
+            else:
+                tools.append(
+                    create_orchestrate_agents_tool(
+                        adapter=adapter,
+                        parent_registry=registry,
+                        config=OrchestratorConfig(
+                            workspace=workspace,
+                            default_model=default_model,
+                            agents_dir=agents_dir,
+                        ),
+                    )
+                )
 
     resolved_youtube_api_key = youtube_api_key or os.environ.get("YOUTUBE_API_KEY", "")
     if resolved_youtube_api_key:
@@ -87,6 +110,42 @@ def register_builtin_tools(
     resolved_feishu_secret = feishu_secret or os.environ.get("FEISHU_WEBHOOK_SECRET", "")
     if feishu_url:
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
+
+    proxy_api_url = os.environ.get("MIHOMO_API_URL", "http://127.0.0.1:9090")
+    proxy_api_secret = os.environ.get("MIHOMO_SECRET", "")
+    try:
+        from .proxy_tools import (
+            create_proxy_chain_tool,
+            create_proxy_optimize_tool,
+            create_proxy_status_tool,
+            create_proxy_switch_tool,
+            create_proxy_test_tool,
+        )
+
+        tools.append(create_proxy_status_tool(proxy_api_url, proxy_api_secret))
+        tools.append(create_proxy_test_tool(proxy_api_url, proxy_api_secret))
+        tools.append(create_proxy_switch_tool(proxy_api_url, proxy_api_secret))
+        mihomo_config_path = app_settings.mihomo_config_path or os.environ.get(
+            "MIHOMO_CONFIG_PATH",
+            "",
+        )
+        if mihomo_config_path:
+            tools.append(
+                create_proxy_optimize_tool(
+                    mihomo_config_path,
+                    proxy_api_url,
+                    proxy_api_secret,
+                )
+            )
+            tools.append(
+                create_proxy_chain_tool(
+                    mihomo_config_path,
+                    proxy_api_url,
+                    proxy_api_secret,
+                )
+            )
+    except ImportError:
+        pass
 
     for definition, executor in tools:
         registry.register(definition, executor)
