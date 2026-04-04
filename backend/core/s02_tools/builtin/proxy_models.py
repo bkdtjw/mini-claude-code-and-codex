@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -58,11 +60,36 @@ class DelayTestResult(BaseModel):
     timestamp: str = ""
 
 
+class ChainConfigState(BaseModel):
+    exit_node: str = ""
+    transit_pattern: str = ""
+    transit_nodes: list[str] = Field(default_factory=list)
+
+
+class CustomNodesState(BaseModel):
+    exit_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    chain_config: ChainConfigState = Field(default_factory=ChainConfigState)
+
+
+class ProxyLifecycleConfig(BaseModel):
+    mihomo_path: str
+    config_path: str
+    work_dir: str
+    sub_path: str
+    custom_nodes_path: str
+    api_url: str = "http://127.0.0.1:9090"
+    api_secret: str = ""
+    proxy_port: int = 7890
+
+
 __all__ = [
+    "ChainConfigState",
+    "CustomNodesState",
     "DelayTestResult",
     "ProxyConfig",
     "ProxyDelayRecord",
     "ProxyGroup",
+    "ProxyLifecycleConfig",
     "ProxyNode",
     "ProxyStatus",
 ]

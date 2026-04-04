@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Literal
 
 from backend.adapters.base import LLMAdapter
@@ -114,6 +115,7 @@ def register_builtin_tools(
     proxy_api_url = os.environ.get("MIHOMO_API_URL", "http://127.0.0.1:9090")
     proxy_api_secret = os.environ.get("MIHOMO_SECRET", "")
     try:
+        from .proxy_lifecycle_tools import create_proxy_off_tool, create_proxy_on_tool
         from .proxy_tools import (
             create_proxy_chain_tool,
             create_proxy_optimize_tool,
@@ -130,6 +132,12 @@ def register_builtin_tools(
             "",
         )
         if mihomo_config_path:
+            config_dir = Path(mihomo_config_path).resolve().parent
+            custom_nodes_path = str(config_dir / "custom_nodes.yaml")
+            sub_path = app_settings.mihomo_sub_path or os.environ.get(
+                "MIHOMO_SUB_PATH",
+                str(config_dir / "sub_raw.yaml"),
+            )
             tools.append(
                 create_proxy_optimize_tool(
                     mihomo_config_path,
@@ -142,8 +150,26 @@ def register_builtin_tools(
                     mihomo_config_path,
                     proxy_api_url,
                     proxy_api_secret,
+                    custom_nodes_path=custom_nodes_path,
                 )
             )
+        mihomo_path = app_settings.mihomo_path or os.environ.get("MIHOMO_PATH", "")
+        if mihomo_path and mihomo_config_path:
+            config_dir = Path(mihomo_config_path).resolve().parent
+            tools.append(
+                create_proxy_on_tool(
+                    mihomo_path=mihomo_path,
+                    config_path=mihomo_config_path,
+                    work_dir=app_settings.mihomo_work_dir
+                    or os.environ.get("MIHOMO_WORK_DIR", "")
+                    or str(config_dir),
+                    sub_path=sub_path,
+                    custom_nodes_path=str(config_dir / "custom_nodes.yaml"),
+                    api_url=proxy_api_url,
+                    secret=proxy_api_secret,
+                )
+            )
+            tools.append(create_proxy_off_tool())
     except ImportError:
         pass
 

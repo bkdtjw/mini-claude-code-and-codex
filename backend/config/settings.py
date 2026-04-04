@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     mihomo_path: str = ""
     mihomo_config_path: str = ""
     mihomo_work_dir: str = ""
+    mihomo_sub_path: str = ""
     youtube_api_key: str = ""
     youtube_proxy_url: str = ""
     twitter_username: str = ""
