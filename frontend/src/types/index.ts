@@ -49,6 +49,7 @@ export type WsIncoming =
   | { type: "message"; content: string; toolCalls?: ToolCall[] }
   | { type: "tool_call"; id: string; name: string; arguments: Record<string, unknown> }
   | { type: "tool_result"; toolCallId: string; output: string; isError: boolean }
+  | { type: "security_reject"; toolCallId: string; output: string; isError: boolean }
   | { type: "text"; content: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };

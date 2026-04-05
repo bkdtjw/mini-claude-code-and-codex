@@ -58,7 +58,10 @@ class CliPrinter:
         self.print_tools(session)
         print("")
         print("  commands")
-        print("    /help  /clear  /provider <name>  /model <name>  /workspace <path>  /tools  /exit")
+        print(
+            "    /help  /clear  /provider <name>  /model <name>  "
+            "/workspace <path>  /tools  /exit"
+        )
         print("")
         print(f"  {self._paint('tips: 空行提交 | Ctrl+C 中断 | Ctrl+D 退出', '90')}")
         print("")
@@ -81,6 +84,9 @@ class CliPrinter:
             return
         if event.type == "tool_result" and isinstance(event.data, ToolResult):
             self._handle_tool_result(event.data, event.timestamp)
+            return
+        if event.type == "security_reject" and isinstance(event.data, ToolResult):
+            self._handle_security_reject(event.data)
             return
         if event.type == "message" and isinstance(event.data, Message):
             self._handle_message(event.data)
@@ -115,6 +121,9 @@ class CliPrinter:
         print(self._paint(f"ok 完成 ({elapsed})", "32"))
         for line in preview_lines:
             print(f"  {line}")
+
+    def _handle_security_reject(self, result: ToolResult) -> None:
+        print(self._paint(f"[SECURITY] 拦截: {result.output}", "1;31"))
 
     def _handle_message(self, message: Message) -> None:
         content = message.content.strip()

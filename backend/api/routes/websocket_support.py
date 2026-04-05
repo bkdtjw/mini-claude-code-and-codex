@@ -94,11 +94,27 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
     if event.type == "status_change":
         return {"type": "status", "status": data}
     if event.type == "message" and isinstance(data, Message):
-        return {"type": "message", "content": data.content, "tool_calls": [call.model_dump() for call in data.tool_calls or []]}
+        return {
+            "type": "message",
+            "content": data.content,
+            "tool_calls": [call.model_dump() for call in data.tool_calls or []],
+        }
     if event.type == "tool_call" and isinstance(data, ToolCall):
         return {"type": "tool_call", "id": data.id, "name": data.name, "arguments": data.arguments}
     if event.type == "tool_result" and isinstance(data, ToolResult):
-        return {"type": "tool_result", "tool_call_id": data.tool_call_id, "output": data.output, "is_error": data.is_error}
+        return {
+            "type": "tool_result",
+            "tool_call_id": data.tool_call_id,
+            "output": data.output,
+            "is_error": data.is_error,
+        }
+    if event.type == "security_reject" and isinstance(data, ToolResult):
+        return {
+            "type": "security_reject",
+            "tool_call_id": data.tool_call_id,
+            "output": data.output,
+            "is_error": data.is_error,
+        }
     return {"type": "error", "message": str(getattr(data, "message", data))}
 
 
@@ -106,7 +122,12 @@ async def run_loop(payload: RunLoopInput) -> None:
     try:
         result = await payload.loop.run(payload.message)
         try:
-            await payload.websocket.send_json({"type": "done", "message": serialize_message_for_client(result) if result else None})
+            await payload.websocket.send_json(
+                {
+                    "type": "done",
+                    "message": serialize_message_for_client(result) if result else None,
+                }
+            )
         except Exception:
             return
     except asyncio.CancelledError:

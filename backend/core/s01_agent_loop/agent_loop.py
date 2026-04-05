@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 from typing import Any
 
 from backend.adapters.base import LLMAdapter
@@ -15,15 +14,18 @@ from backend.common.types import (
     AgentStatus,
     LLMRequest,
     Message,
+    SecurityPolicy,
     ToolCall,
     ToolResult,
 )
-from backend.core.s02_tools import ToolExecutor, ToolRegistry
+from backend.core.s02_tools import SecurityGate, ToolExecutor, ToolRegistry
 from backend.core.s06_context_compression import (
     ContextCompressor,
     ThresholdPolicy,
     TokenCounter,
 )
+
+from .agent_loop_support import update_tool_failures
 
 
 class AgentLoop:
@@ -33,10 +35,15 @@ class AgentLoop:
         adapter: LLMAdapter,
         tool_registry: ToolRegistry,
         compressor: ContextCompressor | None = None,
+        security_policy: SecurityPolicy | None = None,
     ) -> None:
         self._config = config
         self._adapter = adapter
         self._executor = ToolExecutor(tool_registry)
+        self._security_gate = SecurityGate(
+            policy=security_policy or SecurityPolicy(allowed_tools=[], dangerous_tools=[]),
+            registry=tool_registry,
+        )
         self._compressor = compressor or ContextCompressor(
             adapter=adapter,
             model=config.model,
@@ -61,33 +68,6 @@ class AgentLoop:
     def _ensure_system_message(self) -> None:
         if not self._messages and self._config.system_prompt:
             self._messages.append(Message(role="system", content=self._config.system_prompt))
-
-    @staticmethod
-    def _summarize_tool_call(tool_call: ToolCall) -> str:
-        command = tool_call.arguments.get("command")
-        path = tool_call.arguments.get("path")
-        detail = command if isinstance(command, str) and command else path
-        if not isinstance(detail, str) or not detail:
-            detail = json.dumps(tool_call.arguments, ensure_ascii=False, default=str)
-        return f"{tool_call.name}({detail})"
-
-    def _build_tool_failure_message(self, failures: list[tuple[ToolCall, ToolResult]]) -> Message:
-        lines = [
-            (
-                f"工具调用已连续失败 "
-                f"{self._config.max_consecutive_tool_failures} 次，我先停止自动重试。"
-            ),
-            "最近的失败如下：",
-        ]
-        for index, (tool_call, result) in enumerate(
-            failures[-self._config.max_consecutive_tool_failures :],
-            start=1,
-        ):
-            output = result.output.strip() or "没有额外输出。"
-            lines.append(f"{index}. {self._summarize_tool_call(tool_call)}")
-            lines.append(f"   错误: {output}")
-        lines.append("请检查当前工作目录、权限或工具参数后再继续。")
-        return Message(role="assistant", content="\n".join(lines))
 
     @property
     def status(self) -> AgentStatus:
@@ -142,20 +122,28 @@ class AgentLoop:
                 self._emit("status_change", self._status)
                 for call in response.tool_calls:
                     self._emit("tool_call", call)
-                results = await self._executor.execute_batch(response.tool_calls)
+                auth_result = self._security_gate.authorize(response.tool_calls)
+                for rejected in auth_result.rejected_results:
+                    self._emit("security_reject", rejected)
+                signed_results = await self._executor.execute_signed_batch(
+                    auth_result.signed_calls,
+                    self._security_gate,
+                )
+                results = [*auth_result.rejected_results, *signed_results]
                 for result in results:
                     self._emit("tool_result", result)
                 self._messages.append(Message(role="tool", content="", tool_results=results))
                 if self._config.max_consecutive_tool_failures > 0:
-                    for tool_call, result in zip(response.tool_calls, results):
-                        if result.is_error:
-                            consecutive_tool_failures += 1
-                            recent_failures.append((tool_call, result))
-                        else:
-                            consecutive_tool_failures = 0
-                            recent_failures.clear()
-                    if consecutive_tool_failures >= self._config.max_consecutive_tool_failures:
-                        final_message = self._build_tool_failure_message(recent_failures)
+                    consecutive_tool_failures, recent_failures, final_message = (
+                        update_tool_failures(
+                            self._config.max_consecutive_tool_failures,
+                            recent_failures,
+                            results,
+                            {call.id: call for call in response.tool_calls},
+                            consecutive_tool_failures,
+                        )
+                    )
+                    if final_message is not None:
                         self._messages.append(final_message)
                         self._emit("message", final_message)
                         self._status = "done"
@@ -174,6 +162,7 @@ class AgentLoop:
 
     def reset(self) -> None:
         self._messages.clear()
+        self._security_gate.reset()
         self._status = "idle"
         self._aborted = False
 
