@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Literal
 
 from backend.adapters.base import LLMAdapter
+from backend.common.types import LLMRequest, Message
 from backend.config.settings import settings as app_settings
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s04_sub_agents import (
@@ -67,7 +69,6 @@ def register_builtin_tools(
                         ),
                     )
                 )
-
     resolved_youtube_api_key = youtube_api_key or os.environ.get("YOUTUBE_API_KEY", "")
     if resolved_youtube_api_key:
         try:
@@ -82,7 +83,6 @@ def register_builtin_tools(
             )
         except ImportError:
             pass
-
     resolved_twitter_username = twitter_username or os.environ.get("TWITTER_USERNAME", "")
     resolved_twitter_email = twitter_email or os.environ.get("TWITTER_EMAIL", "")
     resolved_twitter_password = twitter_password or os.environ.get("TWITTER_PASSWORD", "")
@@ -114,6 +114,7 @@ def register_builtin_tools(
     proxy_api_url = os.environ.get("MIHOMO_API_URL", "http://127.0.0.1:9090")
     proxy_api_secret = os.environ.get("MIHOMO_SECRET", "")
     try:
+        from .proxy_lifecycle_tools import create_proxy_off_tool, create_proxy_on_tool
         from .proxy_tools import (
             create_proxy_chain_tool,
             create_proxy_optimize_tool,
@@ -130,6 +131,12 @@ def register_builtin_tools(
             "",
         )
         if mihomo_config_path:
+            config_dir = Path(mihomo_config_path).resolve().parent
+            custom_nodes_path = str(config_dir / "custom_nodes.yaml")
+            sub_path = app_settings.mihomo_sub_path or os.environ.get(
+                "MIHOMO_SUB_PATH",
+                str(config_dir / "sub_raw.yaml"),
+            )
             tools.append(
                 create_proxy_optimize_tool(
                     mihomo_config_path,
@@ -142,13 +149,54 @@ def register_builtin_tools(
                     mihomo_config_path,
                     proxy_api_url,
                     proxy_api_secret,
+                    custom_nodes_path=custom_nodes_path,
                 )
             )
+            try:
+                from .proxy_scheduler_tools import create_proxy_scheduler_tool
+
+                llm_callback = None
+                if adapter is not None and default_model:
+                    async def _llm_call(prompt: str) -> str:
+                        response = await adapter.complete(
+                            LLMRequest(
+                                model=default_model,
+                                messages=[Message(role="user", content=prompt)],
+                            )
+                        )
+                        return response.content if response else ""
+                    llm_callback = _llm_call
+                tools.append(
+                    create_proxy_scheduler_tool(
+                        api_url=proxy_api_url,
+                        api_secret=proxy_api_secret,
+                        config_path=mihomo_config_path,
+                        custom_nodes_path=custom_nodes_path,
+                        llm_callback=llm_callback,
+                    )
+                )
+            except ImportError:
+                pass
+        mihomo_path = app_settings.mihomo_path or os.environ.get("MIHOMO_PATH", "")
+        if mihomo_path and mihomo_config_path:
+            config_dir = Path(mihomo_config_path).resolve().parent
+            tools.append(
+                create_proxy_on_tool(
+                    mihomo_path=mihomo_path,
+                    config_path=mihomo_config_path,
+                    work_dir=app_settings.mihomo_work_dir
+                    or os.environ.get("MIHOMO_WORK_DIR", "")
+                    or str(config_dir),
+                    sub_path=sub_path,
+                    custom_nodes_path=str(config_dir / "custom_nodes.yaml"),
+                    api_url=proxy_api_url,
+                    secret=proxy_api_secret,
+                )
+            )
+            tools.append(create_proxy_off_tool())
     except ImportError:
         pass
 
     for definition, executor in tools:
         registry.register(definition, executor)
-
-
 __all__ = ["register_builtin_tools", "PermissionMode"]

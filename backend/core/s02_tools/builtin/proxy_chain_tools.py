@@ -21,6 +21,7 @@ from .proxy_chain_support import (
     parse_chain_args,
 )
 from .proxy_config import ProxyConfigGenerator
+from .proxy_custom_nodes import CustomNodesManager
 
 DEFAULT_API_URL = "http://127.0.0.1:9090"
 _mihomo_api: MihomoAPI | None = None
@@ -39,6 +40,7 @@ def create_proxy_chain_tool(
     config_path: str,
     api_url: str = DEFAULT_API_URL,
     secret: str = "",
+    custom_nodes_path: str = "",
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_chain",
@@ -88,25 +90,25 @@ def create_proxy_chain_tool(
                     parsed.skip_cert_verify,
                     parsed.extra,
                 )
-                node = next(
-                    item
-                    for item in ChainProxyManager.list_exit_nodes(updated)
-                    if item["name"] == _with_exit_prefix(parsed.name)
+                node = _find_exit_node(updated, parsed.name)
+                output = await _save_and_reload(
+                    generator,
+                    api,
+                    updated,
+                    format_add_exit_output(node),
                 )
-                output = format_add_exit_output(node)
-                return ToolResult(
-                    output=await _save_and_reload(generator, api, updated, output)
-                )
+                _sync_add_exit(custom_nodes_path, node)
+                return ToolResult(output=output)
             if isinstance(parsed, RemoveExitArgs):
                 updated = ChainProxyManager.remove_exit_node(config, parsed.name)
-                return ToolResult(
-                    output=await _save_and_reload(
-                        generator,
-                        api,
-                        updated,
-                        format_remove_exit_output(_with_exit_prefix(parsed.name)),
-                    )
+                output = await _save_and_reload(
+                    generator,
+                    api,
+                    updated,
+                    format_remove_exit_output(_with_exit_prefix(parsed.name)),
                 )
+                _sync_remove_exit(custom_nodes_path, parsed.name)
+                return ToolResult(output=output)
             if isinstance(parsed, SetChainArgs):
                 err = await _ensure_mihomo_running(api_url, secret)
                 if err:
@@ -123,25 +125,30 @@ def create_proxy_chain_tool(
                     if item["exit"] == _with_exit_prefix(parsed.exit_node)
                 ]
                 mode = _describe_mode(parsed.transit_nodes, parsed.transit_pattern)
-                output = format_set_output(
-                    _with_exit_prefix(parsed.exit_node),
-                    created,
-                    mode,
-                    chains,
+                output = await _save_and_reload(
+                    generator,
+                    api,
+                    updated,
+                    format_set_output(_with_exit_prefix(parsed.exit_node), created, mode, chains),
                 )
-                return ToolResult(
-                    output=await _save_and_reload(generator, api, updated, output)
-                )
+                _sync_set_chain(custom_nodes_path, parsed)
+                return ToolResult(output=output)
             if isinstance(parsed, RemoveChainArgs):
                 err = await _ensure_mihomo_running(api_url, secret)
                 if err:
                     return ToolResult(output=err, is_error=True)
                 updated, removed = ChainProxyManager.remove_chain(config, parsed.exit_node or None)
-                exit_name = _with_exit_prefix(parsed.exit_node) if parsed.exit_node else None
-                output = format_remove_output(removed, exit_name)
-                return ToolResult(
-                    output=await _save_and_reload(generator, api, updated, output)
+                output = await _save_and_reload(
+                    generator,
+                    api,
+                    updated,
+                    format_remove_output(
+                        removed,
+                        _with_exit_prefix(parsed.exit_node) if parsed.exit_node else None,
+                    ),
                 )
+                _sync_clear_chain(custom_nodes_path)
+                return ToolResult(output=output)
             return ToolResult(
                 output=format_list_output(
                     ChainProxyManager.list_exit_nodes(config),
@@ -167,6 +174,38 @@ async def _save_and_reload(
         else "配置已写入，请手动重载 mihomo"
     )
     return f"{output}\n{suffix}"
+
+
+def _find_exit_node(config: dict[str, Any], name: str) -> dict[str, Any]:
+    target = _with_exit_prefix(name)
+    for node in config.get("proxies") or []:
+        if isinstance(node, dict) and str(node.get("name") or "") == target:
+            return dict(node)
+    raise ValueError(f"未找到落地节点: {target}")
+
+
+def _sync_add_exit(custom_nodes_path: str, node: dict[str, Any]) -> None:
+    if custom_nodes_path:
+        CustomNodesManager(custom_nodes_path).add_exit_node(node)
+
+
+def _sync_remove_exit(custom_nodes_path: str, name: str) -> None:
+    if custom_nodes_path:
+        CustomNodesManager(custom_nodes_path).remove_exit_node(name)
+
+
+def _sync_set_chain(custom_nodes_path: str, parsed: SetChainArgs) -> None:
+    if custom_nodes_path:
+        CustomNodesManager(custom_nodes_path).set_chain_config(
+            parsed.exit_node,
+            parsed.transit_pattern,
+            parsed.transit_nodes,
+        )
+
+
+def _sync_clear_chain(custom_nodes_path: str) -> None:
+    if custom_nodes_path:
+        CustomNodesManager(custom_nodes_path).clear_chain_config()
 
 
 def _with_exit_prefix(name: str) -> str:

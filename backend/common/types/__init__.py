@@ -2,7 +2,16 @@ from .agent import AgentConfig, AgentEvent, AgentEventHandler, AgentEventType, A
 from .llm import LLMRequest, LLMResponse, LLMUsage, ProviderConfig, ProviderType
 from .mcp import MCPServerConfig, MCPServerStatus, MCPToolInfo, MCPToolResult
 from .message import Message, Role, StreamChunk, ToolCall, ToolResult, generate_id
+from .security import SecurityPolicy, SignedToolCall
 from .session import Session, SessionConfig, SessionStatus
+from .sub_agent import (
+    AgentTask,
+    PermissionLevel,
+    ResolvedStage,
+    SimplePlan,
+    SubAgentResult,
+    resolve_stages,
+)
 from .tool import (
     ToolCategory,
     ToolDefinition,
@@ -31,9 +40,17 @@ __all__ = [
     "ToolResult",
     "Message",
     "StreamChunk",
+    "SecurityPolicy",
+    "SignedToolCall",
     "SessionStatus",
     "SessionConfig",
     "Session",
+    "PermissionLevel",
+    "AgentTask",
+    "SimplePlan",
+    "ResolvedStage",
+    "SubAgentResult",
+    "resolve_stages",
     "ToolCategory",
     "ToolParameterSchema",
     "ToolPermission",

@@ -139,10 +139,8 @@ async def test_chain_tool_add_exit_and_set_actions(monkeypatch: pytest.MonkeyPat
         }
     )
     set_result = await execute({"action": "set", "exit_node": "落地", "transit_pattern": "香港"})
-    assert add_result.is_error is False
-    assert set_result.is_error is False
-    assert "已添加落地节点" in add_result.output
-    assert "创建链式节点: 1 个" in set_result.output
+    assert add_result.is_error is False and "已添加落地节点" in add_result.output
+    assert set_result.is_error is False and "创建链式节点: 1 个" in set_result.output
     assert api.paths and Path(api.paths[-1]).is_absolute()
 
 

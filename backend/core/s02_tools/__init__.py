@@ -1,4 +1,5 @@
 from .executor import ToolExecutor
 from .registry import ToolRegistry
+from .security_gate import SecurityGate
 
-__all__ = ["ToolRegistry", "ToolExecutor"]
+__all__ = ["SecurityGate", "ToolExecutor", "ToolRegistry"]

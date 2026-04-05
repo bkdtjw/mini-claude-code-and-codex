@@ -21,6 +21,7 @@ AgentEventType = Literal[
     "message",
     "tool_call",
     "tool_result",
+    "security_reject",
     "error",
 ]
 
