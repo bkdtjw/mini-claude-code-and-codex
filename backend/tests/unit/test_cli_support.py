@@ -16,11 +16,14 @@ from backend.core.s02_tools.mcp import MCPServerManager
 
 
 class FakeAdapter(LLMAdapter):
+    def __init__(self, label: str) -> None:
+        self._label = label
+
     async def test_connection(self) -> bool:
         return True
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        return LLMResponse(content=f"echo: {request.messages[-1].content}")
+        return LLMResponse(content=f"{self._label}: {request.messages[-1].content}")
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         if False:
@@ -30,13 +33,14 @@ class FakeAdapter(LLMAdapter):
 class FakeProviderManager(ProviderManager):
     def __init__(self, providers: list[ProviderConfig]) -> None:
         self._providers = providers
-        self._adapter = FakeAdapter()
+        self._adapters = {provider.id: FakeAdapter(provider.id) for provider in providers}
 
     async def list_all(self) -> list[ProviderConfig]:
         return list(self._providers)
 
     async def get_adapter(self, provider_id: str | None = None) -> LLMAdapter:
-        return self._adapter
+        target_id = provider_id or next((provider.id for provider in self._providers if provider.is_default), self._providers[0].id)
+        return self._adapters[target_id]
 
 
 def _provider(
@@ -98,7 +102,7 @@ async def test_create_session_uses_default_provider_model_and_tools() -> None:
     assert session.state.model == "test-model"
     assert session.state.provider_id == "provider-1"
     assert session.state.available_models == ["test-model", "new-model"]
-    assert tool_names == ["Read", "Write", "Bash", "dispatch_agent"]
+    assert tool_names[:5] == ["Read", "Write", "Bash", "dispatch_agent", "orchestrate_agents"]
 
 
 @pytest.mark.asyncio
@@ -131,6 +135,8 @@ async def test_handle_command_switches_provider_and_clears_provider_metadata() -
     assert result.session.state.provider_id == "provider-2"
     assert result.session.state.model == "alt-model"
     assert result.session.loop.messages[1].provider_metadata == {}
+    follow_up = await result.session.loop.run("ping")
+    assert follow_up.content == "provider-2: ping"
 
 
 @pytest.mark.asyncio

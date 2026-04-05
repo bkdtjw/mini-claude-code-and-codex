@@ -35,10 +35,10 @@ def create_proxy_status_tool(
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_status",
-        description="查看当前代理状态、节点列表和延迟信息",
+        description="Show current proxy status, groups, and delays.",
         category="shell",
         parameters=ToolParameterSchema(
-            properties={"group": {"type": "string", "description": "仅查看指定代理组"}},
+            properties={"group": {"type": "string", "description": "Only show one proxy group"}},
             required=[],
         ),
     )
@@ -67,13 +67,13 @@ def create_proxy_test_tool(
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_test",
-        description="对代理组执行批量延迟测速并返回排序结果",
+        description="Run a batch delay test for a proxy group and return ranked results.",
         category="shell",
         parameters=ToolParameterSchema(
             properties={
-                "group": {"type": "string", "description": "代理组名称，默认 GLOBAL"},
-                "timeout": {"type": "integer", "description": "超时时间（毫秒），默认 5000"},
-                "url": {"type": "string", "description": f"测速 URL，默认 {DEFAULT_TEST_URL}"},
+                "group": {"type": "string", "description": "Proxy group name. Defaults to GLOBAL"},
+                "timeout": {"type": "integer", "description": "Timeout in milliseconds. Defaults to 5000"},
+                "url": {"type": "string", "description": f"Test URL. Defaults to {DEFAULT_TEST_URL}"},
             },
             required=[],
         ),
@@ -94,9 +94,9 @@ def create_proxy_test_tool(
             status = await api.get_proxies()
             available_groups = [group.name for group in status.groups]
             if params.group not in available_groups:
-                names = ", ".join(available_groups) if available_groups else "无"
-                raise ProxyToolError(f"代理组 {params.group} 不存在。可用代理组: {names}")
-            raise ProxyToolError(f"代理组 {params.group} 中所有节点测速超时，请检查网络连通性")
+                names = ", ".join(available_groups) if available_groups else "None"
+                raise ProxyToolError(f"Proxy group {params.group} not found. Available groups: {names}")
+            raise ProxyToolError(f"All nodes timed out in group {params.group}")
         except Exception as exc:  # noqa: BLE001
             return ToolResult(output=str(exc), is_error=True)
 

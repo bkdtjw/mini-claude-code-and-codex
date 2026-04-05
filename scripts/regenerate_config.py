@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from backend.core.s02_tools.builtin.proxy_config import ProxyConfigGenerator
+from backend.core.s02_tools.builtin.proxy_custom_nodes import CustomNodesManager
 
 
 class RegenerateConfigError(Exception):
@@ -45,24 +46,31 @@ def load_subscription_data(path: Path) -> dict[str, Any]:
     return payload
 
 
-def build_config(args: CliArgs) -> dict[str, Any]:
+def build_config(args: CliArgs) -> tuple[dict[str, Any], Path | None]:
     generator = ProxyConfigGenerator(str(args.out_path), backup=False)
-    return generator.generate_from_subscription(
+    config = generator.generate_from_subscription(
         load_subscription_data(args.sub_path),
         smux_config={} if args.smux else None,
         dns_config=ProxyConfigGenerator.default_dns_config(),
         global_opts=ProxyConfigGenerator.default_global_opts(),
     )
+    custom_path = args.out_path.parent / "custom_nodes.yaml"
+    if custom_path.exists():
+        config = CustomNodesManager(str(custom_path)).merge_into_config(config)
+        return config, custom_path
+    return config, None
 
 
 def main() -> int:
     try:
         args = parse_args()
-        generator = ProxyConfigGenerator(str(args.out_path), backup=False)
-        output_path = generator.save(build_config(args))
+        config, custom_path = build_config(args)
+        output_path = ProxyConfigGenerator(str(args.out_path), backup=False).save(config)
     except RegenerateConfigError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    if custom_path is not None:
+        print(f"Merged custom nodes: {custom_path}")
     print(output_path)
     return 0
 

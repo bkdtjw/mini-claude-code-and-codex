@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from .proxy_models import DelayTestResult, ProxyGroup, ProxyNode, ProxyStatus
 
 DEFAULT_TEST_URL = "http://www.gstatic.com/generate_204"
-OFFLINE_MESSAGE = "mihomo API 不可用，请确认 mihomo 已启动且 RESTful API 已开启"
+OFFLINE_MESSAGE = "mihomo API unavailable"
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -35,7 +35,7 @@ class ProxyTestArgs(BaseModel):
     def validate_text(cls, value: str) -> str:
         text = value.strip()
         if not text:
-            raise ValueError("参数不能为空")
+            raise ValueError("Value cannot be empty")
         return text
 
 
@@ -48,7 +48,7 @@ class ProxySwitchArgs(BaseModel):
     def validate_text(cls, value: str) -> str:
         text = value.strip()
         if not text:
-            raise ValueError("参数不能为空")
+            raise ValueError("Value cannot be empty")
         return text
 
 
@@ -69,33 +69,33 @@ class ProxyOptimizeArgs(BaseModel):
     @classmethod
     def validate_action(cls, value: str) -> str:
         if value not in {"inject", "remove", "import"}:
-            raise ValueError("action 必须是 inject、remove 或 import")
+            raise ValueError("action must be one of: inject, remove, import")
         return value
 
     @field_validator("protocol")
     @classmethod
     def validate_protocol(cls, value: str) -> str:
         if value and value not in {"h2mux", "yamux", "smux"}:
-            raise ValueError("protocol 必须是 h2mux、yamux 或 smux")
+            raise ValueError("protocol must be one of: h2mux, yamux, smux")
         return value or "h2mux"
 
 
 def parse_status_args(args: dict[str, object]) -> ProxyStatusArgs:
-    return _parse_args(ProxyStatusArgs, args, "proxy_status 参数错误")
+    return _parse_args(ProxyStatusArgs, args, "Invalid proxy_status arguments")
 
 
 def parse_test_args(args: dict[str, object]) -> ProxyTestArgs:
-    return _parse_args(ProxyTestArgs, args, "proxy_test 参数错误")
+    return _parse_args(ProxyTestArgs, args, "Invalid proxy_test arguments")
 
 
 def parse_switch_args(args: dict[str, object]) -> ProxySwitchArgs:
-    return _parse_args(ProxySwitchArgs, args, "proxy_switch 参数错误")
+    return _parse_args(ProxySwitchArgs, args, "Invalid proxy_switch arguments")
 
 
 def parse_optimize_args(args: dict[str, object]) -> ProxyOptimizeArgs:
-    params = _parse_args(ProxyOptimizeArgs, args, "proxy_optimize 参数错误")
+    params = _parse_args(ProxyOptimizeArgs, args, "Invalid proxy_optimize arguments")
     if params.action == "import" and not params.subscription_url:
-        raise ProxyToolError("导入订阅时必须提供 subscription_url")
+        raise ProxyToolError("subscription_url is required for import")
     return params
 
 
@@ -114,59 +114,28 @@ def fuzzy_match(keyword: str, candidates: list[str]) -> list[str]:
 def format_status_output(status: ProxyStatus, version: str, group_filter: str) -> str:
     groups = _select_groups(status.groups, group_filter)
     node_map = {node.name: node for node in status.nodes}
-    lines = [f"mihomo {version or '未知版本'}", ""]
+    lines = [f"mihomo {version or 'unknown'}", ""]
     for group in groups:
-        lines.extend(
-            [
-                f"代理组: {group.name}",
-                f"  当前节点: {group.now or '未选择'}",
-                f"  可用节点: {_format_group_nodes(group, node_map)}",
-                "",
-            ]
-        )
+        lines.extend([f"Group: {group.name}", f"  Current node: {group.now or 'None'}", f"  Available nodes: {_format_group_nodes(group, node_map)}", ""])
     alive = sum(1 for node in status.nodes if node.alive)
     total = len(status.nodes)
-    lines.append(f"节点总数: {total} | 存活: {alive} | 超时: {total - alive}")
+    lines.append(f"Total nodes: {total} | Alive: {alive} | Timeout: {total - alive}")
     return "\n".join(lines).strip()
 
 
 def format_test_output(result: DelayTestResult, group_name: str) -> str:
-    ranked = sorted(
-        ((name, delay) for name, delay in result.results.items() if delay > 0),
-        key=lambda item: item[1],
-    )
+    ranked = sorted(((name, delay) for name, delay in result.results.items() if delay > 0), key=lambda item: item[1])
     timeouts = [name for name, delay in result.results.items() if delay <= 0]
-    lines = [
-        f"测速完成 ({result.timestamp})",
-        f"测速 URL: {result.test_url}",
-        f"代理组: {group_name}",
-        "",
-        "排名  节点                  延迟",
-    ]
-    for index, (name, delay) in enumerate(ranked, start=1):
-        lines.append(f"{index:<4}  {name:<20}  {delay}ms")
-    for name in timeouts:
-        lines.append(f"---   {name:<20}  超时")
-    fastest = (
-        f"{result.fastest_node} ({result.fastest_delay}ms)"
-        if result.fastest_node
-        else "无可用节点"
-    )
-    lines.extend(
-        [
-            "",
-            f"最快节点: {fastest}",
-            (
-                f"存活: {len(ranked)}/{len(result.results)} | "
-                f"超时: {len(timeouts)}/{len(result.results)}"
-            ),
-        ]
-    )
+    lines = [f"Delay test complete ({result.timestamp})", f"Test URL: {result.test_url}", f"Group: {group_name}", "", "Rank  Node                  Delay"]
+    lines.extend(f"{index:<4}  {name:<20}  {delay}ms" for index, (name, delay) in enumerate(ranked, start=1))
+    lines.extend(f"---   {name:<20}  Timeout" for name in timeouts)
+    fastest = f"{result.fastest_node} ({result.fastest_delay}ms)" if result.fastest_node else "None"
+    lines.extend(["", f"Fastest node: {fastest}", f"Alive: {len(ranked)}/{len(result.results)} | Timeout: {len(timeouts)}/{len(result.results)}"])
     return "\n".join(lines)
 
 
 def format_delay(delay: int) -> str:
-    return f"{delay}ms" if delay > 0 else "超时"
+    return f"{delay}ms" if delay > 0 else "Timeout"
 
 
 def _parse_args(model: type[T], args: dict[str, object], message: str) -> T:  # noqa: UP047
@@ -181,13 +150,13 @@ def _select_groups(groups: list[ProxyGroup], group_filter: str) -> list[ProxyGro
         return groups
     filtered = [group for group in groups if group.name == group_filter]
     if not filtered:
-        raise ProxyToolError(f"未找到代理组: {group_filter}")
+        raise ProxyToolError(f"Proxy group {group_filter} not found")
     return filtered
 
 
 def _format_group_nodes(group: ProxyGroup, node_map: dict[str, ProxyNode]) -> str:
     if not group.all:
-        return "无"
+        return "None"
     values = []
     for name in group.all:
         node = node_map.get(name)

@@ -11,7 +11,7 @@ from .proxy_process import MihomoProcess
 
 DEFAULT_API_URL = "http://127.0.0.1:9090"
 AUTO_START_HINT = (
-    "mihomo API 不可用。如需自动启动，请配置 MIHOMO_PATH 和 MIHOMO_CONFIG_PATH 环境变量"
+    "mihomo API unavailable. To enable auto-start, set MIHOMO_PATH and MIHOMO_CONFIG_PATH"
 )
 _mihomo_api: MihomoAPI | None = None
 _mihomo_process: MihomoProcess | None = None
@@ -39,7 +39,7 @@ async def _ensure_mihomo_running(api_url: str = DEFAULT_API_URL, secret: str = "
     result = await _mihomo_process.start()
     if result[:1].lower() == "v":
         return None
-    return f"mihomo 自动启动失败: {result}"
+    return f"mihomo auto-start failed: {result}"
 
 
 def _build_process_config(api_url: str, secret: str) -> ProxyConfig | None:

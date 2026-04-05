@@ -6,6 +6,7 @@ from uuid import uuid4
 import yaml
 
 from backend.core.s02_tools.builtin.proxy_chain import EXIT_PREFIX
+from backend.core.s02_tools.builtin.proxy_models import ProxyLifecycleConfig
 
 
 def make_lifecycle_paths() -> dict[str, Path]:
@@ -21,11 +22,7 @@ def make_lifecycle_paths() -> dict[str, Path]:
     paths["mihomo"].write_text("exe", encoding="utf-8")
     paths["sub"].write_text(
         yaml.safe_dump(
-            {
-                "proxies": [
-                    {"name": "香港A", "type": "ss", "server": "hk.example.com", "port": 443}
-                ]
-            },
+            {"proxies": [{"name": "HK-A", "type": "ss", "server": "hk.example.com", "port": 443}]},
             allow_unicode=True,
             sort_keys=False,
         ),
@@ -34,15 +31,26 @@ def make_lifecycle_paths() -> dict[str, Path]:
     return paths
 
 
+def make_runtime_config() -> ProxyLifecycleConfig:
+    paths = make_lifecycle_paths()
+    return ProxyLifecycleConfig(
+        mihomo_path=str(paths["mihomo"]),
+        config_path=str(paths["config"]),
+        work_dir=str(paths["root"]),
+        sub_path=str(paths["sub"]),
+        custom_nodes_path=str(paths["custom"]),
+    )
+
+
 def make_base_config() -> dict[str, object]:
     return {
         "external-controller": "127.0.0.1:9090",
-        "proxies": [{"name": "香港A", "type": "ss", "server": "hk.example.com", "port": 443}],
-        "proxy-groups": [{"name": "GLOBAL", "type": "select", "proxies": ["香港A"]}],
+        "proxies": [{"name": "HK-A", "type": "ss", "server": "hk.example.com", "port": 443}],
+        "proxy-groups": [{"name": "GLOBAL", "type": "select", "proxies": ["HK-A"]}],
     }
 
 
-def make_exit_node(name: str = "落地") -> dict[str, object]:
+def make_exit_node(name: str = "relay") -> dict[str, object]:
     return {
         "name": f"{EXIT_PREFIX}{name}",
         "type": "http",
@@ -95,7 +103,11 @@ class FakeWinreg:
         _ = (reserved, value_type)
         key.values[name] = value
 
-    def QueryValueEx(self, key: FakeRegistryKey, name: str) -> tuple[object, int]:  # noqa: N802
+    def QueryValueEx(  # noqa: N802
+        self,
+        key: FakeRegistryKey,
+        name: str,
+    ) -> tuple[object, int]:
         return key.values.get(name, 0), self.REG_DWORD
 
 

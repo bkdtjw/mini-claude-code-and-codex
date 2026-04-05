@@ -71,7 +71,7 @@ class SubAgentSpawner:
         child_registry = ToolRegistry()
         allowed = set(allowed_tools)
         for definition in parent_registry.list_definitions():
-            if definition.name == "dispatch_agent":
+            if definition.name in {"dispatch_agent", "orchestrate_agents"}:
                 continue
             if allowed and definition.name not in allowed:
                 continue
@@ -88,7 +88,10 @@ class SubAgentSpawner:
             parts.append(f"你的角色是 {role.name}。{role.description}")
             parts.append(role.system_prompt)
         else:
-            parts.append("你是一个被派生出来处理子任务的专用 Agent，请只聚焦当前任务。")
+            if params.role:
+                parts.append(f"你的角色是 {params.role}。请根据角色名称理解自己的职责，专注完成分配的子任务。")
+            else:
+                parts.append("你是一个被派生出来处理子任务的专用 Agent，请只聚焦当前任务。")
         if params.context:
             parts.append(f"额外上下文:\n{params.context}")
         parts.append("请直接完成子任务，并输出简洁、可复用的结果。")
@@ -97,10 +100,7 @@ class SubAgentSpawner:
     def _load_role(self, role_name: str) -> AgentRole | None:
         if not role_name:
             return None
-        role = self._definition_loader.load_role(role_name)
-        if role is None:
-            raise AgentError("SUB_AGENT_ROLE_NOT_FOUND", f"Unknown sub-agent role: {role_name}")
-        return role
+        return self._definition_loader.load_role(role_name)
 
 
 __all__ = ["SpawnParams", "SubAgentSpawner"]

@@ -44,14 +44,14 @@ async def load_current_node(api: MihomoAPI) -> str:
 
 
 def format_current(node: str, delay: int) -> str:
-    return f"{node} ({delay}ms)" if node and delay > 0 else (node or "未选择")
+    return f"{node} ({delay}ms)" if node and delay > 0 else (node or "None")
 
 
 def format_runtime(start_time: datetime | None) -> str:
     if start_time is None:
-        return "0 秒"
+        return "0 seconds"
     seconds = max(int((datetime.now() - start_time).total_seconds()), 0)
-    return f"{seconds // 60} 分钟" if seconds >= 60 else f"{seconds} 秒"
+    return f"{seconds // 60} minutes" if seconds >= 60 else f"{seconds} seconds"
 
 
 def _resolve_exit_targets(
@@ -63,7 +63,7 @@ def _resolve_exit_targets(
         targets = [str(item.get("name") or "").strip() for item in exit_nodes]
     cleaned = [name for name in targets if name]
     if not cleaned:
-        raise SchedulerError("未找到可用的落地节点，请先配置 custom_nodes.yaml")
+        raise SchedulerError("No exit nodes are available. Configure custom_nodes.yaml first.")
     return list(dict.fromkeys(cleaned))
 
 

@@ -51,6 +51,15 @@ def test_agent_definition_loader_reads_reviewer_role() -> None:
     assert role.max_iterations == 8
 
 
+def test_agent_definition_loader_reads_verifier_role() -> None:
+    loader = AgentDefinitionLoader()
+    role = loader.load_role("verifier")
+    assert role is not None
+    assert role.name == "verifier"
+    assert role.allowed_tools == ["Read", "Bash"]
+    assert role.max_iterations == 8
+
+
 def test_agent_definition_loader_falls_back_for_invalid_frontmatter() -> None:
     agents_dir = _make_agents_dir()
     agent_file = agents_dir / "broken.md"
@@ -76,7 +85,7 @@ def test_agent_definition_loader_falls_back_for_invalid_frontmatter() -> None:
 
 
 @pytest.mark.asyncio
-async def test_register_builtin_tools_adds_dispatch_agent_when_adapter_exists() -> None:
+async def test_register_builtin_tools_adds_sub_agent_tools_when_adapter_exists() -> None:
     registry = ToolRegistry()
     register_builtin_tools(
         registry,
@@ -86,10 +95,16 @@ async def test_register_builtin_tools_adds_dispatch_agent_when_adapter_exists() 
         default_model="test-model",
     )
     assert registry.has("dispatch_agent")
+    assert registry.has("orchestrate_agents")
+    orchestrate_tool = registry.get("orchestrate_agents")
+    assert orchestrate_tool is not None
+    definition, _ = orchestrate_tool
+    assert definition.parameters.required == ["tasks"]
+    assert definition.parameters.properties["tasks"]["items"]["required"] == ["role", "task"]
 
 
 @pytest.mark.asyncio
-async def test_dispatch_agent_child_registry_excludes_recursive_tool() -> None:
+async def test_dispatch_agent_child_registry_excludes_recursive_tools() -> None:
     registry = ToolRegistry()
     register_builtin_tools(
         registry,
@@ -101,6 +116,57 @@ async def test_dispatch_agent_child_registry_excludes_recursive_tool() -> None:
     tool = registry.get("dispatch_agent")
     assert tool is not None
     _, executor = tool
-    result = await executor({"role": "reviewer", "task": "审查 websocket"})
+    reviewer_result = await executor({"role": "reviewer", "task": "审查 websocket"})
+    default_result = await executor({"task": "列出可用工具"})
+
+    assert reviewer_result.is_error is False
+    assert reviewer_result.output == "tools:Bash,Read"
+    assert default_result.is_error is False
+    assert "dispatch_agent" not in default_result.output
+    assert "orchestrate_agents" not in default_result.output
+
+
+@pytest.mark.asyncio
+async def test_orchestrate_agents_tool_executes_simple_parallel_tasks() -> None:
+    registry = ToolRegistry()
+    register_builtin_tools(
+        registry,
+        _make_workspace(),
+        mode="auto",
+        adapter=FakeAdapter(),
+        default_model="test-model",
+    )
+    tool = registry.get("orchestrate_agents")
+    assert tool is not None
+    _, executor = tool
+    result = await executor(
+        {
+            "tasks": [
+                {"role": "reviewer", "task": "检查代码"},
+                {"role": "tester", "task": "运行验证"},
+            ]
+        }
+    )
+
     assert result.is_error is False
-    assert result.output == "tools:Bash,Read"
+    assert "Bash,Read" in result.output
+    assert "--- 阶段 0: reviewer, tester ---" in result.output
+
+
+@pytest.mark.asyncio
+async def test_orchestrate_agents_tool_reports_field_path_for_validation_error() -> None:
+    registry = ToolRegistry()
+    register_builtin_tools(
+        registry,
+        _make_workspace(),
+        mode="auto",
+        adapter=FakeAdapter(),
+        default_model="test-model",
+    )
+    tool = registry.get("orchestrate_agents")
+    assert tool is not None
+    _, executor = tool
+    result = await executor({"tasks": [{"role": "reviewer"}]})
+
+    assert result.is_error is True
+    assert "tasks.0.task" in result.output

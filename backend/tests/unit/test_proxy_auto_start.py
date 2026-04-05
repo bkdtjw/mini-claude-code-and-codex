@@ -103,7 +103,7 @@ async def test_ensure_mihomo_running_no_config(monkeypatch: pytest.MonkeyPatch) 
 async def test_ensure_mihomo_running_start_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     _reset_runtime()
     _clear_settings(monkeypatch)
-    StubProcess.result = "mihomo 启动超时"
+    StubProcess.result = "mihomo start timeout"
     monkeypatch.setattr(proxy_auto_start, "_get_api", lambda *_args: SequenceAPI([""]))
     monkeypatch.setattr(proxy_auto_start, "MihomoProcess", StubProcess)
     mihomo_path = Path("tests/.tmp_proxy_auto/mihomo.exe").resolve()
@@ -111,7 +111,7 @@ async def test_ensure_mihomo_running_start_failure(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("MIHOMO_PATH", str(mihomo_path))
     monkeypatch.setenv("MIHOMO_CONFIG_PATH", str(config_path))
     result = await proxy_auto_start._ensure_mihomo_running()
-    assert result == "mihomo 自动启动失败: mihomo 启动超时"
+    assert result == "mihomo auto-start failed: mihomo start timeout"
 
 
 @pytest.mark.asyncio

@@ -77,13 +77,13 @@ class StubProxyAPI:
                 ProxyGroup(
                     name="GLOBAL",
                     type="Selector",
-                    now="东京JP1",
-                    all=["东京JP1", "香港HK2"],
+                    now="Tokyo-JP1",
+                    all=["Tokyo-JP1", "HongKong-HK2"],
                 )
             ],
             nodes=[
-                ProxyNode(name="东京JP1", type="Shadowsocks", alive=True, delay=65),
-                ProxyNode(name="香港HK2", type="Trojan", alive=False, delay=0),
+                ProxyNode(name="Tokyo-JP1", type="Shadowsocks", alive=True, delay=65),
+                ProxyNode(name="HongKong-HK2", type="Trojan", alive=False, delay=0),
             ],
         )
 
@@ -91,15 +91,12 @@ class StubProxyAPI:
         return "v1.19.22"
 
     async def test_group_delay(
-        self,
-        group_name: str,
-        timeout: int,
-        test_url: str,
+        self, group_name: str, timeout: int, test_url: str
     ) -> DelayTestResult:
         return DelayTestResult(
-            results={"香港HK2": 78, "东京JP1": 65, "美国US1": 180, "台湾TW1": 0},
-            timeout_nodes=["台湾TW1"],
-            fastest_node="东京JP1",
+            results={"HongKong-HK2": 78, "Tokyo-JP1": 65, "US1": 180, "TW1": 0},
+            timeout_nodes=["TW1"],
+            fastest_node="Tokyo-JP1",
             fastest_delay=65,
             test_url=test_url,
             timestamp="2026-04-03 15:30:00",
@@ -117,8 +114,8 @@ async def test_proxy_status_tool_returns_formatted_output(monkeypatch: pytest.Mo
     result = await execute({})
     assert result.is_error is False
     assert "mihomo v1.19.22" in result.output
-    assert "代理组: GLOBAL" in result.output
-    assert "东京JP1(65ms)" in result.output
+    assert "Group: GLOBAL" in result.output
+    assert "Tokyo-JP1(65ms)" in result.output
 
 
 @pytest.mark.asyncio
@@ -132,12 +129,12 @@ async def test_proxy_test_tool_returns_sorted_results(monkeypatch: pytest.Monkey
     result = await execute({"group": "GLOBAL"})
     assert result.is_error is False
     assert (
-        result.output.index("东京JP1")
-        < result.output.index("香港HK2")
-        < result.output.index("美国US1")
+        result.output.index("Tokyo-JP1")
+        < result.output.index("HongKong-HK2")
+        < result.output.index("US1")
     )
-    assert result.output.index("美国US1") < result.output.index("台湾TW1")
-    assert "最快节点: 东京JP1 (65ms)" in result.output
+    assert result.output.index("US1") < result.output.index("TW1")
+    assert "Fastest node: Tokyo-JP1 (65ms)" in result.output
 
 
 @pytest.mark.asyncio
@@ -161,12 +158,13 @@ async def test_proxy_api_url_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeAsyncClient.error = None
     FakeAsyncClient.response = FakeResponse(data={"delay": 123})
     monkeypatch.setattr(proxy_api.httpx, "AsyncClient", FakeAsyncClient)
-    delay = await MihomoAPI().get_delay("香港 节点/1?", timeout=3000)
+    delay = await MihomoAPI().get_delay("Node /1?", timeout=3000)
     assert delay == 123
-    assert FakeAsyncClient.calls[0]["url"].endswith(
-        "/proxies/%E9%A6%99%E6%B8%AF%20%E8%8A%82%E7%82%B9%2F1%3F/delay"
-    )
-    assert FakeAsyncClient.calls[0]["params"] == {"timeout": 3000, "url": "http://www.gstatic.com/generate_204"}
+    assert FakeAsyncClient.calls[0]["url"].endswith("/proxies/Node%20%2F1%3F/delay")
+    assert FakeAsyncClient.calls[0]["params"] == {
+        "timeout": 3000,
+        "url": "http://www.gstatic.com/generate_204",
+    }
     assert FakeAsyncClient.init_args[0] == (10.0, False)
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from .proxy_chain_node import build_exit_node
 from .proxy_chain_utils import (
     CHAIN_GROUP_NAME,
     CHAIN_PREFIX,
@@ -26,7 +27,7 @@ from .proxy_chain_utils import (
 
 
 class ChainProxyManager:
-    """链式代理配置管理器。"""
+    """Manage exit nodes and chain proxy overlays."""
 
     @staticmethod
     def add_exit_node(
@@ -42,8 +43,15 @@ class ChainProxyManager:
     ) -> dict[str, Any]:
         result = copy.deepcopy(config)
         exit_name = normalize_exit_name(name)
-        node = _build_exit_node(
-            exit_name, node_type, server, port, password, sni, skip_cert_verify, extra
+        node = build_exit_node(
+            exit_name,
+            node_type,
+            server,
+            port,
+            password,
+            sni,
+            skip_cert_verify,
+            extra,
         )
         proxies = ensure_list(result, "proxies")
         current = find_proxy(proxies, exit_name)
@@ -75,17 +83,17 @@ class ChainProxyManager:
         transit_pattern: str | None = None,
     ) -> tuple[dict[str, Any], int]:
         if transit_nodes and transit_pattern:
-            raise ChainProxyError("transit_nodes 和 transit_pattern 只能二选一")
+            raise ChainProxyError("transit_nodes and transit_pattern are mutually exclusive")
         exit_name = normalize_exit_name(exit_node)
         result, _ = ChainProxyManager.remove_chain(config, exit_name)
         proxies = ensure_list(result, "proxies")
         exit_proxy = find_proxy(proxies, exit_name)
         if exit_proxy is None:
-            raise ChainProxyError(f"未找到落地节点: {exit_name}")
+            raise ChainProxyError(f"Exit node not found: {exit_name}")
         exit_proxy.pop("dialer-proxy", None)
         transits = _select_transits(proxies, exit_name, transit_nodes, transit_pattern)
         if not transits:
-            raise ChainProxyError("未找到可用的中转节点")
+            raise ChainProxyError("No transit nodes matched the request")
         for transit in transits:
             virtual = copy.deepcopy(exit_proxy)
             virtual["name"] = build_chain_name(transit, exit_name)
@@ -119,11 +127,7 @@ class ChainProxyManager:
         if chain_group is not None and remaining:
             chain_group["proxies"] = remaining
         elif chain_group is not None:
-            groups[:] = [
-                group
-                for group in groups
-                if str(group.get("name") or "") != CHAIN_GROUP_NAME
-            ]
+            groups[:] = [group for group in groups if str(group.get("name") or "") != CHAIN_GROUP_NAME]
             remove_group_refs(groups, {CHAIN_GROUP_NAME})
         return result, len(removed)
 
@@ -133,9 +137,13 @@ class ChainProxyManager:
         for proxy in ensure_list(copy.deepcopy(config), "proxies"):
             if not is_chain_proxy(proxy):
                 continue
-            name = str(proxy.get("name") or "")
-            transit = str(proxy.get("dialer-proxy") or "")
-            chains.append({"name": name, "transit": transit, "exit": chain_exit(proxy)})
+            chains.append(
+                {
+                    "name": str(proxy.get("name") or ""),
+                    "transit": str(proxy.get("dialer-proxy") or ""),
+                    "exit": chain_exit(proxy),
+                }
+            )
         return chains
 
     @staticmethod
@@ -152,41 +160,6 @@ class ChainProxyManager:
         ]
 
 
-def _build_exit_node(
-    name: str,
-    node_type: str,
-    server: str,
-    port: int,
-    password: str,
-    sni: str,
-    skip_cert_verify: bool,
-    extra: dict[str, Any] | None,
-) -> dict[str, Any]:
-    extra_data = copy.deepcopy(extra or {})
-    if not extra_data.get("password"):
-        extra_data.pop("password", None)
-    if not extra_data.get("sni"):
-        extra_data.pop("sni", None)
-    if not extra_data.get("skip-cert-verify"):
-        extra_data.pop("skip-cert-verify", None)
-    node = {
-        "name": name,
-        "type": node_type,
-        "server": server,
-        "port": port,
-    }
-    if password:
-        node["password"] = password
-    if sni:
-        node["sni"] = sni
-    if skip_cert_verify:
-        node["skip-cert-verify"] = True
-    if extra_data:
-        node.update(extra_data)
-    node.pop("dialer-proxy", None)
-    return node
-
-
 def _select_transits(
     proxies: list[dict[str, Any]],
     exit_name: str,
@@ -196,14 +169,12 @@ def _select_transits(
     if transit_nodes:
         names = [unique_text(name) for name in transit_nodes if unique_text(name)]
         invalid = [
-            name
-            for name in names
-            if not is_transit_candidate(find_proxy(proxies, name), exit_name)
+            name for name in names if not is_transit_candidate(find_proxy(proxies, name), exit_name)
         ]
         if invalid:
-            raise ChainProxyError(f"以下中转节点不可用: {', '.join(invalid)}")
+            raise ChainProxyError(f"Unavailable transit nodes: {', '.join(invalid)}")
         return list(dict.fromkeys(names))
-    lowered = (transit_pattern or "").strip().lower()
+    lowered = unique_text(transit_pattern).lower()
     return [
         str(proxy.get("name") or "")
         for proxy in proxies
