@@ -4,8 +4,6 @@ import copy
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from .proxy_chain import CHAIN_GROUP_NAME, ChainProxyManager
 from .proxy_chain_utils import append_name_to_groups, ensure_list, find_proxy, normalize_exit_name
 from .proxy_models import CustomNodesState
@@ -24,27 +22,33 @@ class CustomNodesManager:
     def load(self) -> dict[str, Any]:
         try:
             if not self._storage_path.exists():
-                return _default_state()
-            data = yaml.safe_load(self._storage_path.read_text(encoding="utf-8")) or {}
+                return self._default_data()
+            import yaml
+
+            with open(self._storage_path, "r", encoding="utf-8") as handle:
+                data = yaml.safe_load(handle)
+            if not isinstance(data, dict):
+                return self._default_data()
             return CustomNodesState.model_validate(data).model_dump()
         except Exception as exc:  # noqa: BLE001
-            raise CustomNodesError(f"读取 custom_nodes 失败: {exc}") from exc
+            raise CustomNodesError(f"Failed to read custom nodes: {exc}") from exc
 
     def save(self, data: dict[str, Any]) -> None:
         try:
+            import yaml
+
             payload = CustomNodesState.model_validate(data).model_dump()
             self._storage_path.parent.mkdir(parents=True, exist_ok=True)
-            self._storage_path.write_text(
-                yaml.safe_dump(
+            with open(self._storage_path, "w", encoding="utf-8") as handle:
+                yaml.dump(
                     payload,
+                    handle,
                     allow_unicode=True,
                     default_flow_style=False,
                     sort_keys=False,
-                ),
-                encoding="utf-8",
-            )
+                )
         except Exception as exc:  # noqa: BLE001
-            raise CustomNodesError(f"写入 custom_nodes 失败: {exc}") from exc
+            raise CustomNodesError(f"Failed to write custom nodes: {exc}") from exc
 
     def add_exit_node(self, node: dict[str, Any]) -> None:
         data = self.load()
@@ -70,7 +74,7 @@ class CustomNodesManager:
         exit_name = normalize_exit_name(name)
         data["exit_nodes"] = [item for item in data["exit_nodes"] if item.get("name") != exit_name]
         if data["chain_config"]["exit_node"] == exit_name:
-            data["chain_config"] = _default_state()["chain_config"]
+            data["chain_config"] = self._default_data()["chain_config"]
         self.save(data)
 
     def set_chain_config(
@@ -89,7 +93,7 @@ class CustomNodesManager:
 
     def clear_chain_config(self) -> None:
         data = self.load()
-        data["chain_config"] = _default_state()["chain_config"]
+        data["chain_config"] = self._default_data()["chain_config"]
         self.save(data)
 
     def get_exit_nodes(self) -> list[dict[str, Any]]:
@@ -118,11 +122,11 @@ class CustomNodesManager:
                 )
             return result
         except Exception as exc:  # noqa: BLE001
-            raise CustomNodesError(f"合并 custom_nodes 失败: {exc}") from exc
+            raise CustomNodesError(f"Failed to merge custom nodes: {exc}") from exc
 
-
-def _default_state() -> dict[str, Any]:
-    return CustomNodesState().model_dump()
+    @staticmethod
+    def _default_data() -> dict[str, Any]:
+        return CustomNodesState().model_dump()
 
 
 __all__ = ["CustomNodesError", "CustomNodesManager"]

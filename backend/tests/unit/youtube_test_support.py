@@ -89,6 +89,7 @@ class FakeHttpClient:
     def __init__(self, responses: dict[str, FakeHttpResponse]) -> None:
         self._responses = responses
         self.calls: list[dict[str, Any]] = []
+        self.init_kwargs: dict[str, Any] = {}
 
     async def __aenter__(self) -> "FakeHttpClient":
         return self
@@ -136,7 +137,16 @@ def install_http_client(
     responses: dict[str, FakeHttpResponse],
 ) -> FakeHttpClient:
     client = FakeHttpClient(responses)
-    monkeypatch.setattr(youtube_client.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(
+        youtube_client.httpx,
+        "AsyncClient",
+        lambda **kwargs: _install_client_with_kwargs(client, kwargs),
+    )
+    return client
+
+
+def _install_client_with_kwargs(client: FakeHttpClient, kwargs: dict[str, Any]) -> FakeHttpClient:
+    client.init_kwargs = kwargs
     return client
 
 

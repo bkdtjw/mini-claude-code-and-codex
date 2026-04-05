@@ -97,7 +97,7 @@ async def test_proxy_test_tool_all_timeout_message(monkeypatch: pytest.MonkeyPat
     _, execute = proxy_tools.create_proxy_test_tool()
     result = await execute({"group": "GLOBAL"})
     assert result.is_error is True
-    assert "所有节点测速超时" in result.output
+    assert "All nodes timed out" in result.output
 
 
 @pytest.mark.asyncio
@@ -110,7 +110,7 @@ async def test_proxy_test_tool_group_not_found(monkeypatch: pytest.MonkeyPatch) 
     _, execute = proxy_tools.create_proxy_test_tool()
     result = await execute({"group": "GLOBAL"})
     assert result.is_error is True
-    assert "代理组 GLOBAL 不存在" in result.output
+    assert "Proxy group GLOBAL not found" in result.output
     assert "AUTO" in result.output
 
 

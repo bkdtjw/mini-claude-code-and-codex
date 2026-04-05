@@ -11,7 +11,7 @@ PLAIN_PREFIXES = ("port:", "mixed-port:", "proxies:", "{")
 
 
 class SubscriptionError(Exception):
-    """订阅拉取或解析失败。"""
+    """Raised when subscription loading or parsing fails."""
 
 
 async def fetch_subscription(url: str, user_agent: str = "clash.meta") -> str:
@@ -21,15 +21,15 @@ async def fetch_subscription(url: str, user_agent: str = "clash.meta") -> str:
         response.raise_for_status()
         return response.text
     except httpx.HTTPError as exc:
-        raise SubscriptionError(f"拉取订阅失败: {exc}") from exc
+        raise SubscriptionError(f"Failed to fetch subscription: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
-        raise SubscriptionError(f"拉取订阅失败: {exc}") from exc
+        raise SubscriptionError(f"Failed to fetch subscription: {exc}") from exc
 
 
 def decode_subscription(raw: str) -> str:
     stripped = raw.strip()
     if not stripped:
-        raise SubscriptionError("订阅内容为空")
+        raise SubscriptionError("Subscription content is empty")
     if stripped.startswith(PLAIN_PREFIXES):
         return stripped
     try:
@@ -37,21 +37,21 @@ def decode_subscription(raw: str) -> str:
         decoded = base64.b64decode(compact + ("=" * ((-len(compact)) % 4))).decode("utf-8")
         return decoded.strip()
     except Exception as exc:  # noqa: BLE001
-        raise SubscriptionError(f"订阅内容解码失败: {exc}") from exc
+        raise SubscriptionError(f"Failed to decode subscription content: {exc}") from exc
 
 
 def parse_subscription_yaml(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
-        raise SubscriptionError("订阅内容为空")
+        raise SubscriptionError("Subscription content is empty")
     try:
         payload = _load_with_yaml(stripped) or _load_with_fallback(stripped)
     except Exception as exc:  # noqa: BLE001
-        raise SubscriptionError(f"解析订阅失败: {exc}") from exc
+        raise SubscriptionError(f"Failed to parse subscription: {exc}") from exc
     if isinstance(payload, list):
         payload = {"proxies": payload}
     if not isinstance(payload, dict) or not isinstance(payload.get("proxies"), list):
-        raise SubscriptionError("订阅配置缺少 proxies 列表")
+        raise SubscriptionError("Subscription config is missing a proxies list")
     return payload
 
 
@@ -62,7 +62,7 @@ async def load_subscription(url: str) -> dict[str, Any]:
     except SubscriptionError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise SubscriptionError(f"加载订阅失败: {exc}") from exc
+        raise SubscriptionError(f"Failed to load subscription: {exc}") from exc
 
 
 def _load_with_yaml(text: str) -> dict[str, Any] | list[dict[str, Any]] | None:

@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
-from .youtube_client import YouTubeClientError, YouTubeVideo, fetch_subtitle, search_videos
+from .youtube_client import YouTubeClientError, YouTubeSearchRequest, YouTubeVideo, fetch_subtitle, search_videos
 
 
 class YouTubeSearchToolError(Exception):
-    """YouTube 搜索工具错误。"""
+    """YouTube search tool error."""
 
 
 class YouTubeSearchArgs(BaseModel):
@@ -51,10 +51,13 @@ def create_youtube_search_tool(
         try:
             params = _parse_args(args)
             videos = await search_videos(
-                params.query,
-                api_key=api_key,
-                max_results=params.max_results,
-                days=params.days,
+                YouTubeSearchRequest(
+                    query=params.query,
+                    api_key=api_key,
+                    max_results=params.max_results,
+                    days=params.days,
+                    proxy_url=proxy_url,
+                )
             )
             if params.with_subtitles:
                 await _attach_subtitles(videos, proxy_url)

@@ -49,28 +49,30 @@ class ProxyLifecycle:
             proxy_set = self.set_system_proxy("127.0.0.1", self._config.proxy_port)
             exit_nodes = CustomNodesManager(self._config.custom_nodes_path).get_exit_nodes()
             chains = ChainProxyManager.list_chains(merged)
-            first_exit = exit_nodes[0]["name"] if exit_nodes else "无"
+            first_exit = str(exit_nodes[0]["name"]) if exit_nodes else "None"
             return "\n".join(
                 [
-                    "代理已启动",
+                    "Proxy started",
                     f"mihomo: {version}",
-                    f"代理端口: 127.0.0.1:{self._config.proxy_port}",
-                    f"系统代理: {'已设置' if proxy_set else '设置失败'}",
-                    f"节点数: {len(merged.get('proxies') or [])}",
-                    f"落地节点: {first_exit}",
-                    f"链式节点: {len(chains)} 个",
+                    f"Proxy port: 127.0.0.1:{self._config.proxy_port}",
+                    f"System proxy: {'set' if proxy_set else 'failed to set'}",
+                    f"Node count: {len(merged.get('proxies') or [])}",
+                    f"Exit node: {first_exit}",
+                    f"Chain nodes: {len(chains)}",
                 ]
             )
         except Exception as exc:  # noqa: BLE001
-            raise ProxyLifecycleError(f"开启代理失败: {exc}") from exc
+            raise ProxyLifecycleError(f"Failed to start proxy: {exc}") from exc
 
     async def stop(self) -> str:
         try:
             cleared = self.clear_system_proxy()
             self._kill_process(Path(self._config.mihomo_path).name)
-            return "\n".join(["代理已关闭", f"系统代理: {'已还原' if cleared else '还原失败'}"])
+            return "\n".join(
+                ["Proxy stopped", f"System proxy: {'cleared' if cleared else 'failed to clear'}"]
+            )
         except Exception as exc:  # noqa: BLE001
-            raise ProxyLifecycleError(f"关闭代理失败: {exc}") from exc
+            raise ProxyLifecycleError(f"Failed to stop proxy: {exc}") from exc
 
     async def status(self) -> str:
         try:
@@ -78,13 +80,13 @@ class ProxyLifecycle:
             chain_config = CustomNodesManager(self._config.custom_nodes_path).get_chain_config()
             return "\n".join(
                 [
-                    f"mihomo: {version or '未运行'}",
-                    f"系统代理: {'已设置' if self.is_system_proxy_set() else '未设置'}",
-                    f"链式出口: {chain_config.get('exit_node') or '无'}",
+                    f"mihomo: {version or 'not running'}",
+                    f"System proxy: {'set' if self.is_system_proxy_set() else 'not set'}",
+                    f"Chain exit: {chain_config.get('exit_node') or 'None'}",
                 ]
             )
         except Exception as exc:  # noqa: BLE001
-            raise ProxyLifecycleError(f"查询代理状态失败: {exc}") from exc
+            raise ProxyLifecycleError(f"Failed to query proxy status: {exc}") from exc
 
     @staticmethod
     def set_system_proxy(host: str, port: int) -> bool:
@@ -115,18 +117,22 @@ class ProxyLifecycle:
 
     @staticmethod
     def _kill_process(exe_name: str) -> None:
+        if not _process_exists(exe_name):
+            return
         result = subprocess.run(
             ["taskkill", "/f", "/im", exe_name],
             check=False,
             capture_output=True,
             text=True,
         )
-        stderr = (result.stderr or "").lower()
-        if result.returncode and "not found" not in stderr and "没有运行的任务" not in stderr:
-            raise ProxyLifecycleError(f"结束 mihomo 进程失败: {result.stderr or result.stdout}")
+        output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        allowed = ("not found", "no running instance", "cannot find")
+        if result.returncode and not any(token in output for token in allowed):
+            raise ProxyLifecycleError(f"Failed to stop mihomo process: {output.strip()}")
 
     def _build_config(self, generator: ProxyConfigGenerator) -> dict[str, object]:
-        raw = Path(self._config.sub_path).read_text(encoding="utf-8")
+        with open(self._config.sub_path, encoding="utf-8") as handle:
+            raw = handle.read()
         subscription = parse_subscription_yaml(raw)
         return generator.generate_from_subscription(
             subscription,
@@ -146,9 +152,22 @@ def _process_config(config: ProxyLifecycleConfig) -> ProxyConfig:
     )
 
 
+def _process_exists(exe_name: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["tasklist", "/fo", "csv", "/nh", "/fi", f"IMAGENAME eq {exe_name}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return True
+    return exe_name.lower() in (result.stdout or "").lower()
+
+
 def _set_proxy_values(values: dict[str, int | str]) -> None:
     if winreg is None:
-        raise ProxyLifecycleError("当前平台不支持系统代理设置")
+        raise ProxyLifecycleError("System proxy settings are not supported on this platform")
     access = getattr(winreg, "KEY_SET_VALUE", 0) | getattr(winreg, "KEY_QUERY_VALUE", 0)
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, INTERNET_SETTINGS_KEY, 0, access) as key:
         for name, value in values.items():

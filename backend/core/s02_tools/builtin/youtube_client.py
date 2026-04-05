@@ -17,7 +17,7 @@ VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
 
 
 class YouTubeClientError(Exception):
-    """YouTube 客户端错误。"""
+    """YouTube client error."""
 
 
 @dataclass(slots=True)
@@ -31,23 +31,28 @@ class YouTubeVideo:
     subtitle_text: str
 
 
-async def search_videos(
-    query: str,
-    api_key: str,
-    max_results: int = 5,
-    days: int = 0,
-) -> list[YouTubeVideo]:
+@dataclass(slots=True)
+class YouTubeSearchRequest:
+    query: str
+    api_key: str
+    max_results: int = 5
+    days: int = 0
+    proxy_url: str = ""
+
+
+async def search_videos(request: YouTubeSearchRequest) -> list[YouTubeVideo]:
     try:
-        if not api_key.strip():
+        if not request.api_key.strip():
             raise YouTubeClientError("缺少 YouTube API key，请检查 YOUTUBE_API_KEY 配置")
         async with httpx.AsyncClient(
             timeout=15.0,
+            proxy=request.proxy_url or None,
             trust_env=load_http_client_config().trust_env,
         ) as client:
             search_payload = await _request_json(
                 client,
                 SEARCH_URL,
-                _build_search_params(query, api_key, max_results, days),
+                _build_search_params(request),
             )
             video_ids = _extract_video_ids(search_payload)
             if not video_ids:
@@ -58,7 +63,7 @@ async def search_videos(
                 {
                     "part": "snippet,statistics,contentDetails",
                     "id": ",".join(video_ids),
-                    "key": api_key,
+                    "key": request.api_key,
                 },
             )
         return _build_videos(search_payload, videos_payload)
@@ -67,7 +72,10 @@ async def search_videos(
     except httpx.HTTPStatusError as exc:
         raise YouTubeClientError(_translate_http_error(exc)) from exc
     except httpx.HTTPError as exc:
-        raise YouTubeClientError(f"YouTube 搜索失败：网络请求失败，{exc}") from exc
+        proxy_hint = request.proxy_url or "direct"
+        raise YouTubeClientError(
+            f"YouTube 搜索失败：网络请求失败，[{exc.__class__.__name__}] {exc}（proxy={proxy_hint}）"
+        ) from exc
     except Exception as exc:  # noqa: BLE001
         raise YouTubeClientError(f"YouTube 搜索失败：{exc}") from exc
 
@@ -84,35 +92,27 @@ async def _request_json(
     url: str,
     params: dict[str, str | int],
 ) -> dict[str, Any]:
-    try:
-        response = await client.get(url, params=params)
-        response.raise_for_status()
-        payload = response.json()
-        return payload if isinstance(payload, dict) else {}
-    except Exception:
-        raise
+    response = await client.get(url, params=params)
+    response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, dict) else {}
 
 
 def _published_after(days: int) -> str:
     return (_utcnow() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _build_search_params(
-    query: str,
-    api_key: str,
-    max_results: int,
-    days: int,
-) -> dict[str, str | int]:
+def _build_search_params(request: YouTubeSearchRequest) -> dict[str, str | int]:
     params: dict[str, str | int] = {
         "part": "snippet",
-        "q": query,
+        "q": request.query,
         "type": "video",
-        "maxResults": max_results,
+        "maxResults": request.max_results,
         "order": "relevance",
-        "key": api_key,
+        "key": request.api_key,
     }
-    if days > 0:
-        params["publishedAfter"] = _published_after(days)
+    if request.days > 0:
+        params["publishedAfter"] = _published_after(request.days)
     return params
 
 
@@ -151,11 +151,7 @@ def _build_videos(
             YouTubeVideo(
                 title=str(detail_snippet.get("title") or snippet.get("title") or "未命名视频"),
                 url=f"https://www.youtube.com/watch?v={video_id}",
-                channel=str(
-                    detail_snippet.get("channelTitle")
-                    or snippet.get("channelTitle")
-                    or "未知频道"
-                ),
+                channel=str(detail_snippet.get("channelTitle") or snippet.get("channelTitle") or "未知频道"),
                 view_count=int(detail.get("statistics", {}).get("viewCount") or 0),
                 upload_date=_format_upload_date(
                     str(detail_snippet.get("publishedAt") or snippet.get("publishedAt") or "")
@@ -190,4 +186,4 @@ def _parse_duration(iso_duration: str) -> int:
     return hours * 3600 + minutes * 60 + seconds
 
 
-__all__ = ["YouTubeClientError", "YouTubeVideo", "fetch_subtitle", "search_videos"]
+__all__ = ["YouTubeClientError", "YouTubeSearchRequest", "YouTubeVideo", "fetch_subtitle", "search_videos"]

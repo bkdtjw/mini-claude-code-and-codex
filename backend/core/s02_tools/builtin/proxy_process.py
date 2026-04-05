@@ -13,18 +13,17 @@ STOP_TIMEOUT_SECONDS = 5.0
 
 
 class MihomoProcessError(Exception):
-    """mihomo 进程错误。"""
+    """Raised when mihomo process operations fail."""
 
 
 class MihomoProcess:
-    """管理 mihomo 进程的生命周期。"""
+    """Manage the mihomo process lifecycle."""
 
     def __init__(self, config: ProxyConfig) -> None:
         self._config = config
         self._process: asyncio.subprocess.Process | None = None
 
     async def start(self) -> str:
-        """启动 mihomo 并等待 RESTful API 就绪。"""
         try:
             self._validate_paths()
             if self.is_running:
@@ -43,16 +42,15 @@ class MihomoProcess:
             if version:
                 return version
             await self.stop()
-            return "mihomo 启动超时，未能连接 RESTful API"
+            return "mihomo startup timed out before the RESTful API became ready"
         except MihomoProcessError as exc:
             await self.stop()
             return str(exc)
         except Exception as exc:  # noqa: BLE001
             await self.stop()
-            return f"启动 mihomo 失败: {exc}"
+            return f"Failed to start mihomo: {exc}"
 
     async def stop(self) -> None:
-        """停止 mihomo 进程。"""
         try:
             if self._process is None:
                 return
@@ -72,27 +70,25 @@ class MihomoProcess:
 
     @property
     def is_running(self) -> bool:
-        """检查进程是否仍在运行。"""
         return self._process is not None and self._process.returncode is None
 
     async def restart(self) -> str:
-        """重启 mihomo。"""
         try:
             await self.stop()
             return await self.start()
         except Exception as exc:  # noqa: BLE001
-            return f"重启 mihomo 失败: {exc}"
+            return f"Failed to restart mihomo: {exc}"
 
     def _validate_paths(self) -> None:
         mihomo_path = Path(self._config.mihomo_path)
         config_path = Path(self._config.config_path)
         work_dir = Path(self._config.work_dir)
         if not mihomo_path.is_file():
-            raise MihomoProcessError(f"mihomo 可执行文件不存在: {mihomo_path}")
+            raise MihomoProcessError(f"mihomo executable not found: {mihomo_path}")
         if not config_path.is_file():
-            raise MihomoProcessError(f"mihomo 配置文件不存在: {config_path}")
+            raise MihomoProcessError(f"mihomo config not found: {config_path}")
         if not work_dir.is_dir():
-            raise MihomoProcessError(f"mihomo 工作目录不存在: {work_dir}")
+            raise MihomoProcessError(f"mihomo work directory not found: {work_dir}")
 
     async def _wait_until_ready(self) -> str:
         try:
@@ -102,7 +98,7 @@ class MihomoProcess:
             while loop.time() < deadline:
                 if self._process is not None and self._process.returncode is not None:
                     stderr_text = await self._read_stderr()
-                    raise MihomoProcessError(stderr_text or "mihomo 进程已退出")
+                    raise MihomoProcessError(stderr_text or "mihomo process exited")
                 version = await api.get_version()
                 if version:
                     return version
@@ -111,7 +107,7 @@ class MihomoProcess:
         except MihomoProcessError:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise MihomoProcessError(f"等待 mihomo 就绪失败: {exc}") from exc
+            raise MihomoProcessError(f"Failed while waiting for mihomo readiness: {exc}") from exc
 
     async def _read_stderr(self) -> str:
         try:

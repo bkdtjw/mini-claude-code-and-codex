@@ -38,12 +38,12 @@ def create_proxy_switch_tool(
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_switch",
-        description="切换代理节点，支持模糊匹配节点名",
+        description="Switch proxy nodes with fuzzy matching.",
         category="shell",
         parameters=ToolParameterSchema(
             properties={
-                "node": {"type": "string", "description": "目标节点名称或关键词"},
-                "group": {"type": "string", "description": "代理组名称，默认 GLOBAL"},
+                "node": {"type": "string", "description": "Target node name or keyword"},
+                "group": {"type": "string", "description": "Proxy group name. Defaults to GLOBAL"},
             },
             required=["node"],
         ),
@@ -61,28 +61,28 @@ def create_proxy_switch_tool(
                 raise ProxyToolError(OFFLINE_MESSAGE)
             group = next((item for item in status.groups if item.name == params.group), None)
             if group is None:
-                raise ProxyToolError(f"未找到代理组: {params.group}")
+                raise ProxyToolError(f"Proxy group {params.group} not found")
             matches = fuzzy_match(params.node, group.all)
             if not matches:
-                raise ProxyToolError(f"未找到匹配节点: {params.node}")
+                raise ProxyToolError(f"No matching nodes found for: {params.node}")
             target = matches[0]
             if not await api.switch_proxy(params.group, target):
-                raise ProxyToolError(f"切换节点失败: {target}")
+                raise ProxyToolError(f"Failed to switch to node: {target}")
             delay = await api.get_delay(target)
             lines = [
-                f"已切换到: {target}",
-                f"代理组: {params.group}",
-                f"当前延迟: {format_delay(delay)}",
+                f"Switched to: {target}",
+                f"Group: {params.group}",
+                f"Current delay: {format_delay(delay)}",
             ]
             if params.node != target:
+                lines.append(f"Matched keyword: {params.node}")
                 node_map = {node.name: node for node in status.nodes}
-                lines[0] = f"已切换到: {target}（匹配关键词: {params.node}）"
                 similar = [
                     f"{name}({format_delay(node_map.get(name).delay if node_map.get(name) else 0)})"
                     for name in matches[1:4]
                 ]
                 if similar:
-                    lines.append(f"其他相似节点: {', '.join(similar)}")
+                    lines.append(f"Similar nodes: {', '.join(similar)}")
             return ToolResult(output="\n".join(lines))
         except Exception as exc:  # noqa: BLE001
             return ToolResult(output=str(exc), is_error=True)
@@ -97,16 +97,16 @@ def create_proxy_optimize_tool(
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_optimize",
-        description="导入订阅、按需注入 smux，或移除已有 smux 配置",
+        description="Import subscriptions, inject smux, or remove existing smux config.",
         category="shell",
         parameters=ToolParameterSchema(
             properties={
                 "action": {"type": "string", "description": "inject | remove | import"},
-                "subscription_url": {"type": "string", "description": "订阅链接，仅 import 时必填"},
-                "up": {"type": "integer", "description": "上行带宽 Mbps，默认 50"},
-                "down": {"type": "integer", "description": "下行带宽 Mbps，默认 100"},
-                "protocol": {"type": "string", "description": "smux 协议，默认 h2mux"},
-                "smux": {"type": "boolean", "description": "导入时是否注入 smux，默认 false"},
+                "subscription_url": {"type": "string", "description": "Subscription URL. Required for import"},
+                "up": {"type": "integer", "description": "Upload bandwidth in Mbps. Defaults to 50"},
+                "down": {"type": "integer", "description": "Download bandwidth in Mbps. Defaults to 100"},
+                "protocol": {"type": "string", "description": "smux protocol. Defaults to h2mux"},
+                "smux": {"type": "boolean", "description": "Inject smux during import. Defaults to false"},
             },
             required=["action"],
         ),
@@ -123,11 +123,7 @@ def create_proxy_optimize_tool(
             if params.action == "import":
                 data = await load_subscription(params.subscription_url)
                 smux_config = (
-                    {
-                        "protocol": params.protocol,
-                        "brutal_up": params.up,
-                        "brutal_down": params.down,
-                    }
+                    {"protocol": params.protocol, "brutal_up": params.up, "brutal_down": params.down}
                     if params.smux
                     else None
                 )
@@ -141,7 +137,7 @@ def create_proxy_optimize_tool(
             current = generator.load()
             proxies = current.get("proxies")
             if not isinstance(proxies, list):
-                raise ProxyToolError("当前配置缺少 proxies 列表")
+                raise ProxyToolError("Current config is missing a proxies list")
             if params.action == "inject":
                 existing = _count_smux(proxies)
                 current["proxies"] = generator.inject_smux(
@@ -152,21 +148,17 @@ def create_proxy_optimize_tool(
                 )
                 changed = _count_smux(current["proxies"]) - existing
                 lines = [
-                    "配置优化完成",
-                    f"注入 smux 节点数: {changed}（已跳过 {existing} 个已有配置）",
-                    f"协议: {params.protocol} | brutal: up={params.up} down={params.down}",
+                    "Config optimized",
+                    f"Injected smux into {changed} nodes (skipped {existing} already configured)",
+                    f"Protocol: {params.protocol} | brutal: up={params.up} down={params.down}",
                 ]
             else:
                 current["proxies"] = generator.remove_smux(proxies)
-                lines = ["已移除 smux 配置", f"影响节点数: {_count_smux(proxies)}"]
+                lines = ["smux config removed", f"Affected nodes: {_count_smux(proxies)}"]
             path = str(Path(generator.save(current)).resolve())
             if generator.last_backup_path:
-                lines.append(f"备份文件: {generator.last_backup_path}")
-            lines.append(
-                "mihomo 已重载配置"
-                if await api.reload_config(path)
-                else "配置已写入，请手动重载 mihomo"
-            )
+                lines.append(f"Backup file: {generator.last_backup_path}")
+            lines.append("mihomo reloaded" if await api.reload_config(path) else "Config saved. Reload mihomo manually.")
             return ToolResult(output="\n".join(lines))
         except Exception as exc:  # noqa: BLE001
             return ToolResult(output=str(exc), is_error=True)
@@ -181,19 +173,15 @@ async def _save_and_reload(
     params: ProxyOptimizeArgs,
 ) -> str:
     path = str(Path(generator.save(config)).resolve())
-    lines = ["订阅导入成功", f"节点数量: {len(config.get('proxies') or [])}"]
+    lines = ["Subscription imported", f"Node count: {len(config.get('proxies') or [])}"]
     if params.smux:
-        lines.append(f"已注入 smux({params.protocol})，brutal up={params.up} down={params.down}")
+        lines.append(f"smux injected ({params.protocol}), brutal up={params.up} down={params.down}")
     else:
-        lines.append("未注入 smux，保留原始节点协议参数")
-    lines.append(f"配置文件: {path}")
+        lines.append("smux not injected; preserved original proxy settings")
+    lines.append(f"Config file: {path}")
     if generator.last_backup_path:
-        lines.append(f"备份文件: {generator.last_backup_path}")
-    lines.append(
-        "mihomo 已重载配置"
-        if await api.reload_config(path)
-        else "配置已写入，请手动重载 mihomo"
-    )
+        lines.append(f"Backup file: {generator.last_backup_path}")
+    lines.append("mihomo reloaded" if await api.reload_config(path) else "Config saved. Reload mihomo manually.")
     return "\n".join(lines)
 
 

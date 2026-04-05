@@ -84,7 +84,7 @@ async def _patched_search_timeline(
         for name in metadata.feature_switches
     }
     url = Endpoint.url(f"{metadata.query_id}/SearchTimeline")
-    return await self.base.get(
+    return await self.base.post(
         url,
         params=flatten_params({"variables": variables, "features": features}),
         headers=self.base._base_headers,

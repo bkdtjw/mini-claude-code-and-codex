@@ -102,8 +102,29 @@ async def test_search_filters_by_days(monkeypatch: pytest.MonkeyPatch) -> None:
     youtube_client, _ = load_modules(monkeypatch)
     client = install_http_client(monkeypatch, youtube_client, _responses())
     monkeypatch.setattr(youtube_client, "_utcnow", lambda: datetime(2026, 3, 31, 0, 0, tzinfo=UTC))
-    await youtube_client.search_videos("Claude Code", api_key="test-key", max_results=2, days=30)
+    await youtube_client.search_videos(
+        youtube_client.YouTubeSearchRequest(
+            query="Claude Code",
+            api_key="test-key",
+            max_results=2,
+            days=30,
+        )
+    )
     assert client.calls[0]["params"]["publishedAfter"] == "2026-03-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_search_uses_proxy_for_api_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    youtube_client, _ = load_modules(monkeypatch)
+    client = install_http_client(monkeypatch, youtube_client, _responses())
+    await youtube_client.search_videos(
+        youtube_client.YouTubeSearchRequest(
+            query="Claude Code",
+            api_key="test-key",
+            proxy_url="http://127.0.0.1:7892",
+        )
+    )
+    assert client.init_kwargs["proxy"] == "http://127.0.0.1:7892"
 
 
 @pytest.mark.asyncio

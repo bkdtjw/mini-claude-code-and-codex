@@ -23,7 +23,7 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 class MihomoAPI:
-    """mihomo RESTful API 客户端。"""
+    """mihomo RESTful API client."""
 
     def __init__(self, base_url: str = "http://127.0.0.1:9090", secret: str = "") -> None:
         self._base_url = base_url.rstrip("/")
@@ -146,9 +146,7 @@ class MihomoAPI:
 
     async def reload_config(self, config_path: str) -> bool:
         try:
-            await self._request(
-                APIRequest(method="PUT", path="/configs", json_body={"path": config_path})
-            )
+            await self._request(APIRequest(method="PUT", path="/configs", json_body={"path": config_path}))
             return True
         except ProxyAPIError:
             return False
@@ -162,13 +160,8 @@ class MihomoAPI:
 
     async def _request(self, request: APIRequest) -> httpx.Response:
         try:
-            effective_timeout = (
-                request.timeout if request.timeout is not None else REQUEST_TIMEOUT_SECONDS
-            )
-            async with httpx.AsyncClient(
-                timeout=effective_timeout,
-                trust_env=False,
-            ) as client:
+            effective_timeout = request.timeout if request.timeout is not None else REQUEST_TIMEOUT_SECONDS
+            async with httpx.AsyncClient(timeout=effective_timeout, trust_env=False) as client:
                 response = await client.request(
                     request.method,
                     f"{self._base_url}{request.path}",
@@ -179,9 +172,9 @@ class MihomoAPI:
             response.raise_for_status()
             return response
         except httpx.HTTPError as exc:
-            raise ProxyAPIError(f"请求 mihomo API 失败: {exc}") from exc
+            raise ProxyAPIError(f"Failed to request mihomo API: {exc}") from exc
         except Exception as exc:  # noqa: BLE001
-            raise ProxyAPIError(f"请求 mihomo API 失败: {exc}") from exc
+            raise ProxyAPIError(f"Failed to request mihomo API: {exc}") from exc
 
     async def _request_json(self, request: APIRequest) -> dict[str, Any]:
         try:
@@ -193,9 +186,9 @@ class MihomoAPI:
         except ProxyAPIError:
             raise
         except ValueError as exc:
-            raise ProxyAPIError("mihomo API 返回了无效 JSON") from exc
+            raise ProxyAPIError("mihomo API returned invalid JSON") from exc
         except Exception as exc:  # noqa: BLE001
-            raise ProxyAPIError(f"解析 mihomo API 响应失败: {exc}") from exc
+            raise ProxyAPIError(f"Failed to parse mihomo API response: {exc}") from exc
 
 
 __all__ = ["APIRequest", "MihomoAPI", "ProxyAPIError"]

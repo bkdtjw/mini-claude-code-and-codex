@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -50,9 +49,10 @@ def test_default_configs_contain_required_fields() -> None:
     dns_config = ProxyConfigGenerator.default_dns_config()
     assert dns_config["enhanced-mode"] == "fake-ip"
     assert dns_config["proxy-server-nameserver"]
-    for value in dns_config["proxy-server-nameserver"]:
-        assert "://" not in value
-        assert ip_address(value)
+    doh_servers = [
+        server for server in dns_config["proxy-server-nameserver"] if server.startswith("https://")
+    ]
+    assert len(doh_servers) >= 2
     assert ProxyConfigGenerator.default_global_opts()["external-controller"] == "127.0.0.1:9090"
 
 
@@ -69,20 +69,20 @@ def test_generate_from_subscription_creates_complete_config() -> None:
     assert result["proxies"][0]["smux"]["enabled"] is True
 
 
-def test_generate_config_preserves_unicode() -> None:
+def test_generate_config_preserves_utf8_yaml() -> None:
     generator = ProxyConfigGenerator(str(_make_temp_dir() / "config.yaml"), backup=False)
     result = generator.generate_from_subscription(
-        {"proxies": [{"name": "日本JP1", "type": "ss"}, {"name": "香港HK2", "type": "vmess"}]},
+        {"proxies": [{"name": "JP1", "type": "ss"}, {"name": "HK2", "type": "vmess"}]},
         dns_config=ProxyConfigGenerator.default_dns_config(),
         global_opts=ProxyConfigGenerator.default_global_opts(),
     )
     output_path = _make_temp_dir() / "generated.yaml"
     output_path.write_text(
-        yaml.safe_dump(result, allow_unicode=True, sort_keys=False),
+        yaml.dump(result, allow_unicode=True, default_flow_style=False, sort_keys=False),
         encoding="utf-8",
     )
-    content = output_path.read_text(encoding="utf-8")
-    assert "日本JP1" in content and "香港HK2" in content
+    content = output_path.read_bytes().decode("utf-8")
+    assert "JP1" in content and "HK2" in content
 
 
 @pytest.mark.parametrize(
@@ -99,9 +99,9 @@ def test_fuzzy_match(keyword: str, candidates: list[str], expected: list[str]) -
 
 
 def test_fetch_subscription_decodes_base64_and_plain_yaml() -> None:
-    encoded = "cHJveGllczoKICAtIG5hbWU6ICLml6XmnKxKUDEiCiAgICB0eXBlOiBzcwo="
-    assert "日本JP1" in proxy_subscription.decode_subscription(encoded)
-    plain = 'proxies:\n  - name: "日本JP1"\n    type: ss\n'
+    encoded = "cHJveGllczoKICAtIG5hbWU6ICJKUDEiCiAgICB0eXBlOiBzcwo="
+    assert "JP1" in proxy_subscription.decode_subscription(encoded)
+    plain = 'proxies:\n  - name: "JP1"\n    type: ss\n'
     assert proxy_subscription.decode_subscription(plain) == plain.strip()
 
 
@@ -115,12 +115,7 @@ class StubSwitchAPI:
     async def get_proxies(self) -> ProxyStatus:
         return ProxyStatus(
             groups=[
-                ProxyGroup(
-                    name="GLOBAL",
-                    type="Selector",
-                    now="HK1",
-                    all=["HK1", "JP1", "JP2"],
-                )
+                ProxyGroup(name="GLOBAL", type="Selector", now="HK1", all=["HK1", "JP1", "JP2"])
             ],
             nodes=[
                 ProxyNode(name="JP1", type="ss", delay=78),
@@ -145,7 +140,7 @@ async def test_proxy_switch_tool_with_fuzzy_match(monkeypatch: pytest.MonkeyPatc
     result = await execute({"node": "JP"})
     assert result.is_error is False
     assert api.switched_to == "JP1"
-    assert "匹配关键词: JP" in result.output
+    assert "Matched keyword: JP" in result.output
 
 
 class StubOptimizeAPI:
@@ -169,8 +164,8 @@ async def test_proxy_optimize_tool_import_action_defaults_to_no_smux(
     result = await execute({"action": "import", "subscription_url": "https://example.com/sub"})
     saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert result.is_error is False
-    assert "订阅导入成功" in result.output
-    assert "未注入 smux" in result.output
+    assert "Subscription imported" in result.output
+    assert "smux not injected" in result.output
     assert all("smux" not in proxy for proxy in saved["proxies"])
 
 

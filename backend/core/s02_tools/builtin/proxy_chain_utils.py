@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-EXIT_PREFIX = "馃彔 "
-CHAIN_PREFIX = "馃敆 "
+EXIT_PREFIX = "EXIT-"
+CHAIN_PREFIX = "CHAIN-"
 CHAIN_GROUP_NAME = "Chain"
-CHAIN_SEPARATOR = " 鈫?"
+CHAIN_SEPARATOR = "__TO__"
 SKIP_PROXY_TYPES = {"direct", "reject"}
 
 
@@ -60,13 +60,13 @@ def remove_group_refs(groups: list[dict[str, Any]], names: set[str]) -> None:
             group["proxies"] = [item for item in options if item not in names]
 
 
-def upsert_chain_group(groups: list[dict[str, Any]], chain_names: list[str]) -> None:
+def upsert_chain_group(groups: list[dict[str, Any]], chain_names_list: list[str]) -> None:
     chain_group = find_group(groups, CHAIN_GROUP_NAME)
     if chain_group is None:
-        groups.append({"name": CHAIN_GROUP_NAME, "type": "select", "proxies": chain_names})
+        groups.append({"name": CHAIN_GROUP_NAME, "type": "select", "proxies": chain_names_list})
         return
     chain_group["type"] = "select"
-    chain_group["proxies"] = chain_names
+    chain_group["proxies"] = chain_names_list
 
 
 def chain_names(proxies: list[dict[str, Any]]) -> list[str]:
@@ -87,7 +87,7 @@ def chain_exit(proxy: dict[str, Any]) -> str:
     prefix = f"{CHAIN_PREFIX}{transit}{CHAIN_SEPARATOR}"
     if name.startswith(prefix):
         return name[len(prefix) :]
-    return name.split(CHAIN_SEPARATOR, 1)[-1].strip()
+    return name.split(CHAIN_SEPARATOR, maxsplit=1)[-1].strip()
 
 
 def is_transit_candidate(proxy: dict[str, Any] | None, exit_name: str) -> bool:
@@ -105,9 +105,9 @@ def is_transit_candidate(proxy: dict[str, Any] | None, exit_name: str) -> bool:
 
 
 def normalize_exit_name(name: str | None) -> str:
-    text = (name or "").strip()
+    text = unique_text(name)
     if not text:
-        raise ChainProxyError("节点名称不能为空")
+        raise ChainProxyError("Node name cannot be empty")
     return text if text.startswith(EXIT_PREFIX) else f"{EXIT_PREFIX}{text}"
 
 

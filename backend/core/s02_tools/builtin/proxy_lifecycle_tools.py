@@ -39,13 +39,15 @@ def create_proxy_on_tool(
     )
     definition = ToolDefinition(
         name="proxy_on",
-        description="一键开启代理，自动生成配置、恢复自定义节点并设置系统代理",
+        description=(
+            "Start proxy, regenerate config, restore custom nodes, and set the system proxy."
+        ),
         category="shell",
         parameters=ToolParameterSchema(
             properties={
                 "force": {
                     "type": "boolean",
-                    "description": "是否强制重新生成配置，默认 true",
+                    "description": "Force config regeneration. Defaults to true.",
                 }
             },
             required=[],
@@ -65,7 +67,7 @@ def create_proxy_on_tool(
 def create_proxy_off_tool() -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_off",
-        description="一键关闭代理，停止 mihomo 并还原系统代理",
+        description="Stop proxy and clear the system proxy.",
         category="shell",
         parameters=ToolParameterSchema(properties={}, required=[]),
     )
@@ -84,7 +86,7 @@ def _get_lifecycle(config: ProxyLifecycleConfig | None = None) -> ProxyLifecycle
     global _proxy_lifecycle
     resolved = config or _build_lifecycle_config()
     if resolved is None:
-        raise ProxyLifecycleError("缺少 mihomo 生命周期配置")
+        raise ProxyLifecycleError("Missing mihomo lifecycle config")
     if _proxy_lifecycle is None or _proxy_lifecycle._config != resolved:
         _proxy_lifecycle = ProxyLifecycle(resolved)
     return _proxy_lifecycle
