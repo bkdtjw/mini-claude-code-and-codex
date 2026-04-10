@@ -111,6 +111,24 @@ def register_builtin_tools(
     if feishu_url:
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
 
+    try:
+        from .twitter_feishu_register import register_twitter_feishu_scheduler
+
+        register_twitter_feishu_scheduler(
+            tools,
+            feishu_url=feishu_url,
+            feishu_secret=resolved_feishu_secret,
+            twitter_username=resolved_twitter_username,
+            twitter_email=resolved_twitter_email,
+            twitter_password=resolved_twitter_password,
+            twitter_proxy_url=twitter_proxy_url,
+            twitter_cookies_file=twitter_cookies_file,
+            adapter=adapter,
+            default_model=default_model,
+        )
+    except ImportError:
+        pass
+
     proxy_api_url = os.environ.get("MIHOMO_API_URL", "http://127.0.0.1:9090")
     proxy_api_secret = os.environ.get("MIHOMO_SECRET", "")
     try:
@@ -199,4 +217,6 @@ def register_builtin_tools(
 
     for definition, executor in tools:
         registry.register(definition, executor)
+
+
 __all__ = ["register_builtin_tools", "PermissionMode"]
