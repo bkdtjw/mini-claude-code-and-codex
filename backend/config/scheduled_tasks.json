@@ -1,0 +1,26 @@
+{
+  "tasks": [
+    {
+      "id": "task_1ac60493",
+      "name": "科技圈AI早报",
+      "cron": "0 7 * * *",
+      "timezone": "Asia/Shanghai",
+      "prompt":"请搜索推特和YouTube上关于AI/LLM/Agent的最新动态，生成一份高质量中文早报。\n\n## 搜索要求\n1. 使用x_search工具搜索过去24小时推特热门讨论，关键词包括：LLM、AI agent、OpenAI、Claude、Anthropic、Gemini、DeepSeek、MCP、AGI，每个关键词search_type=Latest，max_results=30\n2. 使用Bash+curl通过YouTube Data API v3搜索最新AI相关视频，先执行proxy_on开启代理，搜索关键词包括AI+LLM、AI+agent、OpenAI、Claude+Anthropic等，筛选播放量高的3-5条视频获取详情\n3. 如视频时长小于20分钟，用yt-dlp提取字幕并总结核心观点\n\n## 输出格式（必须严格遵守，使用Markdown排版，合理使用emoji区分板块）\n\n报告必须包含以下板块，顺序固定，不得增减：\n1. 标题行：包含emoji、日期、覆盖推文数和视频数的统计摘要\n2. 今日必看：3-5条最重要的发现，用表格展示，包含序号、要点和重要性标记（用红黄绿圆点区分）\n3. 热点头条：1-3条最重要的新闻，每条用三级标题+核心内容描述+来源和讨论量\n4. 推特热议Top10：用表格展示，包含排名、来源账号、内容摘要、热度数据（点赞和浏览量）\n5. 产品发布与更新：用表格展示，包含产品名、时间、核心亮点、分类标签\n6. 技术观点与深度讨论：每条用引用块展示核心论点，附社区反应分析\n7. YouTube上新：用表格展示，包含频道名、视频标题、时长、播放量、核心看点\n8. 开源项目与工具速递：2-3个值得关注的项目，附GitHub Stars和一句话描述\n9. 今日数据面板：用表格汇总高价值推文数、新视频数、最高热度推文、今日热词Top3\n10. 今日小结：用引用块写2-3句话总结整体氛围和趋势\n\n排版要求：表格用于数据密集展示，引用块用于突出观点，加粗用于强调关键信息，每个板块之间用分割线隔开。如果某个板块数据为空，保留标题并写暂无重要动态。\n\n⚠️ 重要：你的任务到输出报告内容为止。不要调用feishu_notify，不要自己发送任何消息到飞书。系统会自动处理推送。",
+      "notify": {
+        "feishu": true,
+        "feishu_webhook_url": "",
+        "feishu_title": "🤖 科技圈AI早报"
+      },
+      "output": {
+        "save_markdown": true,
+        "output_dir": ""
+      },
+      "card_scenario": null,
+      "enabled": true,
+      "created_at": "2026-04-10T23:30:13.161870",
+      "last_run_at": "2026-04-12T17:26:48.962328",
+      "last_run_status": "success",
+      "last_run_output": ""
+    }
+  ]
+}

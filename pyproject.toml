@@ -16,6 +16,8 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "python-dotenv>=1.0.0",
+    "croniter>=2.0.0",
+    "markdown>=3.5.0",
 ]
 
 [project.scripts]

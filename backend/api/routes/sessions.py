@@ -3,14 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from backend.api.middleware.auth import verify_token
 from backend.common.types import Session, SessionConfig
 from backend.schemas.session import CreateSessionRequest, SessionListResponse, SessionResponse, UpdateSessionTitleRequest
 from backend.storage import SessionStore
 from .websocket_support import serialize_session_for_client
 
-router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+router = APIRouter(
+    prefix="/api/sessions",
+    tags=["sessions"],
+    dependencies=[Depends(verify_token)],
+)
 
 
 def _get_store(request: Request) -> SessionStore:

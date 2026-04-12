@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from contextlib import AsyncExitStack
@@ -7,6 +8,10 @@ from typing import Any
 
 from backend.common.errors import AgentError
 from backend.common.types import MCPServerConfig, MCPToolInfo, MCPToolResult
+
+CONNECT_TIMEOUT: float = 30.0
+LIST_TOOLS_TIMEOUT: float = 15.0
+CALL_TOOL_TIMEOUT: float = 60.0
 
 
 class MCPClient:
@@ -16,6 +21,7 @@ class MCPClient:
         self._server_config = server_config
         self._session: Any | None = None
         self._stack: AsyncExitStack | None = None
+        self._lock = asyncio.Lock()
 
     @property
     def is_connected(self) -> bool:
@@ -24,37 +30,45 @@ class MCPClient:
     async def connect(self) -> None:
         stack: AsyncExitStack | None = None
         try:
-            if self.is_connected:
-                return
-            stack = AsyncExitStack()
-            session_cls, read_stream, write_stream = await self._open_transport(stack)
-            session = await stack.enter_async_context(session_cls(read_stream, write_stream))
-            await session.initialize()
-            self._stack = stack
-            self._session = session
+            async with self._lock:
+                if self.is_connected:
+                    return
+                stack = AsyncExitStack()
+                session = await asyncio.wait_for(self._open_session(stack), timeout=CONNECT_TIMEOUT)
+                self._stack = stack
+                self._session = session
+        except asyncio.TimeoutError as exc:
+            await self._close_pending_stack(stack)
+            self._session = None
+            self._stack = None
+            raise AgentError("MCP_CONNECT_TIMEOUT", f"MCP server connection timed out after {CONNECT_TIMEOUT}s") from exc
         except AgentError:
-            if stack is not None:
-                await stack.aclose()
+            await self._close_pending_stack(stack)
+            self._session = None
+            self._stack = None
             raise
         except Exception as exc:
-            if stack is not None:
-                await stack.aclose()
+            await self._close_pending_stack(stack)
+            self._session = None
+            self._stack = None
             raise AgentError("MCP_CONNECT_ERROR", str(exc)) from exc
 
     async def disconnect(self) -> None:
+        stack: AsyncExitStack | None = None
         try:
-            if self._stack is not None:
-                await self._stack.aclose()
+            async with self._lock:
+                stack = self._stack
+                self._session = None
+                self._stack = None
+                if stack is not None:
+                    await stack.aclose()
         except Exception as exc:
             raise AgentError("MCP_DISCONNECT_ERROR", str(exc)) from exc
-        finally:
-            self._session = None
-            self._stack = None
 
     async def list_tools(self) -> list[MCPToolInfo]:
         try:
             session = await self._ensure_session()
-            result = await session.list_tools()
+            result = await asyncio.wait_for(session.list_tools(), timeout=LIST_TOOLS_TIMEOUT)
             return [
                 MCPToolInfo(
                     name=str(getattr(tool, "name", "")),
@@ -64,22 +78,32 @@ class MCPClient:
                 )
                 for tool in getattr(result, "tools", [])
             ]
+        except asyncio.TimeoutError as exc:
+            await self._mark_dead()
+            raise AgentError("MCP_LIST_TOOLS_TIMEOUT", f"list_tools timed out after {LIST_TOOLS_TIMEOUT}s") from exc
         except AgentError:
             raise
         except Exception as exc:
+            if self._is_connection_error(exc):
+                await self._mark_dead()
             raise AgentError("MCP_LIST_TOOLS_ERROR", str(exc)) from exc
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> MCPToolResult:
         try:
             session = await self._ensure_session()
-            result = await session.call_tool(name, arguments=arguments)
+            result = await asyncio.wait_for(session.call_tool(name, arguments=arguments), timeout=CALL_TOOL_TIMEOUT)
             return MCPToolResult(
                 content=self._format_tool_result(result),
                 is_error=bool(getattr(result, "isError", getattr(result, "is_error", False))),
             )
+        except asyncio.TimeoutError as exc:
+            await self._mark_dead()
+            raise AgentError("MCP_CALL_TOOL_TIMEOUT", f"call_tool '{name}' timed out after {CALL_TOOL_TIMEOUT}s") from exc
         except AgentError:
             raise
         except Exception as exc:
+            if self._is_connection_error(exc):
+                await self._mark_dead()
             raise AgentError("MCP_CALL_TOOL_ERROR", str(exc)) from exc
 
     async def _ensure_session(self) -> Any:
@@ -139,6 +163,33 @@ class MCPClient:
         if hasattr(item, "model_dump"):
             return json.dumps(item.model_dump(mode="json", by_alias=True), ensure_ascii=False)
         return str(item)
+
+    async def _open_session(self, stack: AsyncExitStack) -> Any:
+        session_cls, read_stream, write_stream = await self._open_transport(stack)
+        session = await stack.enter_async_context(session_cls(read_stream, write_stream))
+        await session.initialize()
+        return session
+
+    async def _mark_dead(self) -> None:
+        async with self._lock:
+            stack = self._stack
+            self._session = None
+            self._stack = None
+            await self._close_pending_stack(stack)
+
+    async def _close_pending_stack(self, stack: AsyncExitStack | None) -> None:
+        if stack is None:
+            return
+        try:
+            await stack.aclose()
+        except Exception:
+            return None
+
+    def _is_connection_error(self, exc: Exception) -> bool:
+        if isinstance(exc, (BrokenPipeError, ConnectionError, EOFError, OSError)):
+            return True
+        error_msg = str(exc).lower()
+        return any(keyword in error_msg for keyword in ("broken pipe", "connection", "eof", "closed", "transport"))
 
 
 __all__ = ["MCPClient"]

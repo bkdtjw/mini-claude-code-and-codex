@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.common.errors import AgentError
 from backend.common.types import MCPServerConfig, MCPServerStatus, MCPToolInfo
+from backend.api.middleware.auth import verify_token
 from backend.core.s02_tools.mcp import MCPServerManager
 
-router = APIRouter(prefix="/api/mcp", tags=["mcp"])
+router = APIRouter(prefix="/api/mcp", tags=["mcp"], dependencies=[Depends(verify_token)])
 mcp_server_manager = MCPServerManager()
 
 

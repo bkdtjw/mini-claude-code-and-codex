@@ -10,6 +10,7 @@ from .models import (
     SessionUpdate,
 )
 from .session import create_session, rebuild_session, run_request
+from .spinner import SpinnerRenderer
 
 __all__ = [
     "CliArgs",
@@ -19,6 +20,7 @@ __all__ = [
     "CliPrinter",
     "CliSession",
     "CliState",
+    "SpinnerRenderer",
     "SessionUpdate",
     "create_session",
     "handle_command",

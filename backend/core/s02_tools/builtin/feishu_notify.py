@@ -12,6 +12,14 @@ import httpx
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
 REQUEST_TIMEOUT_SECONDS = 10.0
+MAX_FEISHU_CONTENT_LENGTH = 18000  # 20KB limit minus 2KB margin
+
+
+def _truncate_content(content: str) -> str:
+    if len(content.encode("utf-8")) <= MAX_FEISHU_CONTENT_LENGTH:
+        return content
+    truncated = content[: MAX_FEISHU_CONTENT_LENGTH // 3]
+    return f"{truncated}\n\n...[消息过长，已截断]"
 
 
 def _generate_sign(secret: str) -> tuple[str, str]:
@@ -54,6 +62,7 @@ def create_feishu_notify_tool(
             if not resolved_url:
                 return ToolResult(output="FEISHU_WEBHOOK_URL is not configured", is_error=True)
             title = str(args.get("title", "")).strip()
+            content = _truncate_content(content)
             body = _build_request_body(content=content, title=title, secret=secret)
             try:
                 async with httpx.AsyncClient(

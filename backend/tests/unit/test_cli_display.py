@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
+import re
+import tempfile
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
-import json
 from pathlib import Path
-import tempfile
 from uuid import uuid4
 
 import pytest
@@ -96,7 +97,9 @@ def _register_tool(session_name: str, session: object) -> None:
 
 
 @pytest.mark.asyncio
-async def test_print_welcome_groups_tools_and_shows_provider_command(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_print_welcome_groups_tools_and_shows_provider_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     session = await create_session(
         CliArgs(workspace=_make_workspace()),
         manager=FakeProviderManager(_provider()),
@@ -146,7 +149,13 @@ def test_printer_formats_tool_events(capsys: pytest.CaptureFixture[str]) -> None
     printer = CliPrinter()
     started_at = datetime(2026, 3, 28, 10, 0, 0)
     output = "\n".join(f"line {index}" for index in range(12))
-    printer.handle_event(AgentEvent(type="tool_call", data=ToolCall(id="call-1", name="Bash", arguments={"command": "ls"}), timestamp=started_at))
+    printer.handle_event(
+        AgentEvent(
+            type="tool_call",
+            data=ToolCall(id="call-1", name="Bash", arguments={"command": "ls"}),
+            timestamp=started_at,
+        )
+    )
     printer.handle_event(
         AgentEvent(
             type="tool_result",
@@ -155,6 +164,9 @@ def test_printer_formats_tool_events(capsys: pytest.CaptureFixture[str]) -> None
         )
     )
     formatted = capsys.readouterr().out
+    assert "[OK]" in formatted or "✓" in formatted
     assert "Bash(ls)" in formatted
-    assert "0.3s" in formatted
-    assert "line 0" in formatted
+    assert re.search(r"\(\d+\.\ds\)", formatted)
+    assert "28800" not in formatted
+    assert ">>" not in formatted
+    assert "ok 完成" not in formatted

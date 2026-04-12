@@ -3,14 +3,19 @@ from __future__ import annotations
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.adapters.provider_manager import ProviderManager
+from backend.api.middleware.auth import verify_token
 from backend.common import LLMError
 from backend.common.types import ProviderConfig, ProviderType
 from backend.schemas.provider import AddProviderRequest, ProviderResponse, ProviderUpdateRequest, TestConnectionResponse
 
-router = APIRouter(prefix="/api/providers", tags=["providers"])
+router = APIRouter(
+    prefix="/api/providers",
+    tags=["providers"],
+    dependencies=[Depends(verify_token)],
+)
 provider_manager = ProviderManager()
 _PROVIDER_ALIASES = {
     "openai": "openai_compat",

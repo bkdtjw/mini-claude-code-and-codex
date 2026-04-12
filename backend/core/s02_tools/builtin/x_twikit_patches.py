@@ -17,6 +17,24 @@ _cached_metadata: SearchTimelineMetadata | None = None
 _patch_applied = False
 
 
+def _decode_response(response: Any) -> str:
+    """Safely decode HTTP response, handling non-UTF-8 or compressed content."""
+    try:
+        return response.text
+    except UnicodeDecodeError:
+        raw = response.content if hasattr(response, "content") else b""
+        import gzip as _gzip
+        import zlib as _zlib
+        try:
+            raw = _gzip.decompress(raw)
+        except Exception:
+            try:
+                raw = _zlib.decompress(raw)
+            except Exception:
+                pass
+        return raw.decode("utf-8", errors="replace")
+
+
 def apply_x_runtime_patches() -> None:
     global _patch_applied
     if _patch_applied:
@@ -50,7 +68,8 @@ async def _patched_get_indices(
         raise Exception("Couldn't locate ondemand.s chunk URL")
     response = await session.request(method="GET", url=js_url, headers=headers)
     dedupe_cookie_container(session)
-    matches = [item.group(2) for item in _INDICES_REGEX.finditer(response.text)]
+    text = _decode_response(response)
+    matches = [item.group(2) for item in _INDICES_REGEX.finditer(text)]
     if not matches:
         raise Exception("Couldn't get KEY_BYTE indices")
     indices = [int(item) for item in matches]
@@ -109,6 +128,7 @@ async def _get_search_timeline_metadata(base: Any) -> SearchTimelineMetadata:
 
 async def _fetch_text(base: Any, url: str) -> str:
     headers = {
+        "Accept-Encoding": "identity",
         "Accept-Language": f"{base.language},{base.language.split('-')[0]};q=0.9",
         "Cache-Control": "no-cache",
         "Referer": "https://x.com",
@@ -116,7 +136,7 @@ async def _fetch_text(base: Any, url: str) -> str:
     }
     response = await base.http.request("GET", url, headers=headers)
     dedupe_cookie_container(base.http)
-    return response.text
+    return _decode_response(response)
 
 
 def _extract_main_bundle_path(page_text: str) -> str:

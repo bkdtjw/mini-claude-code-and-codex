@@ -218,4 +218,7 @@ def test_extract_video_id(monkeypatch: pytest.MonkeyPatch) -> None:
     _, youtube_search = load_modules(monkeypatch)
     assert youtube_search._extract_video_id("https://www.youtube.com/watch?v=abc123") == "abc123"
     assert youtube_search._extract_video_id("https://youtu.be/abc123") == "abc123"
-    assert youtube_search._extract_video_id("https://www.youtube.com/watch?v=abc123&t=60") == "abc123"
+    assert (
+        youtube_search._extract_video_id("https://www.youtube.com/watch?v=abc123&t=60")
+        == "abc123"
+    )

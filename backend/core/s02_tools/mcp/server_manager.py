@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +9,7 @@ from backend.common.errors import AgentError
 from backend.common.types import MCPServerConfig, MCPServerStatus, MCPToolInfo
 
 from .client import MCPClient
+from .lifecycle import create_connected_client, safe_disconnect
 
 
 class MCPServerManager:
@@ -24,18 +26,39 @@ class MCPServerManager:
         self._clients: dict[str, MCPClient] = {}
         self._tool_cache: dict[str, list[MCPToolInfo]] = {}
         self._last_mtime: float | None = None
+        self._version = 0
+        self._lock = asyncio.Lock()
         self._load_from_file(force=True)
+
+    @property
+    def version(self) -> int:
+        return self._version
 
     async def add_server(self, config: MCPServerConfig) -> str:
         try:
-            self._load_from_file()
-            if config.id in self._servers:
-                raise AgentError("MCP_SERVER_EXISTS", f"MCP server already exists: {config.id}")
-            self._servers[config.id] = config
-            self._save_to_file()
-            if config.enabled:
-                await self.connect_server(config.id)
-            return config.id
+            async with self._lock:
+                self._load_from_file()
+                if config.id in self._servers:
+                    raise AgentError("MCP_SERVER_EXISTS", f"MCP server already exists: {config.id}")
+                client: MCPClient | None = None
+                tools: list[MCPToolInfo] = []
+                if config.enabled:
+                    client, tools = await create_connected_client(self._client_factory, config)
+                self._servers[config.id] = config
+                if client is not None:
+                    self._clients[config.id] = client
+                    self._tool_cache[config.id] = tools
+                try:
+                    self._save_to_file()
+                except Exception:
+                    self._servers.pop(config.id, None)
+                    self._clients.pop(config.id, None)
+                    self._tool_cache.pop(config.id, None)
+                    if client is not None:
+                        await safe_disconnect(client)
+                    raise
+                self._bump_version()
+                return config.id
         except AgentError:
             raise
         except Exception as exc:
@@ -43,13 +66,18 @@ class MCPServerManager:
 
     async def remove_server(self, server_id: str) -> bool:
         try:
-            self._load_from_file()
-            if server_id not in self._servers:
-                return False
-            await self.disconnect_server(server_id)
-            self._servers.pop(server_id, None)
-            self._save_to_file()
-            return True
+            async with self._lock:
+                self._load_from_file()
+                config = self._servers.pop(server_id, None)
+                if config is None:
+                    return False
+                client = self._clients.pop(server_id, None)
+                self._tool_cache.pop(server_id, None)
+                if client is not None:
+                    await safe_disconnect(client)
+                self._save_to_file()
+                self._bump_version()
+                return True
         except AgentError:
             raise
         except Exception as exc:
@@ -57,27 +85,26 @@ class MCPServerManager:
 
     async def list_servers(self) -> list[MCPServerStatus]:
         try:
-            self._load_from_file()
-            return [self._build_status(config) for config in self._servers.values()]
+            async with self._lock:
+                self._load_from_file()
+                return [self._build_status(config) for config in list(self._servers.values())]
         except Exception as exc:
             raise AgentError("MCP_LIST_SERVERS_ERROR", str(exc)) from exc
 
     async def get_client(self, server_id: str) -> MCPClient | None:
         try:
-            self._load_from_file()
-            return self._clients.get(server_id)
+            async with self._lock:
+                self._load_from_file()
+                return self._clients.get(server_id)
         except Exception as exc:
             raise AgentError("MCP_GET_CLIENT_ERROR", str(exc)) from exc
 
     async def refresh_tools(self, server_id: str) -> list[MCPToolInfo]:
         try:
-            await self.connect_server(server_id)
-            client = self._clients.get(server_id)
-            if client is None:
-                raise AgentError("MCP_SERVER_NOT_FOUND", f"MCP server not found: {server_id}")
-            tools = await client.list_tools()
-            self._tool_cache[server_id] = tools
-            return list(tools)
+            async with self._lock:
+                self._load_from_file()
+                await self._connect_server_locked(server_id)
+                return list(self._tool_cache.get(server_id, []))
         except AgentError:
             raise
         except Exception as exc:
@@ -85,53 +112,41 @@ class MCPServerManager:
 
     async def disconnect_all(self) -> None:
         try:
-            for server_id in list(self._clients):
-                await self.disconnect_server(server_id, ignore_missing=True)
+            async with self._lock:
+                for server_id in list(self._clients):
+                    await self._disconnect_server_locked(server_id, ignore_missing=True)
         except AgentError:
             raise
         except Exception as exc:
             raise AgentError("MCP_DISCONNECT_ALL_ERROR", str(exc)) from exc
-
     async def connect_server(self, server_id: str) -> MCPServerStatus:
         try:
-            config = self._require_server(server_id)
-            client = self._clients.get(server_id) or self._client_factory(config)
-            self._clients[server_id] = client
-            await client.connect()
-            self._tool_cache[server_id] = await client.list_tools()
-            return self._build_status(config)
+            async with self._lock:
+                self._load_from_file()
+                config = self._require_server(server_id)
+                client, tools = await create_connected_client(self._client_factory, config)
+                old_client = self._clients.pop(server_id, None)
+                if old_client is not None:
+                    await safe_disconnect(old_client)
+                self._clients[server_id] = client
+                self._tool_cache[server_id] = tools
+                self._bump_version()
+                return self._build_status(config)
         except AgentError:
             raise
         except Exception as exc:
             raise AgentError("MCP_CONNECT_SERVER_ERROR", str(exc)) from exc
 
-    async def disconnect_server(
-        self,
-        server_id: str,
-        ignore_missing: bool = False,
-    ) -> MCPServerStatus:
+    async def disconnect_server(self, server_id: str, ignore_missing: bool = False) -> MCPServerStatus:
         try:
-            self._load_from_file()
-            config = self._servers.get(server_id)
-            client = self._clients.pop(server_id, None)
-            if client is not None:
-                await client.disconnect()
-            self._tool_cache.pop(server_id, None)
-            if config is None:
-                if ignore_missing:
-                    raise AgentError("MCP_SERVER_GONE", f"MCP server not found: {server_id}")
-                raise AgentError("MCP_SERVER_NOT_FOUND", f"MCP server not found: {server_id}")
-            return self._build_status(config)
-        except AgentError as exc:
-            if ignore_missing and exc.code == "MCP_SERVER_GONE":
-                return MCPServerStatus(
-                    id=server_id,
-                    name=server_id,
-                    transport="unknown",
-                    connected=False,
-                    tool_count=0,
-                    enabled=False,
-                )
+            async with self._lock:
+                self._load_from_file()
+                status = await self._disconnect_server_locked(server_id, ignore_missing=ignore_missing)
+                self._bump_version()
+                if status is not None:
+                    return status
+                return MCPServerStatus(id=server_id, name=server_id, transport="unknown", connected=False, tool_count=0, enabled=False)
+        except AgentError:
             raise
         except Exception as exc:
             raise AgentError("MCP_DISCONNECT_SERVER_ERROR", str(exc)) from exc
@@ -157,8 +172,44 @@ class MCPServerManager:
         self._config_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         self._last_mtime = self._config_path.stat().st_mtime
 
+    def _bump_version(self) -> None:
+        self._version += 1
+
+    async def _connect_server_locked(self, server_id: str) -> MCPServerStatus:
+        config = self._require_server(server_id)
+        client = self._clients.get(server_id)
+        created_client = client is None
+        if created_client:
+            client = self._client_factory(config)
+        try:
+            await client.connect()
+            tools = await client.list_tools()
+            if created_client:
+                self._clients[server_id] = client
+            self._tool_cache[server_id] = tools
+            return self._build_status(config)
+        except AgentError:
+            if created_client:
+                self._tool_cache.pop(server_id, None)
+                await safe_disconnect(client)
+            raise
+        except Exception as exc:
+            if created_client:
+                self._tool_cache.pop(server_id, None)
+                await safe_disconnect(client)
+            raise AgentError("MCP_CONNECT_SERVER_ERROR", str(exc)) from exc
+
+    async def _disconnect_server_locked(self, server_id: str, ignore_missing: bool) -> MCPServerStatus | None:
+        config = self._servers.get(server_id)
+        client = self._clients.pop(server_id, None)
+        self._tool_cache.pop(server_id, None)
+        if client is not None:
+            await client.disconnect()
+        if config is None and not ignore_missing:
+            raise AgentError("MCP_SERVER_NOT_FOUND", f"MCP server not found: {server_id}")
+        return self._build_status(config) if config is not None else None
+
     def _require_server(self, server_id: str) -> MCPServerConfig:
-        self._load_from_file()
         config = self._servers.get(server_id)
         if config is None:
             raise AgentError("MCP_SERVER_NOT_FOUND", f"MCP server not found: {server_id}")
@@ -166,14 +217,6 @@ class MCPServerManager:
 
     def _build_status(self, config: MCPServerConfig) -> MCPServerStatus:
         client = self._clients.get(config.id)
-        return MCPServerStatus(
-            id=config.id,
-            name=config.name,
-            transport=config.transport,
-            connected=bool(client and client.is_connected),
-            tool_count=len(self._tool_cache.get(config.id, [])),
-            enabled=config.enabled,
-        )
-
+        return MCPServerStatus(id=config.id, name=config.name, transport=config.transport, connected=bool(client and client.is_connected), tool_count=len(self._tool_cache.get(config.id, [])), enabled=config.enabled)
 
 __all__ = ["MCPServerManager"]

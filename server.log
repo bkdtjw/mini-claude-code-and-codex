@@ -1,0 +1,217 @@
+nohup: ignoring input
+WARNING:  ASGI app factory detected. Using it, but please consider setting the --factory flag explicitly.
+INFO:     Started server process [77277]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:32854 - "GET /health HTTP/1.1" 200 OK
+INFO:     123.58.10.238:11624 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:13138 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:15222 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:15860 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:38060 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:27292 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:17022 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:36990 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:11728 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:36990 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:17510 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:14190 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:35634 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:27398 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:48148 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:41460 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:10764 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:52942 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:21226 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:36332 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:27612 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:37198 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:14388 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:44288 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:45934 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:63364 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:65174 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:56486 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:23852 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:38994 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     66.132.172.203:47846 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.172.203:16666 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.172.203:29678 - "GET /sitemap.xml HTTP/1.1" 404 Not Found
+INFO:     101.126.59.9:32216 - "POST /api/feishu/event HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     101.126.59.8:20900 - "POST /api/feishu/event HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     45.142.154.43:40090 - "GET /api/v2/heartbeat HTTP/1.1" 404 Not Found
+INFO:     45.142.154.43:40190 - "GET / HTTP/1.1" 404 Not Found
+INFO:     45.142.154.43:40296 - "GET / HTTP/1.1" 404 Not Found
+INFO:     45.142.154.43:40406 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     123.58.10.238:13414 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:26808 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:37446 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:39574 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:34500 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:47408 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:62108 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:44004 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:28732 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:41548 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     45.156.129.46:45778 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     121.43.117.73:49972 - "GET / HTTP/1.0" 404 Not Found
+INFO:     121.43.117.73:50106 - "GET /nmaplowercheck1775858790 HTTP/1.1" 404 Not Found
+INFO:     121.43.117.73:50104 - "POST /sdk HTTP/1.1" 404 Not Found
+INFO:     121.43.117.73:50108 - "GET / HTTP/1.0" 404 Not Found
+INFO:     121.43.117.73:50124 - "GET /HNAP1 HTTP/1.1" 404 Not Found
+INFO:     121.43.117.73:50126 - "GET /evox/about HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     121.43.117.73:50432 - "GET / HTTP/1.0" 404 Not Found
+INFO:     121.43.117.73:50434 - "GET / HTTP/1.1" 404 Not Found
+INFO:     113.215.189.195:31434 - "GET / HTTP/1.1" 404 Not Found
+INFO:     101.126.59.8:22570 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:60162 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:28850 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     198.235.24.127:62632 - "GET / HTTP/1.1" 404 Not Found
+INFO:     123.58.10.239:31214 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:15316 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:30228 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:29450 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:25976 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:65018 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:44212 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:29694 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     198.235.24.245:59892 - "GET /metrics HTTP/1.1" 404 Not Found
+INFO:     204.76.203.51:40644 - "GET / HTTP/1.1" 404 Not Found
+INFO:     16.58.56.214:59354 - "GET / HTTP/1.1" 404 Not Found
+INFO:     16.58.56.214:44784 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     205.210.31.16:59694 - "GET / HTTP/1.1" 404 Not Found
+INFO:     64.62.197.122:49254 - "GET / HTTP/1.1" 404 Not Found
+INFO:     64.62.197.127:46507 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     64.62.197.131:54761 - "GET /?format=json HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     58.19.106.149:62737 - "HEAD / HTTP/1.1" 404 Not Found
+INFO:     153.0.83.71:55557 - "GET /english/ HTTP/1.1" 404 Not Found
+INFO:     153.0.83.71:45725 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     153.0.83.71:45676 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     153.0.83.71:61675 - "GET / HTTP/1.1" 404 Not Found
+INFO:     153.0.83.71:42825 - "GET / HTTP/1.1" 404 Not Found
+INFO:     66.132.172.98:41500 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.172.98:48044 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.172.98:62210 - "GET /robots.txt HTTP/1.1" 404 Not Found
+INFO:     101.126.59.8:41590 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:41364 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:18050 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:49774 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:59568 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:62820 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:48798 - "POST /api/feishu/card_action HTTP/1.1" 404 Not Found
+INFO:     66.132.195.44:60190 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.195.44:14982 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.195.44:14450 - "GET /sitemap.xml HTTP/1.1" 404 Not Found
+INFO:     89.248.164.165:50584 - "GET /images/js/eas/eas.js HTTP/1.1" 404 Not Found
+INFO:     45.79.207.110:53694 - "GET / HTTP/1.1" 404 Not Found
+INFO:     45.79.207.252:37944 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     212.73.148.24:42180 - "GET / HTTP/1.1" 404 Not Found
+INFO:     31.58.214.23:32817 - "GET /.terraform.tfstate.lock.info HTTP/1.0" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     204.76.203.51:47658 - "GET / HTTP/1.1" 404 Not Found
+INFO:     101.126.59.8:59210 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:39046 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:43902 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:54172 - "POST /api/feishu/event HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Unsupported upgrade request.
+INFO:     39.100.82.54:39818 - "GET / HTTP/1.1" 404 Not Found
+INFO:     198.235.24.230:64122 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Unsupported upgrade request.
+INFO:     39.98.56.161:33134 - "GET / HTTP/1.1" 404 Not Found
+INFO:     172.236.228.222:51034 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     165.154.11.52:38404 - "GET / HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:38418 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:38428 - "GET /robots.txt HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:46790 - "GET /sitemap.xml HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:46800 - "GET /sse HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:46816 - "GET /mcp HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:46828 - "GET /mcp-sse HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:56504 - "GET /get_server_info HTTP/1.1" 404 Not Found
+INFO:     165.154.11.52:56512 - "POST /update_weights_from_tensor HTTP/1.1" 404 Not Found
+INFO:     101.126.59.8:29108 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:54106 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:25188 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:54156 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:52076 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:36194 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:57616 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.239:16534 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:28064 - "POST /api/feishu/event HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     123.58.10.238:41988 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:45462 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     123.58.10.238:50244 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:26236 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.8:31476 - "POST /api/feishu/event HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     204.76.203.51:34314 - "GET / HTTP/1.1" 404 Not Found
+INFO:     204.76.203.51:56116 - "GET / HTTP/1.1" 404 Not Found
+INFO:     66.132.195.42:38524 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.195.42:31454 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     66.132.195.42:26744 - "GET /.well-known/security.txt HTTP/1.1" 404 Not Found
+INFO:     31.58.214.23:32789 - "GET /.cline/settings.json HTTP/1.0" 404 Not Found
+INFO:     45.79.181.104:62232 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+Task task_1ac60493 timed out
+INFO:     45.79.181.223:50362 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     204.76.203.51:41054 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     204.76.203.51:41616 - "GET / HTTP/1.1" 404 Not Found
+INFO:     65.49.20.69:38686 - "GET / HTTP/1.1" 404 Not Found
+INFO:     65.49.20.101:51113 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     65.49.20.109:34877 - "GET /?format=json HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     198.235.24.67:64740 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     198.235.24.15:63268 - "GET / HTTP/1.1" 404 Not Found
+INFO:     52.165.81.92:35016 - "GET / HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     123.58.10.238:61050 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     101.126.59.9:58630 - "POST /api/feishu/event HTTP/1.1" 200 OK
+INFO:     205.210.31.42:61738 - "GET /metrics HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     123.58.10.238:38014 - "POST /api/feishu/card_action HTTP/1.1" 404 Not Found
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [77277]

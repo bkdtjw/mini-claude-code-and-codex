@@ -197,6 +197,26 @@ def register_builtin_tools(
     except ImportError:
         pass
 
+    try:
+        from backend.adapters.provider_manager import ProviderManager
+        from backend.core.s02_tools.mcp import MCPServerManager
+        from backend.core.s07_task_system.executor import TaskExecutor
+        from backend.core.s07_task_system.store import TaskStore
+
+        from .task_scheduler import create_task_tools
+
+        task_store = TaskStore()
+        task_executor = TaskExecutor(
+            provider_manager=ProviderManager(),
+            mcp_manager=MCPServerManager(),
+        )
+        for defn, exec_fn in create_task_tools(task_store, None, task_executor):
+            tools.append((defn, exec_fn))
+    except ImportError:
+        pass
+
     for definition, executor in tools:
         registry.register(definition, executor)
+
+
 __all__ = ["register_builtin_tools", "PermissionMode"]

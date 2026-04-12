@@ -16,16 +16,7 @@ from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
 from backend.storage import SessionStore
-from .websocket_support import (
-    LoopSettings,
-    RunLoopInput,
-    event_to_ws_message,
-    get_store,
-    parse_loop_settings,
-    resolve_loop_settings,
-    restore_messages,
-    run_loop,
-)
+from .websocket_support import LoopSettings, RunLoopInput, event_to_ws_message, get_store, parse_loop_settings, resolve_loop_settings, restore_messages, run_loop
 
 router = APIRouter()
 
@@ -35,6 +26,7 @@ class ConnectionManager:
         self._connections: dict[str, WebSocket] = {}
         self._loops: dict[str, AgentLoop] = {}
         self._loop_settings: dict[str, LoopSettings] = {}
+        self._bridges: dict[str, MCPToolBridge] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
 
     async def connect(self, session_id: str, ws: WebSocket) -> None:
@@ -50,6 +42,7 @@ class ConnectionManager:
                 await self._sync_messages(session_id, loop, store)
                 loop.abort()
             self._loop_settings.pop(session_id, None)
+            self._bridges.pop(session_id, None)
             task = self._tasks.pop(session_id, None)
             if task and not task.done():
                 task.cancel()
@@ -64,6 +57,7 @@ class ConnectionManager:
                 await self._sync_messages(session_id, loop, store)
                 loop.abort()
             self._loop_settings.pop(session_id, None)
+            self._bridges.pop(session_id, None)
             task = self._tasks.pop(session_id, None)
             if task and not task.done():
                 task.cancel()
@@ -112,21 +106,15 @@ async def _create_loop(session_id: str, settings: LoopSettings, store: SessionSt
             twitter_proxy_url=app_settings.twitter_proxy_url or None,
             twitter_cookies_file=app_settings.twitter_cookies_file or None,
         )
-        await MCPToolBridge(mcp_server_manager, registry).sync_all()
-        loop = AgentLoop(
-            config=AgentConfig(model=settings.model, system_prompt=system_prompt),
-            adapter=adapter,
-            tool_registry=registry,
-        )
+        bridge = MCPToolBridge(mcp_server_manager, registry)
+        await bridge.sync_all()
+        loop = AgentLoop(config=AgentConfig(model=settings.model, system_prompt=system_prompt), adapter=adapter, tool_registry=registry)
         messages = await store.get_messages(session_id) if store is not None else (previous_loop.messages if previous_loop else [])
         if messages:
-            loop._messages = restore_messages(  # noqa: SLF001
-                messages,
-                system_prompt,
-                clear_provider_metadata=previous_settings is not None and previous_settings.provider_id != settings.provider_id,
-            )
+            loop._messages = restore_messages(messages, system_prompt, clear_provider_metadata=previous_settings is not None and previous_settings.provider_id != settings.provider_id)  # noqa: SLF001
         manager._loops[session_id] = loop
         manager._loop_settings[session_id] = settings
+        manager._bridges[session_id] = bridge
 
         async def on_event(event: AgentEvent, sid: str = session_id) -> None:
             try:
@@ -164,21 +152,14 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                         await manager._sync_messages(session_id, loop, store)  # noqa: SLF001
                         loop.abort()
                     loop = await _create_loop(session_id, settings, store)
+                bridge = manager._bridges.get(session_id)
+                if bridge is not None and bridge.needs_sync():
+                    await bridge.sync_if_needed()
                 user_message = str(data.get("message", "")).strip()
                 if not user_message:
                     await websocket.send_json({"type": "error", "message": "message is required"})
                     continue
-                task = asyncio.create_task(
-                    run_loop(
-                        RunLoopInput(
-                            loop=loop,
-                            message=user_message,
-                            websocket=websocket,
-                            session_id=session_id,
-                            store=store,
-                        )
-                    )
-                )
+                task = asyncio.create_task(run_loop(RunLoopInput(loop=loop, message=user_message, websocket=websocket, session_id=session_id, store=store)))
                 task.add_done_callback(lambda _: manager._tasks.pop(session_id, None))
                 manager._tasks[session_id] = task
             elif msg_type == "abort":

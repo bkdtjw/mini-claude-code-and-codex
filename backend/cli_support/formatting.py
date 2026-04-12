@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import tomllib
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from backend.common.types import ToolDefinition
@@ -12,7 +11,7 @@ from backend.common.types import ToolDefinition
 @dataclass
 class ToolRun:
     label: str
-    started_at: datetime
+    started_at: float
 
 
 def shorten(text: str, limit: int = 120) -> str:
@@ -86,9 +85,49 @@ def format_output(text: str) -> list[str]:
     return lines
 
 
+def _paint_status(text: str, code: str, ansi: bool) -> str:
+    return text if not ansi else f"\033[{code}m{text}\033[0m"
+
+
+def format_tool_success(label: str, elapsed: float, ansi: bool = True) -> str:
+    icon = _paint_status("✓", "32", ansi) if ansi else "OK"
+    return f"[{icon}] {label} ({elapsed:.1f}s)"
+
+
+def format_tool_error(label: str, elapsed: float, error_preview: str, ansi: bool = True) -> str:
+    icon = _paint_status("✗", "31", ansi) if ansi else "ERR"
+    header = f"[{icon}] {label} ({elapsed:.1f}s)"
+    details = [line for line in error_preview.splitlines() if line]
+    if not details:
+        return header
+    return "\n".join([header, *[f"  {line}" for line in details]])
+
+
+def format_tool_rejected(label: str, reason: str, ansi: bool = True) -> str:
+    icon = _paint_status("🛡", "31", ansi) if ansi else "BLOCK"
+    return f"[{icon}] 拦截: {label} - {reason}" if label else f"[{icon}] 拦截: {reason}"
+
+
+def format_spinner_line(
+    label: str,
+    elapsed: float,
+    remaining_count: int,
+    frame_char: str,
+    ansi: bool = True,
+) -> str:
+    icon = _paint_status(frame_char, "36", ansi)
+    suffix = f" ({elapsed:.1f}s)" if elapsed >= 2 else ""
+    pending = f" [还有 {remaining_count} 个]" if remaining_count > 0 else ""
+    return f"[{icon}] 正在执行 {label}{suffix}{pending}"
+
+
 __all__ = [
     "ToolRun",
     "format_output",
+    "format_spinner_line",
+    "format_tool_error",
+    "format_tool_rejected",
+    "format_tool_success",
     "frame",
     "group_tools",
     "load_version",

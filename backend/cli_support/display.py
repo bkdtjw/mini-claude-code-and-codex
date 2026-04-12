@@ -9,7 +9,6 @@ from datetime import datetime
 from backend.common.types import AgentEvent, Message, ToolCall, ToolResult
 
 from .formatting import (
-    ToolRun,
     format_output,
     frame,
     group_tools,
@@ -18,12 +17,9 @@ from .formatting import (
     shorten,
     summarize_tools,
 )
+from .markdown import display_width, render_markdown, render_table
 from .models import CliSession
-
-STATUS_MESSAGES = {
-    "thinking": "思考中...",
-    "waiting_approval": "等待权限批准...",
-}
+from .spinner import SpinnerRenderer
 
 
 def _thinking_label(model: str) -> str | None:
@@ -36,8 +32,8 @@ def _thinking_label(model: str) -> str | None:
 class CliPrinter:
     def __init__(self) -> None:
         self._last_status = ""
-        self._tool_runs: dict[str, ToolRun] = {}
         self._ansi = self._enable_ansi()
+        self._renderer = SpinnerRenderer(ansi=self._ansi)
         self._version = load_version()
 
     def print_info(self, message: str) -> None:
@@ -95,46 +91,43 @@ class CliPrinter:
             self._handle_error(event.data)
 
     def _handle_status(self, status: str) -> None:
-        if status == self._last_status or status == "tool_calling":
+        if status == self._last_status:
             return
         self._last_status = status
-        if status in STATUS_MESSAGES:
-            print(self._paint(STATUS_MESSAGES[status], "90"))
+        if status in {"thinking", "compacting"}:
+            label = "思考中..." if status == "thinking" else "压缩上下文..."
+            self._renderer.show_status(label)
+            return
+        self._renderer.clear_status()
 
     def _handle_tool_call(self, tool_call: ToolCall, timestamp: datetime) -> None:
         self._last_status = ""
         label = self._summarize_call(tool_call)
-        self._tool_runs[tool_call.id] = ToolRun(label=label, started_at=timestamp)
-        print(self._paint(f">> {label}", "36"))
+        self._renderer.start_tool(tool_call.id, label, timestamp)
 
     def _handle_tool_result(self, result: ToolResult, timestamp: datetime) -> None:
         self._last_status = ""
-        run = self._tool_runs.pop(result.tool_call_id, None)
-        elapsed = f"{(timestamp - run.started_at).total_seconds():.1f}s" if run else "0.0s"
-        preview_lines = format_output(result.output or "")
-        if result.is_error:
-            summary = preview_lines[0] if preview_lines else "工具执行失败"
-            print(self._paint(f"x 失败 ({elapsed}): {summary}", "31"))
-            for line in preview_lines[1:]:
-                print(f"  {line}")
-            return
-        print(self._paint(f"ok 完成 ({elapsed})", "32"))
-        for line in preview_lines:
-            print(f"  {line}")
+        preview = "\n".join(format_output(result.output or ""))
+        self._renderer.finish_tool(result.tool_call_id, result.is_error, preview, timestamp)
 
     def _handle_security_reject(self, result: ToolResult) -> None:
-        print(self._paint(f"[SECURITY] 拦截: {result.output}", "1;31"))
+        self._renderer.reject_tool(result.tool_call_id, result.output)
 
     def _handle_message(self, message: Message) -> None:
         content = message.content.strip()
         if message.role != "assistant" or not content:
             return
         self._last_status = ""
-        print(content)
+        self._renderer.pause()
+        try:
+            print(self._render_markdown(content))
+        finally:
+            self._renderer.resume()
 
     def _handle_error(self, error: object) -> None:
         if isinstance(error, asyncio.CancelledError):
             return
+        self._renderer.clear_status()
         message = getattr(error, "message", str(error))
         if message:
             print(self._paint(f"[error] {message}", "31"))
@@ -160,6 +153,15 @@ class CliPrinter:
         if not self._ansi:
             return text
         return f"\033[{code}m{text}\033[0m"
+
+    def _render_markdown(self, text: str) -> str:
+        return render_markdown(text, self._ansi, self._paint)
+
+    def _display_width(self, text: str) -> int:
+        return display_width(text)
+
+    def _render_table(self, lines: list[str]) -> str:
+        return render_table(lines, self._ansi)
 
 
 __all__ = ["CliPrinter"]

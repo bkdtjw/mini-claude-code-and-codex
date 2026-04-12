@@ -24,3 +24,27 @@ uvicorn_run.out
 uvicorn_run.err
 backend/pytest-cache-files-*/
 _MEI*/
+
+# Root-level temporary/test scripts (move to scripts/ or tests/ instead)
+/extract_farmer.py
+/find_proxy.py
+/test*.py
+/utils.py
+/main.py
+
+# Proxy config files with sensitive data
+config.yaml
+config.yaml.bak
+config_good.yaml
+proxy-config.yaml
+my-*-config.yaml
+custom_nodes.yaml
+sub_raw.yaml
+geoip.metadb
+mihomo-*.exe
+
+# Runtime artifacts
+cache.db
+.tmp/
+.claude/
+reports/

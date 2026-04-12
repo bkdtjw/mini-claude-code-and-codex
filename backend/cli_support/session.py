@@ -93,7 +93,8 @@ async def create_session(
             twitter_proxy_url=settings.twitter_proxy_url or None,
             twitter_cookies_file=settings.twitter_cookies_file or None,
         )
-        await MCPToolBridge(resolved_mcp_manager, registry).sync_all()
+        bridge = MCPToolBridge(resolved_mcp_manager, registry)
+        await bridge.sync_all()
         loop = AgentLoop(
             config=AgentConfig(
                 model=args.model or provider.default_model,
@@ -108,6 +109,7 @@ async def create_session(
         return CliSession(
             manager=provider_manager,
             mcp_manager=resolved_mcp_manager,
+            mcp_bridge=bridge,
             loop=loop,
             registry=registry,
             state=CliState(
@@ -167,6 +169,8 @@ async def run_request(session: CliSession, user_input: str) -> None:
     try:
         signal.signal(signal.SIGINT, _handle_sigint)
         try:
+            if session.mcp_bridge is not None and session.mcp_bridge.needs_sync():
+                await session.mcp_bridge.sync_if_needed()
             await session.loop.run(user_input)
         except AgentError as exc:
             if interrupted and exc.code == "LOOP_ABORTED":

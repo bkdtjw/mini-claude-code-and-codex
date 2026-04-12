@@ -1,0 +1,72 @@
+{
+  "cards": {
+    "task_execution_report": {
+      "template_id": "AAqeVWT770Gxw",
+      "template_version": "1.0.9",
+      "description": "定时任务执行报告卡片，展示任务执行状态、摘要、统计数据和执行详情",
+      "trigger_tools": [],
+      "variables": {
+        "task_name": {
+          "type": "string",
+          "required": true,
+          "description": "任务名称"
+        },
+        "status_text": {
+          "type": "string",
+          "required": true,
+          "description": "执行状态文案，如 执行成功、执行失败"
+        },
+        "status_time": {
+          "type": "string",
+          "required": true,
+          "description": "标题区右侧展示的状态时间，格式 YYYY-MM-DD HH:MM"
+        },
+        "summary_md": {
+          "type": "string",
+          "required": true,
+          "description": "任务执行摘要，支持 Markdown，由排版 LLM 从 Agent 回复中提取,用2-3句话概括执行结果，用2-3句话概括本次执行做了什么、覆盖范围和关键数据。注意换行和利用一些emoji。不超过100字。示例：已完成对过去7天推特(X)上「大模型」「LLM」和「agent」相关Top tweets的系统梳理。报告从热点话题、重要产品发布、技术突破、行业动态四个维度展开，共涉及10余项产品动态与3大技术趋势。"
+        },
+        "tool_call_count": {
+          "type": "string",
+          "required": true,
+          "description": "本次任务执行中的工具调用次数"
+        },
+        "trigger_type": {
+          "type": "string",
+          "required": true,
+          "description": "触发方式，如 定时任务、手动执行、重跑"
+        },
+        "started_at": {
+          "type": "string",
+          "required": true,
+          "description": "任务开始时间，格式 YYYY-MM-DD HH:MM:SS"
+        },
+        "finished_at": {
+          "type": "string",
+          "required": true,
+          "description": "任务结束时间，格式 YYYY-MM-DD HH:MM:SS"
+        },
+        "result_summary": {
+          "type": "string",
+          "required": true,
+          "description": "固定格式输出。第一行写「关键发现包括：」,后面要点之间用换行分隔。每个要点不超过50字。"
+        },
+        "report_url": {
+          "type": "string",
+          "required": false,
+          "description": "完整报告链接，供查看完整报告按钮跳转"
+        },
+        "task_id": {
+          "type": "string",
+          "required": true,
+          "description": "任务 ID，供立即重跑回调使用"
+        },
+        "execution_id": {
+          "type": "string",
+          "required": true,
+          "description": "本次执行 ID，格式 {task_id}-{timestamp}"
+        }
+      }
+    }
+  }
+}

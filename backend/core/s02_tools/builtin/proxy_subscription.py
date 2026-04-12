@@ -34,8 +34,13 @@ def decode_subscription(raw: str) -> str:
         return stripped
     try:
         compact = "".join(stripped.split())
-        decoded = base64.b64decode(compact + ("=" * ((-len(compact)) % 4))).decode("utf-8")
-        return decoded.strip()
+        raw_bytes = base64.b64decode(compact + ("=" * ((-len(compact)) % 4)))
+        for enc in ("utf-8", "gbk", "gb2312", "latin-1"):
+            try:
+                return raw_bytes.decode(enc).strip()
+            except (UnicodeDecodeError, LookupError):
+                continue
+        return raw_bytes.decode("utf-8", errors="replace").strip()
     except Exception as exc:  # noqa: BLE001
         raise SubscriptionError(f"Failed to decode subscription content: {exc}") from exc
 

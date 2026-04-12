@@ -1,7 +1,7 @@
 # Agent Studio - 项目约束
 
 ## 代码规范
-- Python 3.11+，全面使用 type hints
+- Python 3.12+，全面使用 type hints
 - 类型定义统一用 Pydantic v2 BaseModel
 - 单文件不超过 200 行，超过必须拆分
 - 模块间只通过 __init__.py 暴露的接口通信

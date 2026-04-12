@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import platform
 import subprocess
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from .proxy_subscription import parse_subscription_yaml
 INTERNET_SETTINGS_KEY = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
 INTERNET_OPTION_SETTINGS_CHANGED = 39
 INTERNET_OPTION_REFRESH = 37
+
+IS_WINDOWS = platform.system() == "Windows"
 
 
 class ProxyLifecycleError(Exception):
@@ -90,45 +93,80 @@ class ProxyLifecycle:
 
     @staticmethod
     def set_system_proxy(host: str, port: int) -> bool:
-        try:
-            _set_proxy_values({"ProxyEnable": 1, "ProxyServer": f"{host}:{port}"})
+        """Set system proxy settings. On Linux, this returns True but doesn't modify system settings."""
+        if IS_WINDOWS:
+            try:
+                _set_proxy_values({"ProxyEnable": 1, "ProxyServer": f"{host}:{port}"})
+                return True
+            except Exception:
+                return False
+        else:
+            # On Linux, system proxy settings require different mechanisms
+            # (e.g., gsettings for GNOME, environment variables, etc.)
+            # For now, we just return True to indicate the proxy itself is running
             return True
-        except Exception:
-            return False
 
     @staticmethod
     def clear_system_proxy() -> bool:
-        try:
-            _set_proxy_values({"ProxyEnable": 0})
+        """Clear system proxy settings. On Linux, this returns True but doesn't modify system settings."""
+        if IS_WINDOWS:
+            try:
+                _set_proxy_values({"ProxyEnable": 0})
+                return True
+            except Exception:
+                return False
+        else:
+            # On Linux, proxy clearing would be handled by environment variables or desktop settings
             return True
-        except Exception:
-            return False
 
     @staticmethod
     def is_system_proxy_set() -> bool:
-        if winreg is None:
-            return False
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, INTERNET_SETTINGS_KEY) as key:
-                value, _ = winreg.QueryValueEx(key, "ProxyEnable")
-            return bool(value)
-        except Exception:
-            return False
+        """Check if system proxy is set. On Linux, this checks environment variables."""
+        if IS_WINDOWS:
+            if winreg is None:
+                return False
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, INTERNET_SETTINGS_KEY) as key:
+                    value, _ = winreg.QueryValueEx(key, "ProxyEnable")
+                return bool(value)
+            except Exception:
+                return False
+        else:
+            # On Linux, check environment variables
+            import os
+            return bool(os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"))
 
     @staticmethod
     def _kill_process(exe_name: str) -> None:
+        """Kill a process by name. Works on both Windows and Linux."""
         if not _process_exists(exe_name):
             return
-        result = subprocess.run(
-            ["taskkill", "/f", "/im", exe_name],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
-        allowed = ("not found", "no running instance", "cannot find")
-        if result.returncode and not any(token in output for token in allowed):
-            raise ProxyLifecycleError(f"Failed to stop mihomo process: {output.strip()}")
+
+        if IS_WINDOWS:
+            result = subprocess.run(
+                ["taskkill", "/f", "/im", exe_name],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+            allowed = ("not found", "no running instance", "cannot find")
+            if result.returncode and not any(token in output for token in allowed):
+                raise ProxyLifecycleError(f"Failed to stop mihomo process: {output.strip()}")
+        else:
+            # On Linux, use pkill to kill processes by name
+            # Extract base name without extension for Linux
+            process_name = Path(exe_name).stem
+            result = subprocess.run(
+                ["pkill", "-f", process_name],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            # pkill returns 1 if no processes were found, which is acceptable
+            if result.returncode not in (0, 1):
+                output = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
+                raise ProxyLifecycleError(f"Failed to stop mihomo process: {output}")
 
     def _build_config(self, generator: ProxyConfigGenerator) -> dict[str, object]:
         with open(self._config.sub_path, encoding="utf-8") as handle:
@@ -153,21 +191,39 @@ def _process_config(config: ProxyLifecycleConfig) -> ProxyConfig:
 
 
 def _process_exists(exe_name: str) -> bool:
-    try:
-        result = subprocess.run(
-            ["tasklist", "/fo", "csv", "/nh", "/fi", f"IMAGENAME eq {exe_name}"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return True
-    return exe_name.lower() in (result.stdout or "").lower()
+    """Check if a process is running. Works on both Windows and Linux."""
+    if IS_WINDOWS:
+        try:
+            result = subprocess.run(
+                ["tasklist", "/fo", "csv", "/nh", "/fi", f"IMAGENAME eq {exe_name}"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError:
+            return True
+        return exe_name.lower() in (result.stdout or "").lower()
+    else:
+        # On Linux, use pgrep to check for running processes
+        process_name = Path(exe_name).stem
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", process_name],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except OSError:
+            return True
 
 
 def _set_proxy_values(values: dict[str, int | str]) -> None:
-    if winreg is None:
+    """Set Windows registry proxy values. Only works on Windows."""
+    if not IS_WINDOWS:
         raise ProxyLifecycleError("System proxy settings are not supported on this platform")
+    if winreg is None:
+        raise ProxyLifecycleError("Windows registry module not available")
     access = getattr(winreg, "KEY_SET_VALUE", 0) | getattr(winreg, "KEY_QUERY_VALUE", 0)
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, INTERNET_SETTINGS_KEY, 0, access) as key:
         for name, value in values.items():

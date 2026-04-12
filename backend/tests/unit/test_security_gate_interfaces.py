@@ -31,4 +31,6 @@ def test_cli_printer_handles_security_reject(capsys: object) -> None:
             timestamp=datetime(2026, 4, 5, 12, 0, 0),
         )
     )
-    assert "[SECURITY] 拦截: blocked" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "[BLOCK]" in output
+    assert "blocked" in output

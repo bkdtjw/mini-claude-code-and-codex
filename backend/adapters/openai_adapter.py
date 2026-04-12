@@ -28,7 +28,7 @@ class OpenAICompatAdapter(LLMAdapter):
         try:
             payload = self._build_payload(request, stream=False)
             for attempt in range(1, self._max_retries + 1):
-                async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
+                async with httpx.AsyncClient(timeout=120.0, trust_env=load_http_client_config().trust_env) as client:
                     response = await client.post(self._url, headers=self._headers(), json=payload)
                 if response.status_code == 429:
                     if attempt < self._max_retries:
@@ -48,7 +48,7 @@ class OpenAICompatAdapter(LLMAdapter):
         try:
             payload = self._build_payload(request, stream=True)
             for attempt in range(1, self._max_retries + 1):
-                async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
+                async with httpx.AsyncClient(timeout=120.0, trust_env=load_http_client_config().trust_env) as client:
                     async with client.stream("POST", self._url, headers=self._headers(), json=payload) as response:
                         if response.status_code == 429:
                             if attempt < self._max_retries:
