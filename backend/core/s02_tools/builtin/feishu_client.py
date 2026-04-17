@@ -1,11 +1,14 @@
 """Feishu Open API client for bidirectional communication."""
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
 
 import httpx
+
+from backend.common.feishu_markdown import strip_markdown_for_feishu
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,28 @@ class FeishuClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}"}
 
+    def _build_content(self, content: str, msg_type: str) -> str:
+        """Strip markdown from text/post content. Interactive passes through."""
+        if msg_type not in ("text", "post"):
+            return content
+        try:
+            data = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return content
+        if msg_type == "text":
+            text = data.get("text", "")
+            if text:
+                data["text"] = strip_markdown_for_feishu(text)
+        elif msg_type == "post":
+            for lang_data in data.get("post", {}).values():
+                for paragraph in lang_data.get("content", []):
+                    for element in paragraph:
+                        if element.get("tag") == "text":
+                            element["text"] = strip_markdown_for_feishu(
+                                element.get("text", ""),
+                            )
+        return json.dumps(data, ensure_ascii=False)
+
     async def send_message(
         self,
         chat_id: str,
@@ -55,6 +80,7 @@ class FeishuClient:
         msg_type: str = "text",
     ) -> dict[str, Any]:
         await self._ensure_token()
+        content = self._build_content(content, msg_type)
         body: dict[str, Any] = {
             "receive_id": chat_id,
             "msg_type": msg_type,
@@ -76,6 +102,7 @@ class FeishuClient:
         msg_type: str = "text",
     ) -> dict[str, Any]:
         await self._ensure_token()
+        content = self._build_content(content, msg_type)
         url = f"{_SEND_MSG_URL}/{message_id}/reply"
         body: dict[str, Any] = {"msg_type": msg_type, "content": content}
         async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:

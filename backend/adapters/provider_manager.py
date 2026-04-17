@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import json
+import asyncio
 from pathlib import Path
 from typing import Any
 
 from backend.common import LLMError
 from backend.common.types import ProviderConfig
+from backend.storage import ProviderStore
 
 from .base import LLMAdapter
 from .factory import AdapterFactory
+from .provider_seed_loader import DEFAULT_PROVIDER_SEED_PATH, load_provider_seed
 
 
 class ProviderManager:
-    """Manage provider configs with JSON persistence."""
-
-    def __init__(self) -> None:
-        self._config_path = Path(__file__).resolve().parents[1] / "config" / "providers.json"
+    def __init__(self, config_path: str | None = None, store: ProviderStore | None = None) -> None:
+        self._seed_path = Path(config_path) if config_path else DEFAULT_PROVIDER_SEED_PATH
+        self._store = store or ProviderStore()
         self._aliases = {
             "openai": "openai_compat",
             "openai_compatible": "openai_compat",
@@ -24,8 +25,9 @@ class ProviderManager:
         }
         self._providers: dict[str, ProviderConfig] = {}
         self._adapters: dict[str, LLMAdapter] = {}
-        self._last_mtime: float | None = None
-        self._load_from_file(force=True)
+        self._initialized = False
+        self._init_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
 
     def _normalize_provider_type(self, value: Any) -> Any:
         return self._aliases.get(value, value) if isinstance(value, str) else value
@@ -36,45 +38,45 @@ class ProviderManager:
             data[first_id] = data[first_id].model_copy(update={"is_default": True})
         return data
 
-    def _load_from_file(self, force: bool = False) -> None:
-        if not self._config_path.exists():
-            self._providers, self._last_mtime = {}, None
-            return
-        mtime = self._config_path.stat().st_mtime
-        if not force and self._last_mtime is not None and mtime <= self._last_mtime:
-            return
-        try:
-            raw = json.loads(self._config_path.read_text(encoding="utf-8"))
-            rows = raw.get("providers", []) if isinstance(raw, dict) else []
-            loaded: dict[str, ProviderConfig] = {}
-            for row in rows:
-                item = dict(row)
-                item["provider_type"] = self._normalize_provider_type(item.get("provider_type"))
-                config = ProviderConfig.model_validate(item)
-                loaded[config.id] = config
-            self._providers = self._normalize_defaults(loaded)
-            self._adapters.clear()
-            self._last_mtime = mtime
-        except Exception:
-            self._providers, self._adapters = {}, {}
+    def _try_load_json_seed(self) -> list[ProviderConfig]:
+        return load_provider_seed(self._seed_path, self._aliases)
 
-    def _save_to_file(self) -> None:
-        self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"providers": [item.model_dump(mode="json") for item in self._providers.values()]}
-        self._config_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        self._last_mtime = self._config_path.stat().st_mtime
+    async def _ensure_initialized(self) -> None:
+        try:
+            if self._initialized:
+                return
+            async with self._init_lock:
+                if self._initialized:
+                    return
+                configs = await self._store.list_all()
+                if not configs:
+                    seeds = self._try_load_json_seed()
+                    if seeds:
+                        await self._store.import_from_json(seeds)
+                        configs = seeds
+                self._providers = self._normalize_defaults({item.id: item for item in configs})
+                default = next((item for item in self._providers.values() if item.is_default), None)
+                if default is not None:
+                    await self._store.set_default(default.id)
+                    for item_id, config in list(self._providers.items()):
+                        self._providers[item_id] = config.model_copy(update={"is_default": item_id == default.id})
+                self._initialized = True
+        except LLMError:
+            raise
+        except Exception as exc:
+            raise LLMError("PROVIDER_INIT_ERROR", str(exc), "provider_manager") from exc
 
     async def add(self, config: ProviderConfig) -> ProviderConfig:
         try:
-            self._load_from_file()
-            if config.id in self._providers:
-                raise LLMError("PROVIDER_EXISTS", f"Provider already exists: {config.id}", "provider_manager")
-            self._providers[config.id] = config
-            if config.is_default or not any(item.is_default for item in self._providers.values()):
-                await self.set_default(config.id)
-            else:
-                self._save_to_file()
-            return self._providers[config.id]
+            await self._ensure_initialized()
+            async with self._write_lock:
+                if config.id in self._providers:
+                    raise LLMError("PROVIDER_EXISTS", f"Provider already exists: {config.id}", "provider_manager")
+                stored = await self._store.add(config)
+                self._providers[stored.id] = stored
+                if stored.is_default or not any(item.is_default for item in self._providers.values()):
+                    await self._set_default_locked(stored.id)
+                return self._providers[stored.id]
         except LLMError:
             raise
         except Exception as exc:
@@ -82,20 +84,22 @@ class ProviderManager:
 
     async def update(self, provider_id: str, **kwargs: Any) -> ProviderConfig:
         try:
-            self._load_from_file()
-            if provider_id not in self._providers:
-                raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
-            kwargs.pop("id", None)
-            if "provider_type" in kwargs:
-                kwargs["provider_type"] = self._normalize_provider_type(kwargs["provider_type"])
-            updated = self._providers[provider_id].model_copy(update=kwargs)
-            self._providers[provider_id] = updated
-            self._adapters.pop(provider_id, None)
-            if updated.is_default:
-                await self.set_default(provider_id)
-            else:
-                self._save_to_file()
-            return self._providers[provider_id]
+            await self._ensure_initialized()
+            async with self._write_lock:
+                current = self._providers.get(provider_id)
+                if current is None:
+                    raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
+                kwargs.pop("id", None)
+                if "provider_type" in kwargs:
+                    kwargs["provider_type"] = self._normalize_provider_type(kwargs["provider_type"])
+                updated = await self._store.update(provider_id, **kwargs)
+                if updated is None:
+                    raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
+                self._providers[provider_id] = updated
+                self._adapters.pop(provider_id, None)
+                if updated.is_default or not any(item.is_default for item in self._providers.values()):
+                    await self._set_default_locked(provider_id)
+                return self._providers[provider_id]
         except LLMError:
             raise
         except Exception as exc:
@@ -103,16 +107,16 @@ class ProviderManager:
 
     async def remove(self, provider_id: str) -> bool:
         try:
-            self._load_from_file()
-            removed = self._providers.pop(provider_id, None)
-            self._adapters.pop(provider_id, None)
-            if removed is None:
-                return False
-            if removed.is_default and self._providers:
-                await self.set_default(next(iter(self._providers)))
-            else:
-                self._save_to_file()
-            return True
+            await self._ensure_initialized()
+            async with self._write_lock:
+                removed = self._providers.pop(provider_id, None)
+                self._adapters.pop(provider_id, None)
+                if removed is None:
+                    return False
+                await self._store.remove(provider_id)
+                if removed.is_default and self._providers:
+                    await self._set_default_locked(next(iter(self._providers)))
+                return True
         except LLMError:
             raise
         except Exception as exc:
@@ -120,29 +124,23 @@ class ProviderManager:
 
     async def list_all(self) -> list[ProviderConfig]:
         try:
-            self._load_from_file()
+            await self._ensure_initialized()
             return list(self._providers.values())
         except Exception as exc:
             raise LLMError("PROVIDER_LIST_ERROR", str(exc), "provider_manager") from exc
 
     async def get_default(self) -> ProviderConfig | None:
         try:
-            self._load_from_file()
+            await self._ensure_initialized()
             return next((item for item in self._providers.values() if item.is_default), None)
         except Exception as exc:
             raise LLMError("PROVIDER_DEFAULT_ERROR", str(exc), "provider_manager") from exc
 
     async def set_default(self, provider_id: str) -> None:
         try:
-            self._load_from_file()
-            if provider_id not in self._providers:
-                raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
-            for item_id, config in list(self._providers.items()):
-                is_default = item_id == provider_id
-                if config.is_default != is_default:
-                    self._providers[item_id] = config.model_copy(update={"is_default": is_default})
-                    self._adapters.pop(item_id, None)
-            self._save_to_file()
+            await self._ensure_initialized()
+            async with self._write_lock:
+                await self._set_default_locked(provider_id)
         except LLMError:
             raise
         except Exception as exc:
@@ -150,7 +148,6 @@ class ProviderManager:
 
     async def test_connection(self, provider_id: str) -> bool:
         try:
-            self._load_from_file()
             return await (await self.get_adapter(provider_id)).test_connection()
         except LLMError:
             raise
@@ -159,11 +156,9 @@ class ProviderManager:
 
     async def get_adapter(self, provider_id: str | None = None) -> LLMAdapter:
         try:
-            self._load_from_file()
-            target_id = provider_id
-            if target_id is None:
-                default = await self.get_default()
-                target_id = default.id if default else None
+            await self._ensure_initialized()
+            default = await self.get_default() if self._providers else None
+            target_id = provider_id or (default.id if default is not None else None)
             if target_id is None:
                 raise LLMError("DEFAULT_PROVIDER_MISSING", "Default provider is not configured", "provider_manager")
             config = self._providers.get(target_id)
@@ -176,6 +171,21 @@ class ProviderManager:
             raise
         except Exception as exc:
             raise LLMError("PROVIDER_ADAPTER_ERROR", str(exc), "provider_manager") from exc
+
+    async def _set_default_locked(self, provider_id: str) -> None:
+        try:
+            if provider_id not in self._providers:
+                raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
+            await self._store.set_default(provider_id)
+            for item_id, config in list(self._providers.items()):
+                is_default = item_id == provider_id
+                if config.is_default != is_default:
+                    self._providers[item_id] = config.model_copy(update={"is_default": is_default})
+                    self._adapters.pop(item_id, None)
+        except LLMError:
+            raise
+        except Exception as exc:
+            raise LLMError("PROVIDER_SET_DEFAULT_ERROR", str(exc), "provider_manager") from exc
 
 
 __all__ = ["ProviderManager"]

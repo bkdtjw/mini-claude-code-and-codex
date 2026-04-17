@@ -40,7 +40,11 @@ def create_proxy_on_tool(
     definition = ToolDefinition(
         name="proxy_on",
         description=(
-            "Start proxy, regenerate config, restore custom nodes, and set the system proxy."
+            "Start the mihomo proxy service: regenerate config from subscription, "
+            "restore custom exit nodes and chain proxies, launch the mihomo process, "
+            "and set the system proxy. Use this tool whenever the user asks to "
+            "enable, start, or turn on proxy, TUN mode, or mihomo. "
+            "Do NOT start mihomo via the Bash tool because it will time out."
         ),
         category="shell",
         parameters=ToolParameterSchema(
@@ -67,7 +71,11 @@ def create_proxy_on_tool(
 def create_proxy_off_tool() -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_off",
-        description="Stop proxy and clear the system proxy.",
+        description=(
+            "Stop the mihomo proxy service and clear the system proxy. "
+            "Use this tool whenever the user asks to disable, stop, or turn off "
+            "proxy, TUN mode, or mihomo."
+        ),
         category="shell",
         parameters=ToolParameterSchema(properties={}, required=[]),
     )

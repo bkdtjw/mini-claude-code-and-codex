@@ -1,14 +1,29 @@
-from .executor import TaskExecutor
+from __future__ import annotations
+
 from .models import NotifyConfig, OutputConfig, ScheduledTask, TaskStoreData
-from .scheduler import TaskScheduler
-from .store import TaskStore
 
 __all__ = [
     "NotifyConfig",
     "OutputConfig",
     "ScheduledTask",
+    "TaskExecutor",
     "TaskScheduler",
     "TaskStore",
     "TaskStoreData",
-    "TaskExecutor",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "TaskExecutor":
+        from .executor import TaskExecutor
+
+        return TaskExecutor
+    if name == "TaskScheduler":
+        from .scheduler import TaskScheduler
+
+        return TaskScheduler
+    if name == "TaskStore":
+        from .store import TaskStore
+
+        return TaskStore
+    raise AttributeError(name)

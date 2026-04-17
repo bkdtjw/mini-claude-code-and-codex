@@ -6,8 +6,10 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
+from .redis_test_support import use_fake_redis
 from backend.api.routes.feishu_handler import FeishuMessageHandler, _extract_text
 
 
@@ -48,18 +50,18 @@ class TestUrlVerification:
     async def test_challenge_response(self) -> None:
         from backend.api.routes.feishu import router
 
-        from fastapi.testclient import TestClient
         from fastapi import FastAPI
 
         app = FastAPI()
         app.include_router(router)
-        with TestClient(app) as client:
-            resp = client.post(
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            resp = await client.post(
                 "/api/feishu/event",
                 json={"type": "url_verification", "challenge": "test123"},
             )
-            assert resp.status_code == 200
-            assert resp.json() == {"challenge": "test123"}
+        assert resp.status_code == 200
+        assert resp.json() == {"challenge": "test123"}
 
 
 class TestMessageHandling:
@@ -95,6 +97,53 @@ class TestMessageHandling:
         await handler.handle_message(event)
 
         assert mock_loop.run.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_seen_with_redis_returns_false_first_time(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        handler, _, _ = _mock_handler()
+        await use_fake_redis(monkeypatch)
+        assert await handler._seen("evt_redis_first") is False
+
+    @pytest.mark.asyncio
+    async def test_seen_with_redis_returns_true_second_time(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        handler, _, _ = _mock_handler()
+        await use_fake_redis(monkeypatch)
+        assert await handler._seen("evt_redis_twice") is False
+        assert await handler._seen("evt_redis_twice") is True
+
+    @pytest.mark.asyncio
+    async def test_seen_falls_back_to_memory_when_no_redis(self) -> None:
+        handler, _, _ = _mock_handler()
+        assert await handler._seen("evt_memory") is False
+        assert await handler._seen("evt_memory") is True
+
+    @pytest.mark.asyncio
+    async def test_seen_falls_back_to_memory_when_redis_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        handler, _, _ = _mock_handler()
+        fake = await use_fake_redis(monkeypatch)
+        fake.client.fail_operations.add("set")
+        assert await handler._seen("evt_redis_error") is False
+        assert await handler._seen("evt_redis_error") is True
+
+    @pytest.mark.asyncio
+    async def test_redis_key_has_correct_prefix_and_ttl(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        handler, _, _ = _mock_handler()
+        fake = await use_fake_redis(monkeypatch)
+        assert await handler._seen("evt_ttl") is False
+        assert "feishu:event:evt_ttl" in fake.client.values
+        assert await fake.client.ttl("feishu:event:evt_ttl") == 86400
 
     @pytest.mark.asyncio
     async def test_bot_message_ignored(self) -> None:

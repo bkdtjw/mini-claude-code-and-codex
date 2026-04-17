@@ -6,6 +6,7 @@ from typing import Sequence
 
 from backend.cli_support import CliError, CliPrinter, create_session, parse_args, run_repl
 from backend.common.errors import AgentError, LLMError
+from backend.config import close_redis
 
 
 async def main(argv: Sequence[str] | None = None) -> None:
@@ -18,6 +19,8 @@ async def main(argv: Sequence[str] | None = None) -> None:
         raise
     except Exception as exc:
         raise CliError("CLI_MAIN_ERROR", str(exc)) from exc
+    finally:
+        await close_redis()
 
 
 def cli_entry() -> None:

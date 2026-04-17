@@ -48,8 +48,13 @@ async def test_proxy_on_and_off_tool_execute(monkeypatch: pytest.MonkeyPatch) ->
     on_result = await on_execute({"force": False})
     off_result = await off_execute({})
     assert on_def.name == "proxy_on"
+    assert "mihomo" in on_def.description.lower()
+    assert "tun mode" in on_def.description.lower()
+    assert "bash tool" in on_def.description.lower()
     assert on_result.output == "start:False"
     assert off_def.name == "proxy_off"
+    assert "mihomo" in off_def.description.lower()
+    assert "turn off" in off_def.description.lower()
     assert off_result.output == "stop"
 
 

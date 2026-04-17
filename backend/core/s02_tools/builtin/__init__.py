@@ -69,7 +69,10 @@ def register_builtin_tools(
                         ),
                     )
                 )
+
+    # YouTube 搜索工具 - API Key 版本（优先）
     resolved_youtube_api_key = youtube_api_key or os.environ.get("YOUTUBE_API_KEY", "")
+    youtube_tool_registered = False
     if resolved_youtube_api_key:
         try:
             from .youtube_search import create_youtube_search_tool
@@ -81,8 +84,22 @@ def register_builtin_tools(
                     proxy_url=resolved_youtube_proxy,
                 )
             )
+            youtube_tool_registered = True
         except ImportError:
             pass
+
+    # YouTube 搜索工具 - yt-dlp 版本（无需 API Key）
+    if not youtube_tool_registered:
+        try:
+            from .youtube_search_ytdlp import (
+                create_youtube_search_ytdlp_tool,
+                create_youtube_subtitle_tool,
+            )
+            tools.append(create_youtube_search_ytdlp_tool())
+            tools.append(create_youtube_subtitle_tool())
+        except ImportError:
+            pass
+
     resolved_twitter_username = twitter_username or os.environ.get("TWITTER_USERNAME", "")
     resolved_twitter_email = twitter_email or os.environ.get("TWITTER_EMAIL", "")
     resolved_twitter_password = twitter_password or os.environ.get("TWITTER_PASSWORD", "")

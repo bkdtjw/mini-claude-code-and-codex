@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from backend.common.feishu_markdown import strip_markdown_for_feishu
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
 REQUEST_TIMEOUT_SECONDS = 10.0
@@ -96,6 +97,7 @@ def create_feishu_notify_tool(
 
 
 def _build_request_body(content: str, title: str, secret: str | None) -> dict[str, Any]:
+    content = strip_markdown_for_feishu(content)
     if title:
         body: dict[str, Any] = {
             "msg_type": "post",

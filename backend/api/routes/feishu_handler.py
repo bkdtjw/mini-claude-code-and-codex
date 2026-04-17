@@ -3,71 +3,22 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from backend.adapters.provider_manager import ProviderManager
+from backend.api.routes.feishu_runtime import (
+    FeishuEventDeduplicator,
+    build_agent_loop,
+    collect_tool_calls,
+)
 from backend.common.feishu_card import CardRegistry, FeishuCardError, build_card_content
 from backend.common.feishu_card_formatter import CardFormatter
-from backend.common.types import AgentConfig
 from backend.config.settings import settings as app_settings
 from backend.core.s01_agent_loop import AgentLoop
-from backend.core.s02_tools import ToolRegistry
-from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
-from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
-from backend.core.system_prompt import build_system_prompt
+from backend.storage.session_store import SessionStore
 
 logger = logging.getLogger(__name__)
-
-_MAX_EVENT_IDS = 2000
-
-
-async def _build_agent_loop(adapter: Any) -> AgentLoop:
-    registry = ToolRegistry()
-    register_builtin_tools(
-        registry,
-        workspace=os.getcwd(),
-        mode="auto",
-        adapter=adapter,
-        default_model=app_settings.default_model,
-        feishu_webhook_url=app_settings.feishu_webhook_url or None,
-        feishu_secret=app_settings.feishu_webhook_secret or None,
-        youtube_api_key=app_settings.youtube_api_key or None,
-        youtube_proxy_url=app_settings.youtube_proxy_url or None,
-        twitter_username=app_settings.twitter_username or None,
-        twitter_email=app_settings.twitter_email or None,
-        twitter_password=app_settings.twitter_password or None,
-        twitter_proxy_url=app_settings.twitter_proxy_url or None,
-        twitter_cookies_file=app_settings.twitter_cookies_file or None,
-    )
-    bridge = MCPToolBridge(MCPServerManager(), registry)
-    await bridge.sync_all()
-    return AgentLoop(
-        config=AgentConfig(
-            model=app_settings.default_model,
-            system_prompt=build_system_prompt(os.getcwd()),
-        ),
-        adapter=adapter,
-        tool_registry=registry,
-    )
-
-
-def _collect_tool_calls_from_loop(
-    loop: AgentLoop,
-) -> tuple[set[str], dict[str, dict[str, Any]]]:
-    """Extract tool names and arguments from assistant messages in the loop.
-
-    Returns (tool_names, tool_args_by_name).
-    """
-    tool_names: set[str] = set()
-    tool_args: dict[str, dict[str, Any]] = {}
-    for msg in loop.messages:
-        if msg.role == "assistant" and msg.tool_calls:
-            for tc in msg.tool_calls:
-                tool_names.add(tc.name)
-                tool_args[tc.name] = tc.arguments
-    return tool_names, tool_args
 
 
 class FeishuMessageHandler:
@@ -81,16 +32,15 @@ class FeishuMessageHandler:
         self._client = feishu_client
         self._pm = provider_manager
         self._sessions: dict[str, AgentLoop] = {}
-        self._event_ids: set[str] = set()
+        self._deduplicator = FeishuEventDeduplicator()
         self._card_registry = CardRegistry()
+        self._store = SessionStore()
+        self._initiated: set[str] = set()
 
     async def handle_message(self, event: dict[str, Any]) -> None:
         event_id = event.get("header", {}).get("event_id", "")
-        if event_id in self._event_ids:
+        if await self._seen(event_id):
             return
-        self._event_ids.add(event_id)
-        if len(self._event_ids) > _MAX_EVENT_IDS:
-            self._event_ids = set(list(self._event_ids)[_MAX_EVENT_IDS // 2 :])
 
         msg = event.get("event", {}).get("message", {})
         sender = event.get("event", {}).get("sender", {})
@@ -114,8 +64,26 @@ class FeishuMessageHandler:
 
         try:
             loop = await self._get_or_create_loop(chat_id)
+            msg_count = len(loop.messages)
             result = await loop.run(text)
             content = getattr(result, "content", "") or str(result)
+
+            # Persist new messages to database
+            try:
+                if chat_id not in self._initiated:
+                    await self._store.ensure_session(
+                        chat_id,
+                        model=app_settings.default_model,
+                        provider=app_settings.default_provider,
+                        system_prompt=loop._config.system_prompt,
+                        title="飞书对话",
+                    )
+                    self._initiated.add(chat_id)
+                new_msgs = loop.messages[msg_count:]
+                if new_msgs:
+                    await self._store.add_messages(chat_id, new_msgs)
+            except Exception:
+                logger.warning("Failed to persist messages", exc_info=True)
 
             # Try card rendering for Feishu channel
             if await self._try_reply_card(loop, message_id, content):
@@ -131,7 +99,7 @@ class FeishuMessageHandler:
             try:
                 await self._client.reply_message(
                     message_id,
-                    json.dumps({"text": "处理消息时出错，请稍后重试。"}),
+                    json.dumps({"text": "处理消息时出错，请稍后重试。详情请查看服务端日志。"}),
                 )
             except Exception:
                 logger.exception("Failed to send error reply")
@@ -144,7 +112,7 @@ class FeishuMessageHandler:
     ) -> bool:
         """Attempt card rendering. Returns True if a card was sent."""
         try:
-            tool_names, tool_args = _collect_tool_calls_from_loop(loop)
+            tool_names, tool_args = collect_tool_calls(loop)
             if not tool_names:
                 return False
 
@@ -164,7 +132,11 @@ class FeishuMessageHandler:
             adapter = await self._make_adapter()
             formatter = CardFormatter(adapter, app_settings.default_model)
             variables = await formatter.format(
-                scenario, agent_reply, primary_tool, tool_args.get(primary_tool, {}), self._card_registry,
+                scenario,
+                agent_reply,
+                primary_tool,
+                tool_args.get(primary_tool, {}),
+                self._card_registry,
             )
             card_content = build_card_content(scenario, variables, self._card_registry)
             await self._client.reply_message(
@@ -182,9 +154,15 @@ class FeishuMessageHandler:
         if chat_id in self._sessions:
             return self._sessions[chat_id]
         adapter = await self._make_adapter()
-        agent = await _build_agent_loop(adapter)
+        agent = await build_agent_loop(adapter)
         self._sessions[chat_id] = agent
         return agent
+
+    async def _seen(self, event_id: str) -> bool:
+        return await self._deduplicator.seen(event_id)
+
+    def _seen_in_memory(self, event_id: str) -> bool:
+        return self._deduplicator.seen_in_memory(event_id)
 
     async def _make_adapter(self) -> Any:
         providers = await self._pm.list_all()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +10,9 @@ from backend.common.errors import AgentError
 from backend.common.types import MCPServerConfig, MCPToolInfo
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.mcp import MCPClient, MCPServerManager, MCPToolBridge
+from backend.storage import MCPServerStore
+
+from .storage_test_support import make_test_session_factory
 
 
 class ConnectCountingClient(MCPClient):
@@ -71,14 +73,13 @@ class SlowFakeMCPClient(MCPClient):
         ]
 
 
-def _make_config_path() -> str:
-    root = Path(__file__).resolve().parents[1] / ".tmp_mcp_concurrency"
-    root.mkdir(exist_ok=True)
-    temp_dir = root / uuid4().hex
-    temp_dir.mkdir()
-    path = temp_dir / "mcp_servers.json"
-    path.write_text(json.dumps({"servers": []}), encoding="utf-8")
-    return str(path)
+async def _make_manager(tmp_path: Path) -> MCPServerManager:
+    _engine, session_factory = await make_test_session_factory(tmp_path, f"mcp_concurrency_{uuid4().hex}")
+    return MCPServerManager(
+        config_path=str(tmp_path / "empty_mcp.json"),
+        client_factory=SlowFakeMCPClient,
+        store=MCPServerStore(session_factory),
+    )
 
 
 def _server_config(server_id: str, enabled: bool = True) -> MCPServerConfig:
@@ -103,8 +104,8 @@ async def test_mcp_client_connect_is_idempotent_under_concurrency() -> None:
 
 
 @pytest.mark.asyncio
-async def test_server_manager_serializes_duplicate_add_server_calls() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=SlowFakeMCPClient)
+async def test_server_manager_serializes_duplicate_add_server_calls(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     config = _server_config("shared-server", enabled=False)
 
     async def attempt_add() -> str:
@@ -114,16 +115,14 @@ async def test_server_manager_serializes_duplicate_add_server_calls() -> None:
             return exc.code
 
     results = await asyncio.gather(*(attempt_add() for _ in range(5)))
-    payload = json.loads(Path(manager._config_path).read_text(encoding="utf-8"))
     assert results.count("shared-server") == 1
     assert results.count("MCP_SERVER_EXISTS") == 4
     assert len(await manager.list_servers()) == 1
-    assert len(payload["servers"]) == 1
 
 
 @pytest.mark.asyncio
-async def test_server_manager_keeps_client_state_consistent_during_connect_disconnect() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=SlowFakeMCPClient)
+async def test_server_manager_keeps_client_state_consistent_during_connect_disconnect(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     await manager.add_server(_server_config("race-server", enabled=False))
     connect_task = asyncio.create_task(manager.connect_server("race-server"))
     await asyncio.sleep(0)
@@ -136,8 +135,8 @@ async def test_server_manager_keeps_client_state_consistent_during_connect_disco
 
 
 @pytest.mark.asyncio
-async def test_tool_bridge_sync_all_is_serialized_under_concurrency() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=SlowFakeMCPClient)
+async def test_tool_bridge_sync_all_is_serialized_under_concurrency(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     await manager.add_server(_server_config("server-a"))
     await manager.add_server(_server_config("server-b"))
     registry = ToolRegistry()
@@ -149,8 +148,8 @@ async def test_tool_bridge_sync_all_is_serialized_under_concurrency() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_servers_and_add_server_do_not_raise_concurrent_iteration_errors() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=SlowFakeMCPClient)
+async def test_list_servers_and_add_server_do_not_raise_concurrent_iteration_errors(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     await manager.add_server(_server_config("initial-server", enabled=False))
     results = await asyncio.gather(
         manager.list_servers(),

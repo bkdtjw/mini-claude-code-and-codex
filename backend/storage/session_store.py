@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
@@ -108,6 +110,49 @@ class SessionStore:
                 return [to_message(record) for record in records]
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SESSION_STORE_GET_MESSAGES_ERROR", str(exc)) from exc
+
+    async def ensure_session(
+        self,
+        session_id: str,
+        *,
+        model: str = "",
+        provider: str = "",
+        system_prompt: str = "",
+        title: str = "",
+        workspace: str = "",
+    ) -> None:
+        """Create session record if not exists."""
+        try:
+            async with get_db_session(self._session_factory) as db:
+                if await db.get(SessionRecord, session_id) is not None:
+                    return
+                db.add(SessionRecord(
+                    id=session_id,
+                    title=title,
+                    workspace=workspace,
+                    model=model,
+                    provider=provider,
+                    system_prompt=system_prompt,
+                    status="idle",
+                    created_at=datetime.utcnow(),
+                ))
+                await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError("SESSION_STORE_ENSURE_ERROR", str(exc)) from exc
+
+    async def add_messages(self, session_id: str, messages: list[Message]) -> None:
+        """Append messages to an existing session without deleting old ones."""
+        if not messages:
+            return
+        try:
+            async with get_db_session(self._session_factory) as db:
+                if await db.get(SessionRecord, session_id) is None:
+                    return
+                for message in messages:
+                    db.add(to_message_record(session_id, message))
+                await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError("SESSION_STORE_ADD_MESSAGES_ERROR", str(exc)) from exc
 
 
 __all__ = ["SessionStore"]

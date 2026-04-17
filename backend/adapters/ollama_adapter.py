@@ -24,24 +24,26 @@ class OllamaAdapter(OpenAICompatAdapter):
         except Exception:
             return False
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        try:
-            payload = self._build_payload(request, stream=False)
-            for attempt in range(1, self._max_retries + 1):
+        payload = self._build_payload(request, stream=False)
+        for attempt in range(1, self._max_retries + 1):
+            try:
                 async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
                     response = await client.post(self._url, headers=self._headers(), json=payload)
-                if response.status_code == 429 and attempt < self._max_retries:
-                    await asyncio.sleep(float(attempt)); continue
-                if response.status_code == 429:
-                    raise LLMError("RATE_LIMIT", "Ollama rate limited", self._provider, 429)
+                if self._is_retryable_status(response.status_code) and attempt < self._max_retries:
+                    await self._backoff(attempt, f"HTTP {response.status_code}")
+                    continue
                 self._raise_for_status(response)
                 return self._parse_response(response.json())
-            raise LLMError("RATE_LIMIT", "Ollama rate limited", self._provider, 429)
-        except LLMError:
-            raise
-        except httpx.RequestError as exc:
-            raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
-        except Exception as exc:
-            raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
+            except LLMError:
+                raise
+            except httpx.RequestError as exc:
+                if self._is_retryable_request_error(exc) and attempt < self._max_retries:
+                    await self._backoff(attempt, type(exc).__name__)
+                    continue
+                raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
+            except Exception as exc:
+                raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
+        raise LLMError("COMPLETE_ERROR", "Completion failed without response", self._provider, None)
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         try:
             payload = self._build_payload(request, stream=True)

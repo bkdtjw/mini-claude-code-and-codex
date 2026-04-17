@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
+from backend.storage.session_store import SessionStore
 
 from .models import ScheduledTask
 
@@ -73,6 +74,23 @@ class TaskExecutor:
             "duration": str(end_time - start_time),
         }
         report_path = await self._save_report(task, content, meta)
+
+        # Persist execution to sessions/messages
+        try:
+            run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            session_id = f"task-{task.id}-{run_id}"
+            store = SessionStore()
+            await store.ensure_session(
+                session_id,
+                model=app_settings.default_model,
+                provider="auto",
+                system_prompt=agent.config.system_prompt,
+                title=f"{task.name} @ {run_id}",
+                workspace="scheduled_task",
+            )
+            await store.add_messages(session_id, agent.messages)
+        except Exception:
+            logger.warning("Failed to persist task execution", exc_info=True)
 
         if task.notify.feishu:
             card_meta = self._build_card_meta(task, meta, report_path, end_time)

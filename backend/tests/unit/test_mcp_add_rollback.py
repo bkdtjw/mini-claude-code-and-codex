@@ -9,8 +9,10 @@ from pydantic import BaseModel
 
 from backend.common.errors import AgentError
 from backend.common.types import MCPServerConfig, MCPToolInfo
+from backend.storage import MCPServerStore
 from backend.core.s02_tools.mcp import MCPClient, MCPServerManager
 
+from .storage_test_support import make_test_session_factory
 
 class ClientPlan(BaseModel):
     fail_connect: bool = False
@@ -77,39 +79,34 @@ def _config(server_id: str = "rollback-server", enabled: bool = True) -> MCPServ
     )
 
 
-def _make_manager(plans: list[ClientPlan]) -> tuple[MCPServerManager, ClientFactory, Path]:
-    root = Path(__file__).resolve().parents[1] / ".tmp_mcp_add_rollback"
-    root.mkdir(exist_ok=True)
-    temp_dir = root / uuid4().hex
-    temp_dir.mkdir()
-    config_path = temp_dir / "mcp_servers.json"
-    config_path.write_text(json.dumps({"servers": []}), encoding="utf-8")
+async def _make_manager(tmp_path: Path, plans: list[ClientPlan]) -> tuple[MCPServerManager, ClientFactory, MCPServerStore]:
     factory = ClientFactory(plans)
-    return MCPServerManager(config_path=str(config_path), client_factory=factory), factory, config_path
+    _engine, session_factory = await make_test_session_factory(tmp_path, f"mcp_add_{uuid4().hex}")
+    store = MCPServerStore(session_factory)
+    return MCPServerManager(config_path=str(tmp_path / "empty_mcp.json"), client_factory=factory, store=store), factory, store
 
 
-def _saved_ids(config_path: Path) -> set[str]:
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    return {item["id"] for item in payload["servers"]}
+async def _saved_ids(store: MCPServerStore) -> set[str]:
+    return {item.id for item in await store.list_all()}
 
 
 @pytest.mark.asyncio
-async def test_add_server_connect_failure_does_not_persist() -> None:
+async def test_add_server_connect_failure_does_not_persist(tmp_path: Path) -> None:
     config = _config()
-    manager, factory, config_path = _make_manager([ClientPlan(fail_connect=True)])
+    manager, factory, store = await _make_manager(tmp_path, [ClientPlan(fail_connect=True)])
     with pytest.raises(AgentError) as exc_info:
         await manager.add_server(config)
     assert exc_info.value.code == "MCP_CONNECT_ERROR"
     assert config.id not in manager._servers
     assert config.id not in manager._clients
-    assert config.id not in _saved_ids(config_path)
+    assert config.id not in await _saved_ids(store)
     assert factory.clients[0].disconnect_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_add_server_can_retry_after_connect_failure() -> None:
+async def test_add_server_can_retry_after_connect_failure(tmp_path: Path) -> None:
     config = _config()
-    manager, _, _ = _make_manager([])
+    manager, _, _ = await _make_manager(tmp_path, [])
     manager._client_factory = ClientFactory([ClientPlan(fail_connect=True), ClientPlan()])
     with pytest.raises(AgentError):
         await manager.add_server(config)
@@ -117,32 +114,32 @@ async def test_add_server_can_retry_after_connect_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_server_list_tools_failure_rolls_back_and_disconnects() -> None:
+async def test_add_server_list_tools_failure_rolls_back_and_disconnects(tmp_path: Path) -> None:
     config = _config()
-    manager, factory, config_path = _make_manager([ClientPlan(fail_list_tools=True)])
+    manager, factory, store = await _make_manager(tmp_path, [ClientPlan(fail_list_tools=True)])
     with pytest.raises(AgentError) as exc_info:
         await manager.add_server(config)
     assert exc_info.value.code == "MCP_LIST_TOOLS_ERROR"
     assert config.id not in manager._servers
     assert config.id not in manager._clients
-    assert config.id not in _saved_ids(config_path)
+    assert config.id not in await _saved_ids(store)
     assert factory.clients[0].disconnect_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_add_server_disabled_saves_without_connecting() -> None:
+async def test_add_server_disabled_saves_without_connecting(tmp_path: Path) -> None:
     config = _config(enabled=False)
-    manager, factory, config_path = _make_manager([])
+    manager, factory, store = await _make_manager(tmp_path, [])
     assert await manager.add_server(config) == config.id
     assert factory.calls == 0
-    assert config.id in _saved_ids(config_path)
+    assert config.id in await _saved_ids(store)
     assert config.id not in manager._clients
 
 
 @pytest.mark.asyncio
-async def test_connect_server_failure_keeps_existing_config_clean() -> None:
+async def test_connect_server_failure_keeps_existing_config_clean(tmp_path: Path) -> None:
     config = _config(enabled=False)
-    manager, _, config_path = _make_manager([])
+    manager, _, store = await _make_manager(tmp_path, [])
     await manager.add_server(config)
     factory = ClientFactory([ClientPlan(fail_connect=True)])
     manager._client_factory = factory
@@ -150,15 +147,15 @@ async def test_connect_server_failure_keeps_existing_config_clean() -> None:
         await manager.connect_server(config.id)
     assert exc_info.value.code == "MCP_CONNECT_ERROR"
     assert config.id in manager._servers
-    assert config.id in _saved_ids(config_path)
+    assert config.id in await _saved_ids(store)
     assert config.id not in manager._clients
     assert factory.clients[0].disconnect_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_connect_server_success_replaces_existing_client() -> None:
+async def test_connect_server_success_replaces_existing_client(tmp_path: Path) -> None:
     config = _config(enabled=False)
-    manager, _, _ = _make_manager([])
+    manager, _, _ = await _make_manager(tmp_path, [])
     await manager.add_server(config)
     factory = ClientFactory([ClientPlan(tool_name="first"), ClientPlan(tool_name="second")])
     manager._client_factory = factory
@@ -171,9 +168,9 @@ async def test_connect_server_success_replaces_existing_client() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_server_disconnects_and_clears_state() -> None:
+async def test_remove_server_disconnects_and_clears_state(tmp_path: Path) -> None:
     config = _config(enabled=False)
-    manager, _, config_path = _make_manager([])
+    manager, _, store = await _make_manager(tmp_path, [])
     await manager.add_server(config)
     factory = ClientFactory([ClientPlan()])
     manager._client_factory = factory
@@ -184,4 +181,4 @@ async def test_remove_server_disconnects_and_clears_state() -> None:
     assert config.id not in manager._servers
     assert config.id not in manager._clients
     assert config.id not in manager._tool_cache
-    assert config.id not in _saved_ids(config_path)
+    assert config.id not in await _saved_ids(store)

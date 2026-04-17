@@ -11,10 +11,15 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
     default_provider: str = "anthropic"
-    default_model: str = "claude-sonnet-4-20250514"
+    default_model: str = "K2.6-code-preview"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     database_url: str = "sqlite+aiosqlite:///./data/agent_studio.db"
+    redis_url: str = ""
+    database_pool_size: int = 5
+    database_max_overflow: int = 10
+    database_pool_timeout: int = 30
+    database_pool_recycle: int = 1800
     auth_secret: str = "change-me-in-production"
     server_base_url: str = ""
     feishu_webhook_url: str = ""

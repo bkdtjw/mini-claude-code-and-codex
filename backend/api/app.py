@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.common.errors import AgentError
-from backend.config.settings import settings as app_settings
+from backend.config import close_redis, init_redis, settings as app_settings
 from backend.storage import SessionStore, init_db
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     task_scheduler = None
     try:
         await init_db()
+        await init_redis()
         app.state.session_store = SessionStore()
         try:
             from backend.adapters.provider_manager import ProviderManager
@@ -63,6 +64,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await task_scheduler.stop()
             except Exception:  # noqa: BLE001
                 pass
+        await close_redis()
         try:
             await mcp_server_manager.disconnect_all()
         except Exception as exc:  # noqa: BLE001

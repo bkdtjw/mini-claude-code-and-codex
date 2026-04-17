@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +10,9 @@ from backend.cli_support.session import run_request
 from backend.common.types import MCPServerConfig, MCPToolInfo
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.mcp import MCPClient, MCPServerManager, MCPToolBridge
+from backend.storage import MCPServerStore
+
+from .storage_test_support import make_test_session_factory
 
 
 class FakeMCPClient(MCPClient):
@@ -62,14 +64,13 @@ class RecordingBridge:
         return 0
 
 
-def _make_config_path() -> str:
-    root = Path(__file__).resolve().parents[1] / ".tmp_mcp_versions"
-    root.mkdir(exist_ok=True)
-    temp_dir = root / uuid4().hex
-    temp_dir.mkdir()
-    path = temp_dir / "mcp_servers.json"
-    path.write_text(json.dumps({"servers": []}), encoding="utf-8")
-    return str(path)
+async def _make_manager(tmp_path: Path) -> MCPServerManager:
+    _engine, session_factory = await make_test_session_factory(tmp_path, f"mcp_versions_{uuid4().hex}")
+    return MCPServerManager(
+        config_path=str(tmp_path / "empty_mcp.json"),
+        client_factory=FakeMCPClient,
+        store=MCPServerStore(session_factory),
+    )
 
 
 def _server_config(server_id: str, enabled: bool = True) -> MCPServerConfig:
@@ -84,8 +85,8 @@ def _server_config(server_id: str, enabled: bool = True) -> MCPServerConfig:
 
 
 @pytest.mark.asyncio
-async def test_server_manager_version_increments_on_state_changes() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=FakeMCPClient)
+async def test_server_manager_version_increments_on_state_changes(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     assert manager.version == 0
     await manager.add_server(_server_config("versioned", enabled=False))
     assert manager.version == 1
@@ -98,8 +99,8 @@ async def test_server_manager_version_increments_on_state_changes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bridge_detects_version_changes_and_resyncs() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=FakeMCPClient)
+async def test_bridge_detects_version_changes_and_resyncs(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     bridge = MCPToolBridge(manager, ToolRegistry())
     assert await bridge.sync_all() == 0
     assert bridge.needs_sync() is False
@@ -110,8 +111,18 @@ async def test_bridge_detects_version_changes_and_resyncs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_if_needed_skips_when_manager_version_is_unchanged() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=FakeMCPClient)
+async def test_new_bridge_requires_full_sync_when_manager_version_starts_at_zero(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
+    bridge = MCPToolBridge(manager, ToolRegistry())
+    assert manager.version == 0
+    assert bridge.needs_sync() is True
+    assert await bridge.sync_all() == 0
+    assert bridge.needs_sync() is False
+
+
+@pytest.mark.asyncio
+async def test_sync_if_needed_skips_when_manager_version_is_unchanged(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     bridge = MCPToolBridge(manager, ToolRegistry())
     await bridge.sync_all()
 
@@ -123,8 +134,8 @@ async def test_sync_if_needed_skips_when_manager_version_is_unchanged() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_if_needed_removes_disconnected_server_tools() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=FakeMCPClient)
+async def test_sync_if_needed_removes_disconnected_server_tools(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     registry = ToolRegistry()
     bridge = MCPToolBridge(manager, registry)
     await manager.add_server(_server_config("paused"))
@@ -136,8 +147,8 @@ async def test_sync_if_needed_removes_disconnected_server_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_if_needed_removes_deleted_server_tools() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=FakeMCPClient)
+async def test_sync_if_needed_removes_deleted_server_tools(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     registry = ToolRegistry()
     bridge = MCPToolBridge(manager, registry)
     await manager.add_server(_server_config("gone"))
@@ -149,8 +160,8 @@ async def test_sync_if_needed_removes_deleted_server_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_if_needed_adds_new_server_tools() -> None:
-    manager = MCPServerManager(config_path=_make_config_path(), client_factory=FakeMCPClient)
+async def test_sync_if_needed_adds_new_server_tools(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
     registry = ToolRegistry()
     bridge = MCPToolBridge(manager, registry)
     await bridge.sync_all()

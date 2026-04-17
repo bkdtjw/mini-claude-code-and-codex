@@ -155,7 +155,26 @@ class AgentLoop:
         except Exception as exc:
             self._status = "error"
             self._emit("error", exc)
+            # Ensure every assistant tool_call has a matching tool result
+            self._patch_orphan_tool_calls()
             raise
+
+    def _patch_orphan_tool_calls(self) -> None:
+        """Append error tool results for any tool_calls missing responses."""
+        if not self._messages:
+            return
+        last = self._messages[-1]
+        if last.role != "assistant" or not last.tool_calls:
+            return
+        results = [
+            ToolResult(
+                tool_call_id=call.id,
+                output=f"[error] tool execution failed, no response captured",
+                is_error=True,
+            )
+            for call in last.tool_calls
+        ]
+        self._messages.append(Message(role="tool", content="", tool_results=results))
 
     def abort(self) -> None:
         self._aborted = True

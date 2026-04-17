@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+
 from backend.adapters.anthropic_adapter import AnthropicAdapter
 from backend.adapters.ollama_adapter import OllamaAdapter
 from backend.adapters.openai_adapter import OpenAICompatAdapter
-from backend.common.types import Message, ProviderConfig, ProviderType
+from backend.common import LLMError
+from backend.common.types import LLMRequest, Message, ProviderConfig, ProviderType
 
 
 def _provider(provider_type: ProviderType) -> ProviderConfig:
@@ -16,6 +22,47 @@ def _provider(provider_type: ProviderType) -> ProviderConfig:
         default_model="test-model",
         available_models=["test-model"],
     )
+
+
+def _adapter(provider_type: ProviderType) -> OpenAICompatAdapter | AnthropicAdapter | OllamaAdapter:
+    if provider_type == ProviderType.ANTHROPIC:
+        return AnthropicAdapter(_provider(provider_type))
+    if provider_type == ProviderType.OLLAMA:
+        return OllamaAdapter(_provider(provider_type))
+    return OpenAICompatAdapter(_provider(provider_type))
+
+
+def _request() -> httpx.Request:
+    return httpx.Request("POST", "https://example.com")
+
+
+def _success_response(provider_type: ProviderType) -> httpx.Response:
+    payloads = {
+        ProviderType.OPENAI_COMPAT: {
+            "id": "resp-1",
+            "choices": [{"message": {"content": "answer"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 2},
+        },
+        ProviderType.ANTHROPIC: {
+            "id": "resp-2",
+            "content": [{"type": "text", "text": "answer"}],
+            "usage": {"input_tokens": 1, "output_tokens": 2},
+        },
+        ProviderType.OLLAMA: {
+            "message": {"content": "answer"},
+            "prompt_eval_count": 1,
+            "eval_count": 2,
+        },
+    }
+    return httpx.Response(200, json=payloads[provider_type], request=_request())
+
+
+def _error_response(status_code: int) -> httpx.Response:
+    return httpx.Response(status_code, json={"error": {"message": "boom"}}, request=_request())
+
+
+def _llm_request() -> LLMRequest:
+    return LLMRequest(model="test-model", messages=[Message(role="user", content="hello")])
 
 
 def test_openai_adapter_round_trips_reasoning_content() -> None:
@@ -55,3 +102,81 @@ def test_ollama_adapter_parses_reasoning_content() -> None:
         {"message": {"content": "answer", "reasoning_content": "step"}, "prompt_eval_count": 1, "eval_count": 2}
     )
     assert response.provider_metadata["reasoning_content"] == "step"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize("status_code", [500, 502, 503, 504])
+async def test_complete_retries_on_retryable_status_codes(provider_type: ProviderType, status_code: int) -> None:
+    adapter = _adapter(provider_type)
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0), patch("builtins.print") as mock_print:
+        mock_post.side_effect = [_error_response(status_code), _success_response(provider_type)]
+        response = await adapter.complete(_llm_request())
+    assert response.content == "answer"
+    assert mock_post.await_count == 2
+    mock_sleep.assert_awaited_once()
+    mock_print.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize(
+    "error_type",
+    [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError],
+)
+async def test_complete_retries_on_retryable_request_errors(provider_type: ProviderType, error_type: type[Exception]) -> None:
+    adapter = _adapter(provider_type)
+    network_error = error_type("boom", request=_request())
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0):
+        mock_post.side_effect = [network_error, _success_response(provider_type)]
+        response = await adapter.complete(_llm_request())
+    assert response.content == "answer"
+    assert mock_post.await_count == 2
+    mock_sleep.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize("status_code,error_code", [(400, "API_ERROR"), (401, "AUTH_ERROR"), (403, "API_ERROR"), (404, "API_ERROR")])
+async def test_complete_does_not_retry_on_non_retryable_status_codes(provider_type: ProviderType, status_code: int, error_code: str) -> None:
+    adapter = _adapter(provider_type)
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        mock_post.return_value = _error_response(status_code)
+        with pytest.raises(LLMError) as exc_info:
+            await adapter.complete(_llm_request())
+    assert exc_info.value.code == error_code
+    assert mock_post.await_count == 1
+    mock_sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_type", list(ProviderType))
+async def test_complete_exhausts_retries_on_server_error(provider_type: ProviderType) -> None:
+    adapter = _adapter(provider_type)
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0):
+        mock_post.side_effect = [_error_response(500), _error_response(500), _error_response(500)]
+        with pytest.raises(LLMError) as exc_info:
+            await adapter.complete(_llm_request())
+    assert exc_info.value.code == "SERVER_ERROR"
+    assert mock_post.await_count == 3
+    assert mock_sleep.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_type", list(ProviderType))
+async def test_complete_exhausts_retries_on_network_error(provider_type: ProviderType) -> None:
+    adapter = _adapter(provider_type)
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0):
+        mock_post.side_effect = [httpx.ConnectTimeout("boom", request=_request()) for _ in range(3)]
+        with pytest.raises(LLMError) as exc_info:
+            await adapter.complete(_llm_request())
+    assert exc_info.value.code == "NETWORK_ERROR"
+    assert mock_post.await_count == 3
+    assert mock_sleep.await_count == 2
+
+
+def test_retry_delay_increases_with_attempts() -> None:
+    adapter = OpenAICompatAdapter(_provider(ProviderType.OPENAI_COMPAT))
+    with patch("backend.adapters.base.random.uniform", return_value=0.0):
+        assert adapter._retry_delay(1) < adapter._retry_delay(2) < adapter._retry_delay(3)  # noqa: SLF001
+        assert adapter._retry_delay(10) == 10.0  # noqa: SLF001

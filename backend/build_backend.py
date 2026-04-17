@@ -6,6 +6,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAIN_FILE = os.path.join(ROOT, "backend", "main.py")
 HTTP_CLIENT_JSON = os.path.join(ROOT, "backend", "config", "http_client.json")
 PROVIDERS_JSON = os.path.join(ROOT, "backend", "config", "providers.json")
+MCP_SERVERS_JSON = os.path.join(ROOT, "backend", "config", "mcp_servers.json")
+SCHEDULED_TASKS_JSON = os.path.join(ROOT, "backend", "config", "scheduled_tasks.json")
 CONFIG_TARGET = os.path.join("backend", "config")
 
 PyInstaller.__main__.run(
@@ -44,6 +46,10 @@ PyInstaller.__main__.run(
             "--hidden-import=dotenv",
             f"--add-data={HTTP_CLIENT_JSON}{os.pathsep}{CONFIG_TARGET}",
             f"--add-data={PROVIDERS_JSON}{os.pathsep}{CONFIG_TARGET}" if os.path.exists(PROVIDERS_JSON) else "",
+            f"--add-data={MCP_SERVERS_JSON}{os.pathsep}{CONFIG_TARGET}" if os.path.exists(MCP_SERVERS_JSON) else "",
+            f"--add-data={SCHEDULED_TASKS_JSON}{os.pathsep}{CONFIG_TARGET}"
+            if os.path.exists(SCHEDULED_TASKS_JSON)
+            else "",
         ]
         if arg
     ]

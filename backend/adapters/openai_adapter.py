@@ -25,25 +25,26 @@ class OpenAICompatAdapter(LLMAdapter):
         except Exception:
             return False
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        try:
-            payload = self._build_payload(request, stream=False)
-            for attempt in range(1, self._max_retries + 1):
+        payload = self._build_payload(request, stream=False)
+        for attempt in range(1, self._max_retries + 1):
+            try:
                 async with httpx.AsyncClient(timeout=120.0, trust_env=load_http_client_config().trust_env) as client:
                     response = await client.post(self._url, headers=self._headers(), json=payload)
-                if response.status_code == 429:
-                    if attempt < self._max_retries:
-                        await asyncio.sleep(float(attempt))
-                        continue
-                    raise LLMError("RATE_LIMIT", "Provider rate limited", self._provider, 429)
+                if self._is_retryable_status(response.status_code) and attempt < self._max_retries:
+                    await self._backoff(attempt, f"HTTP {response.status_code}")
+                    continue
                 self._raise_for_status(response)
                 return self._parse_response(response.json())
-            raise LLMError("RATE_LIMIT", "Provider rate limited", self._provider, 429)
-        except LLMError:
-            raise
-        except httpx.RequestError as exc:
-            raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
-        except Exception as exc:
-            raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
+            except LLMError:
+                raise
+            except httpx.RequestError as exc:
+                if self._is_retryable_request_error(exc) and attempt < self._max_retries:
+                    await self._backoff(attempt, type(exc).__name__)
+                    continue
+                raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
+            except Exception as exc:
+                raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
+        raise LLMError("COMPLETE_ERROR", "Completion failed without response", self._provider, None)
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         try:
             payload = self._build_payload(request, stream=True)
@@ -90,7 +91,12 @@ class OpenAICompatAdapter(LLMAdapter):
         result: list[dict[str, Any]] = []
         for msg in messages:
             if msg.role == "assistant":
-                item: dict[str, Any] = {"role": "assistant", "content": msg.content}
+                content = msg.content
+                # Some providers (e.g. Kimi) reject content="" with tool_calls;
+                # send null instead of empty string when tool_calls are present.
+                if msg.tool_calls and not content:
+                    content = None
+                item: dict[str, Any] = {"role": "assistant", "content": content}
                 reasoning = msg.provider_metadata.get("reasoning_content")
                 if isinstance(reasoning, str) and reasoning:
                     item["reasoning_content"] = reasoning
@@ -151,10 +157,12 @@ class OpenAICompatAdapter(LLMAdapter):
     def _headers(self) -> dict[str, str]:
         return {"content-type": "application/json", **self._extra_headers, **({"Authorization": f"Bearer {self._api_key}"} if self._api_key else {})}
     def _raise_for_status(self, response: httpx.Response) -> None:
+        if response.status_code == 429:
+            raise LLMError("RATE_LIMIT", "Provider rate limited", self._provider, 429)
         if response.status_code == 401:
             raise LLMError("AUTH_ERROR", "Invalid API key", self._provider, 401)
-        if response.status_code == 500:
-            raise LLMError("SERVER_ERROR", "Provider server error", self._provider, 500)
+        if 500 <= response.status_code < 600:
+            raise LLMError("SERVER_ERROR", "Provider server error", self._provider, response.status_code)
         if response.status_code >= 400:
             raise LLMError("API_ERROR", self._error_message(response), self._provider, response.status_code)
     def _error_message(self, response: httpx.Response) -> str:

@@ -6,12 +6,13 @@ import signal
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError, LLMError
 from backend.common.types import AgentConfig, AgentEventHandler, Message, ProviderConfig
-from backend.config.settings import settings
+from backend.config import init_redis, settings
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
+from backend.storage import init_db
 
 from .models import CliArgs, CliError, CliSession, CliState, SessionUpdate
 
@@ -63,6 +64,8 @@ async def create_session(
     event_handler: AgentEventHandler | None = None,
 ) -> CliSession:
     try:
+        await init_db()
+        await init_redis()
         provider_manager = manager or ProviderManager()
         resolved_mcp_manager = mcp_manager or MCPServerManager(config_path=args.mcp_config)
         workspace = _resolve_workspace(args.workspace)

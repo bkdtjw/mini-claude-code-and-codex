@@ -1,58 +1,52 @@
 from __future__ import annotations
 
-import platform
-import subprocess
+import asyncio
+import inspect
 from pathlib import Path
 
 import pytest
 
-from backend.core.s02_tools.builtin.bash import create_bash_tool
+from backend.core.s02_tools.builtin.bash import _is_daemon_launch, create_bash_tool
 
 
-@pytest.mark.asyncio
-async def test_bash_tool_uses_subprocess_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: dict[str, object] = {}
+def test_create_bash_tool_keeps_30_second_timeout_default() -> None:
+    timeout = inspect.signature(create_bash_tool).parameters["timeout"].default
+    assert timeout == 30
+
+
+def test_bash_tool_rejects_mihomo_launch() -> None:
     workspace = str(Path.cwd())
-
-    def fake_run(
-        args: list[str],
-        *,
-        cwd: str,
-        stdout: int,
-        stderr: int,
-        timeout: float,
-        check: bool,
-    ) -> subprocess.CompletedProcess[bytes]:
-        calls["args"] = args
-        calls["cwd"] = cwd
-        calls["stdout"] = stdout
-        calls["stderr"] = stderr
-        calls["timeout"] = timeout
-        calls["check"] = check
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout=b"ok\n", stderr=b"")
-
     _, execute = create_bash_tool(workspace)
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = await execute({"command": "dir" if platform.system() == "Windows" else "ls"})
 
-    assert result.is_error is False
-    assert result.output == "ok"
-    assert calls["cwd"] == workspace
-    assert calls["check"] is False
-    assert calls["timeout"] == 30.0
-    assert calls["args"][0] == ("cmd.exe" if platform.system() == "Windows" else "/bin/sh")
-
-
-@pytest.mark.asyncio
-async def test_bash_tool_timeout_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    workspace = str(Path.cwd())
-
-    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        raise subprocess.TimeoutExpired(cmd="cmd.exe", timeout=30)
-
-    _, execute = create_bash_tool(workspace)
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = await execute({"command": "dir" if platform.system() == "Windows" else "ls"})
+    result = asyncio.run(
+        execute({"command": "mihomo -d /tmp/mihomo -f /tmp/mihomo/config.yaml"})
+    )
 
     assert result.is_error is True
-    assert result.output == "Command timed out"
+    assert result.output == "不要用 Bash 启动 mihomo，请使用 proxy_on 工具。"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "mihomo -d /tmp/mihomo -f /tmp/mihomo/config.yaml",
+        "nohup /usr/local/bin/mihomo -d /tmp/mihomo -f /tmp/mihomo/config.yaml",
+        "bash -c 'mihomo -d /tmp/mihomo -f /tmp/mihomo/config.yaml'",
+    ],
+)
+def test_is_daemon_launch_rejects_mihomo_startup(command: str) -> None:
+    assert _is_daemon_launch(command) == "不要用 Bash 启动 mihomo，请使用 proxy_on 工具。"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep mihomo config.yaml",
+        "ps aux | grep mihomo",
+        "pkill mihomo",
+        "cat mihomo.log",
+        "echo mihomo",
+    ],
+)
+def test_is_daemon_launch_allows_query_commands(command: str) -> None:
+    assert _is_daemon_launch(command) == ""

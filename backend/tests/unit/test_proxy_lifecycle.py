@@ -56,8 +56,14 @@ def test_merge_into_config_adds_exit_nodes_and_chain() -> None:
 def test_set_and_clear_system_proxy_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_winreg = FakeWinreg()
     fake_wininet = FakeWininet()
+    monkeypatch.setattr(proxy_lifecycle, "IS_WINDOWS", True)
     monkeypatch.setattr(proxy_lifecycle, "winreg", fake_winreg)
-    monkeypatch.setattr(proxy_lifecycle.ctypes, "windll", SimpleNamespace(wininet=fake_wininet))
+    monkeypatch.setattr(
+        proxy_lifecycle.ctypes,
+        "windll",
+        SimpleNamespace(wininet=fake_wininet),
+        raising=False,
+    )
     assert ProxyLifecycle.set_system_proxy("127.0.0.1", 7890) is True
     assert fake_winreg.values["ProxyEnable"] == 1
     assert fake_winreg.values["ProxyServer"] == "127.0.0.1:7890"

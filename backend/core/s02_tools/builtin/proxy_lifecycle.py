@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import platform
 import subprocess
 from pathlib import Path
@@ -93,7 +94,7 @@ class ProxyLifecycle:
 
     @staticmethod
     def set_system_proxy(host: str, port: int) -> bool:
-        """Set system proxy settings. On Linux, this returns True but doesn't modify system settings."""
+        """Set system proxy settings. On Linux, sets environment variables and writes /etc/environment."""
         if IS_WINDOWS:
             try:
                 _set_proxy_values({"ProxyEnable": 1, "ProxyServer": f"{host}:{port}"})
@@ -101,14 +102,11 @@ class ProxyLifecycle:
             except Exception:
                 return False
         else:
-            # On Linux, system proxy settings require different mechanisms
-            # (e.g., gsettings for GNOME, environment variables, etc.)
-            # For now, we just return True to indicate the proxy itself is running
-            return True
+            return _set_linux_proxy(host, port)
 
     @staticmethod
     def clear_system_proxy() -> bool:
-        """Clear system proxy settings. On Linux, this returns True but doesn't modify system settings."""
+        """Clear system proxy settings. On Linux, removes environment variables and /etc/environment entries."""
         if IS_WINDOWS:
             try:
                 _set_proxy_values({"ProxyEnable": 0})
@@ -116,8 +114,7 @@ class ProxyLifecycle:
             except Exception:
                 return False
         else:
-            # On Linux, proxy clearing would be handled by environment variables or desktop settings
-            return True
+            return _clear_linux_proxy()
 
     @staticmethod
     def is_system_proxy_set() -> bool:
@@ -132,8 +129,6 @@ class ProxyLifecycle:
             except Exception:
                 return False
         else:
-            # On Linux, check environment variables
-            import os
             return bool(os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"))
 
     @staticmethod
@@ -231,6 +226,63 @@ def _set_proxy_values(values: dict[str, int | str]) -> None:
             winreg.SetValueEx(key, name, 0, value_type, value)
     ctypes.windll.wininet.InternetSetOptionW(0, INTERNET_OPTION_SETTINGS_CHANGED, 0, 0)
     ctypes.windll.wininet.InternetSetOptionW(0, INTERNET_OPTION_REFRESH, 0, 0)
+
+
+_PROXY_ENV_VARS = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")
+_ETC_ENVIRONMENT = Path("/etc/environment")
+
+
+def _set_linux_proxy(host: str, port: int) -> bool:
+    """Set proxy env vars in current process and persist to /etc/environment."""
+    http_url = f"http://{host}:{port}"
+    socks_url = f"socks5://{host}:{port}"
+    env_map = {
+        "http_proxy": http_url,
+        "https_proxy": http_url,
+        "HTTP_PROXY": http_url,
+        "HTTPS_PROXY": http_url,
+        "all_proxy": socks_url,
+        "ALL_PROXY": socks_url,
+    }
+    for key, value in env_map.items():
+        os.environ[key] = value
+    try:
+        _write_etc_environment(env_map)
+    except OSError:
+        pass  # /etc/environment not writable — env vars still work for current process
+    return True
+
+
+def _clear_linux_proxy() -> bool:
+    """Remove proxy env vars from current process and /etc/environment."""
+    for key in _PROXY_ENV_VARS:
+        os.environ.pop(key, None)
+    try:
+        _write_etc_environment({})
+    except OSError:
+        pass
+    return True
+
+
+def _write_etc_environment(proxy_vars: dict[str, str]) -> None:
+    """Merge proxy lines into /etc/environment, preserving non-proxy entries."""
+    lines: list[str] = []
+    if _ETC_ENVIRONMENT.exists():
+        lines = _ETC_ENVIRONMENT.read_text(encoding="utf-8").splitlines()
+    proxy_keys_lower = {k.lower() for k in _PROXY_ENV_VARS}
+    kept = [ln for ln in lines if not _is_proxy_export_line(ln, proxy_keys_lower)]
+    for key, value in proxy_vars.items():
+        kept.append(f'{key}="{value}"')
+    _ETC_ENVIRONMENT.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+
+def _is_proxy_export_line(line: str, proxy_keys: set[str]) -> bool:
+    """Check if a line in /etc/environment sets one of the proxy env vars."""
+    stripped = line.strip()
+    if "=" not in stripped:
+        return False
+    key = stripped.split("=", 1)[0].strip()
+    return key.lower() in proxy_keys
 
 
 __all__ = ["ProxyLifecycle", "ProxyLifecycleError"]

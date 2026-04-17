@@ -5,7 +5,7 @@
       "name": "科技圈AI早报",
       "cron": "0 7 * * *",
       "timezone": "Asia/Shanghai",
-      "prompt":"请搜索推特和YouTube上关于AI/LLM/Agent的最新动态，生成一份高质量中文早报。\n\n## 搜索要求\n1. 使用x_search工具搜索过去24小时推特热门讨论，关键词包括：LLM、AI agent、OpenAI、Claude、Anthropic、Gemini、DeepSeek、MCP、AGI，每个关键词search_type=Latest，max_results=30\n2. 使用Bash+curl通过YouTube Data API v3搜索最新AI相关视频，先执行proxy_on开启代理，搜索关键词包括AI+LLM、AI+agent、OpenAI、Claude+Anthropic等，筛选播放量高的3-5条视频获取详情\n3. 如视频时长小于20分钟，用yt-dlp提取字幕并总结核心观点\n\n## 输出格式（必须严格遵守，使用Markdown排版，合理使用emoji区分板块）\n\n报告必须包含以下板块，顺序固定，不得增减：\n1. 标题行：包含emoji、日期、覆盖推文数和视频数的统计摘要\n2. 今日必看：3-5条最重要的发现，用表格展示，包含序号、要点和重要性标记（用红黄绿圆点区分）\n3. 热点头条：1-3条最重要的新闻，每条用三级标题+核心内容描述+来源和讨论量\n4. 推特热议Top10：用表格展示，包含排名、来源账号、内容摘要、热度数据（点赞和浏览量）\n5. 产品发布与更新：用表格展示，包含产品名、时间、核心亮点、分类标签\n6. 技术观点与深度讨论：每条用引用块展示核心论点，附社区反应分析\n7. YouTube上新：用表格展示，包含频道名、视频标题、时长、播放量、核心看点\n8. 开源项目与工具速递：2-3个值得关注的项目，附GitHub Stars和一句话描述\n9. 今日数据面板：用表格汇总高价值推文数、新视频数、最高热度推文、今日热词Top3\n10. 今日小结：用引用块写2-3句话总结整体氛围和趋势\n\n排版要求：表格用于数据密集展示，引用块用于突出观点，加粗用于强调关键信息，每个板块之间用分割线隔开。如果某个板块数据为空，保留标题并写暂无重要动态。\n\n⚠️ 重要：你的任务到输出报告内容为止。不要调用feishu_notify，不要自己发送任何消息到飞书。系统会自动处理推送。",
+      "prompt": "请搜索推特和YouTube上关于AI/LLM/Agent的最新动态，生成一份高质量中文早报。\n\n## 搜索要求\n\n### 1. Twitter搜索（使用 x_search 工具）\n使用x_search工具搜索过去24小时推特热门讨论，以下关键词每个都要搜索：\n- LLM\n- AI agent\n- OpenAI\n- Claude\n- Anthropic\n- Gemini\n- DeepSeek\n- MCP\n- AGI\n\n参数：search_type=Latest，max_results=30，days=1\n\n### 2. YouTube搜索（使用 youtube_search 工具）\n**重要：使用 youtube_search 工具搜索YouTube视频：**\n\n执行以下搜索：\n1. `youtube_search` 工具，query=\"AI LLM latest news\"\n2. `youtube_search` 工具，query=\"OpenAI GPT\"\n3. `youtube_search` 工具，query=\"Claude Anthropic AI\"\n4. `youtube_search` 工具，query=\"AI agent tutorial\"\n5. `youtube_search` 工具，query=\"Gemini Google AI\"\n\n参数：max_results=5，extract_subtitles=true（会自动提取字幕）\n\n### 3. 字幕提取\nyoutube_search 工具会自动提取前3个视频的字幕，无需额外操作。\n\n## 输出格式（必须严格遵守，使用Markdown排版，合理使用emoji区分板块）\n\nmarkdown排版必须包含以下板块，顺序固定，不得增减：\n1. 标题行：包含emoji、日期、覆盖推文数和视频数的统计摘要\n2. 今日必看：3-5条最重要的发现，用表格展示，包含序号、要点和重要性标记（用红黄绿圆点区分）\n3. 热点头条：1-3条最重要的新闻，每条用三级标题+核心内容描述+来源和讨论量\n4. 推特热议Top10：用表格展示，包含排名、来源账号、内容摘要、热度数据（点赞和浏览量）\n5. 产品发布与更新：用表格展示，包含产品名、时间、核心亮点、分类标签\n6. 技术观点与深度讨论：每条用引用块展示核心论点，附社区反应分析\n7. YouTube上新：用表格展示，包含频道名、视频标题、时长、播放量、核心看点\n8. 开源项目与工具速递：2-3个值得关注的项目，附GitHub Stars和一句话描述\n9. 今日数据面板：用表格汇总高价值推文数、新视频数、最高热度推文、今日热词Top3\n10. 今日小结：用引用块写2-3句话总结整体氛围和趋势\n\n排版要求：表格用于数据密集展示，引用块用于突出观点，加粗用于强调关键信息，每个板块之间用分割线隔开。如果某个板块数据为空，保留标题并写暂无重要动态。\n\n⚠️ 重要：你的任务到输出报告内容为止。不要调用feishu_notify，不要自己发送任何消息到飞书。系统会自动处理推送。",
       "notify": {
         "feishu": true,
         "feishu_webhook_url": "",
@@ -18,9 +18,31 @@
       "card_scenario": null,
       "enabled": true,
       "created_at": "2026-04-10T23:30:13.161870",
-      "last_run_at": "2026-04-12T17:26:48.962328",
+      "last_run_at": "2026-04-16T07:04:16.857442",
       "last_run_status": "success",
-      "last_run_output": ""
+      "last_run_output": "现在我已收集完所有数据，开始为您生成高质量中文早报。\n\n---\n\n# 🤖 AI/LLM/Agent 早报 | 2026年4月16日\n📊 覆盖 **270条** 高时效推文（9大关键词 × 30条）+ **25个** YouTube 新视频\n\n---\n\n## 🔥 今日必看\n\n| 序号 | 要点 | 重要性 |\n|:---:|:---|:---:|\n| 1 | **Anthropic 发布 Claude Code Routines**，PC 关机后 AI 仍可自动执行代码审查、提交 PR，标志\"离线 Agent\"时代到来 | 🔴 |\n| 2 | **OpenAI 推出 GPT-5.4-Cyber + 新版 Agents SDK**，专注网络防御 AI 并强化沙盒执行，行业从\"What\"转向\"How\" | 🔴 |\n| 3 | **Google Gemini 正式登陆 macOS**，支持 Option+Space 全局唤起 + 屏幕共享，与 ChatGPT/Claude 展开桌面级竞争 | 🟡 |\n| 4 | **Anthropic 自限发布 Claude Mythos Preview**，"
+    },
+    {
+      "id": "task_8bd9f074",
+      "name": "AI全平台早报-官方YouTube API版",
+      "cron": "02 19 13 04 *",
+      "timezone": "Asia/Shanghai",
+      "prompt": "请搜索推特和YouTube上关于AI/LLM/Agent的最新动态，生成一份高质量中文早报。\n\n## 搜索要求\n\n### 1. Twitter搜索（使用 x_search 工具）\n使用x_search工具搜索过去24小时推特热门讨论，以下关键词每个都要搜索：\n- LLM\n- AI agent\n- OpenAI\n- Claude\n- Anthropic\n- Gemini\n- DeepSeek\n- MCP\n- AGI\n\n参数：search_type=Latest，max_results=30，days=1\n\n### 2. YouTube搜索（使用 youtube_search 工具）\n**重要：使用 youtube_search 工具搜索YouTube视频：**\n\n执行以下搜索：\n1. `youtube_search` 工具，query=\"AI LLM latest news\"\n2. `youtube_search` 工具，query=\"OpenAI GPT\"\n3. `youtube_search` 工具，query=\"Claude Anthropic AI\"\n4. `youtube_search` 工具，query=\"AI agent tutorial\"\n5. `youtube_search` 工具，query=\"Gemini Google AI\"\n\n参数：max_results=5，extract_subtitles=true（会自动提取字幕）\n\n### 3. 字幕提取\nyoutube_search 工具会自动提取前3个视频的字幕，无需额外操作。\n\n## 输出格式（必须严格遵守，使用Markdown排版，合理使用emoji区分板块）\n\nmarkdown排版必须包含以下板块，顺序固定，不得增减：\n1. 标题行：包含emoji、日期、覆盖推文数和视频数的统计摘要\n2. 今日必看：3-5条最重要的发现，用表格展示，包含序号、要点和重要性标记（用红黄绿圆点区分）\n3. 热点头条：1-3条最重要的新闻，每条用三级标题+核心内容描述+来源和讨论量\n4. 推特热议Top10：用表格展示，包含排名、来源账号、内容摘要、热度数据（点赞和浏览量）\n5. 产品发布与更新：用表格展示，包含产品名、时间、核心亮点、分类标签\n6. 技术观点与深度讨论：每条用引用块展示核心论点，附社区反应分析\n7. YouTube上新：用表格展示，包含频道名、视频标题、时长、播放量、核心看点\n8. 开源项目与工具速递：2-3个值得关注的项目，附GitHub Stars和一句话描述\n9. 今日数据面板：用表格汇总高价值推文数、新视频数、最高热度推文、今日热词Top3\n10. 今日小结：用引用块写2-3句话总结整体氛围和趋势\n\n排版要求：表格用于数据密集展示，引用块用于突出观点，加粗用于强调关键信息，每个板块之间用分割线隔开。如果某个板块数据为空，保留标题并写暂无重要动态。\n\n⚠️ 重要：你的任务到输出报告内容为止。不要调用feishu_notify，不要自己发送任何消息到飞书。系统会自动处理推送。",
+      "notify": {
+        "feishu": true,
+        "feishu_webhook_url": "",
+        "feishu_title": "🤖 AI全平台早报-官方API版"
+      },
+      "output": {
+        "save_markdown": false,
+        "output_dir": ""
+      },
+      "card_scenario": null,
+      "enabled": true,
+      "created_at": "2026-04-13T18:59:46.517519",
+      "last_run_at": "2026-04-13T19:07:26.317531",
+      "last_run_status": "success",
+      "last_run_output": "我已收集完所有数据。现在让我根据搜索结果生成一份完整的高质量中文AI早报：\n\n---\n\n# 🤖 AI/LLM/Agent 早报 | 2025年4月14日\n\n> 📊 **统计摘要**：覆盖 **270+ 条推文** | **25 个 YouTube 视频** | 过去24小时热门动态\n\n---\n\n## 🎯 今日必看\n\n| 序号 | 要点 | 重要性 |\n|:---:|:---|:---:|\n| 1 | **Anthropic发布Claude Mythos模型，因发现数千个安全漏洞而暂不公开** - 该模型过于擅长寻找系统漏洞，存在被黑客利用的风险 | 🔴 |\n| 2 | **OpenAI、Google、Anthropic三大巨头罕见联手对抗中国模型盗用** - DeepSeek等被指涉及2.4万个假账号、超1600万次不正当访问 | 🔴 |\n| 3 | **Anthropic ARR从$14B飙升至$30B仅数周，增速惊人** - Claude正在\"自我增长\"，MCP安装量突破9700万 | 🟡 |\n| 4 | **Claude Code推出Managed Agents功能** - 可2"
     }
   ]
 }

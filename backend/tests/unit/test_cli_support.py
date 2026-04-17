@@ -13,6 +13,9 @@ from backend.adapters.provider_manager import ProviderManager
 from backend.cli_support import CliArgs, CliCommand, CliPrinter, create_session, handle_command, parse_args
 from backend.common.types import LLMRequest, LLMResponse, Message, ProviderConfig, ProviderType, StreamChunk
 from backend.core.s02_tools.mcp import MCPServerManager
+from backend.storage import MCPServerStore
+
+from .storage_test_support import make_test_session_factory
 
 
 class FakeAdapter(LLMAdapter):
@@ -75,12 +78,9 @@ def _make_workspace() -> str:
     return tempfile.mkdtemp(dir=root)
 
 
-def _make_empty_mcp_manager() -> MCPServerManager:
-    root = Path(__file__).resolve().parents[1] / ".tmp_cli_mcp"
-    root.mkdir(exist_ok=True)
-    config_path = root / f"{uuid4().hex}.json"
-    config_path.write_text(json.dumps({"servers": []}), encoding="utf-8")
-    return MCPServerManager(config_path=str(config_path))
+async def _make_empty_mcp_manager(tmp_path: Path) -> MCPServerManager:
+    _engine, session_factory = await make_test_session_factory(tmp_path, f"cli_support_{uuid4().hex}")
+    return MCPServerManager(store=MCPServerStore(session_factory))
 
 
 def test_parse_args_supports_permission_mode() -> None:
@@ -96,7 +96,7 @@ async def test_create_session_uses_default_provider_model_and_tools() -> None:
     session = await create_session(
         CliArgs(workspace=workspace),
         manager=FakeProviderManager(_providers()),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     tool_names = [tool.name for tool in session.registry.list_definitions()]
     assert session.state.model == "test-model"
@@ -111,7 +111,7 @@ async def test_handle_command_switches_model_and_preserves_history() -> None:
     session = await create_session(
         CliArgs(workspace=workspace),
         manager=FakeProviderManager(_providers()),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     await session.loop.run("hello")
     result = await handle_command(session, CliCommand(name="/model", argument="new-model"), CliPrinter())
@@ -125,7 +125,7 @@ async def test_handle_command_switches_provider_and_clears_provider_metadata() -
     session = await create_session(
         CliArgs(workspace=workspace),
         manager=FakeProviderManager(_providers()),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     session.loop._messages = [  # noqa: SLF001
         Message(role="system", content="system"),
@@ -145,7 +145,7 @@ async def test_handle_command_rejects_model_from_other_provider() -> None:
     session = await create_session(
         CliArgs(workspace=workspace),
         manager=FakeProviderManager(_providers()),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     result = await handle_command(session, CliCommand(name="/model", argument="alt-model"), CliPrinter())
     assert result.session.state.provider_id == "provider-1"
@@ -158,7 +158,7 @@ async def test_handle_command_clear_resets_existing_history() -> None:
     session = await create_session(
         CliArgs(workspace=workspace),
         manager=FakeProviderManager(_providers()),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     await session.loop.run("hello")
     assert session.loop.messages
@@ -173,7 +173,7 @@ async def test_handle_command_switches_workspace() -> None:
     session = await create_session(
         CliArgs(workspace=workspace),
         manager=FakeProviderManager(_providers()),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     result = await handle_command(session, CliCommand(name="/workspace", argument=new_workspace), CliPrinter())
     assert result.session.state.workspace == new_workspace

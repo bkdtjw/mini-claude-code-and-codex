@@ -1,4 +1,29 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from backend.storage.database import init_db
 from backend.storage.session_store import SessionStore
 
-__all__ = ["SessionStore", "init_db"]
+if TYPE_CHECKING:
+    from backend.storage.mcp_server_store import MCPServerStore
+    from backend.storage.provider_store import ProviderStore
+    from backend.storage.task_config_store import TaskConfigStore
+
+__all__ = ["MCPServerStore", "ProviderStore", "SessionStore", "TaskConfigStore", "init_db"]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "MCPServerStore":
+        from backend.storage.mcp_server_store import MCPServerStore
+
+        return MCPServerStore
+    if name == "ProviderStore":
+        from backend.storage.provider_store import ProviderStore
+
+        return ProviderStore
+    if name == "TaskConfigStore":
+        from backend.storage.task_config_store import TaskConfigStore
+
+        return TaskConfigStore
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

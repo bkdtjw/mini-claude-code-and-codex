@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,10 +14,10 @@ from backend.core.s07_task_system.models import (
     NotifyConfig,
     OutputConfig,
     ScheduledTask,
-    TaskStoreData,
 )
 from backend.core.s07_task_system.scheduler import TaskScheduler
-from backend.core.s07_task_system.store import TaskStore
+
+from .redis_test_support import use_fake_redis
 
 
 # ---------------------------------------------------------------------------
@@ -43,10 +40,47 @@ def _make_task(**overrides) -> ScheduledTask:
     return ScheduledTask(**defaults)
 
 
-def _temp_store(tmp_path: Path) -> TaskStore:
-    path = str(tmp_path / "tasks.json")
-    Path(path).write_text('{"tasks": []}', encoding="utf-8")
-    return TaskStore(path=path)
+class InMemoryTaskStore:
+    def __init__(self) -> None:
+        self._tasks: dict[str, ScheduledTask] = {}
+
+    async def list_tasks(self) -> list[ScheduledTask]:
+        return [task.model_copy(deep=True) for task in self._tasks.values()]
+
+    async def get_task(self, task_id: str) -> ScheduledTask | None:
+        task = self._tasks.get(task_id)
+        return task.model_copy(deep=True) if task is not None else None
+
+    async def add_task(self, task: ScheduledTask) -> ScheduledTask:
+        stored = task.model_copy(deep=True)
+        self._tasks[stored.id] = stored
+        return stored.model_copy(deep=True)
+
+    async def update_task(self, task_id: str, **kwargs: object) -> ScheduledTask | None:
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+        updated = task.model_copy(
+            update={key: value for key, value in kwargs.items() if value is not None},
+            deep=True,
+        )
+        self._tasks[task_id] = updated
+        return updated.model_copy(deep=True)
+
+    async def remove_task(self, task_id: str) -> bool:
+        return self._tasks.pop(task_id, None) is not None
+
+    async def update_run_status(self, task_id: str, status: str, output: str) -> None:
+        task = self._tasks.get(task_id)
+        if task is None:
+            return
+        task.last_run_at = datetime.now()
+        task.last_run_status = status
+        task.last_run_output = output[:500]
+
+
+async def _temp_store(_tmp_path: Path) -> InMemoryTaskStore:
+    return InMemoryTaskStore()
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +91,7 @@ def _temp_store(tmp_path: Path) -> TaskStore:
 class TestTaskStore:
     @pytest.mark.asyncio
     async def test_add_and_list(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         task = _make_task()
         await store.add_task(task)
         tasks = await store.list_tasks()
@@ -67,7 +101,7 @@ class TestTaskStore:
 
     @pytest.mark.asyncio
     async def test_get_task(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         task = _make_task()
         await store.add_task(task)
         found = await store.get_task(task.id)
@@ -76,12 +110,12 @@ class TestTaskStore:
 
     @pytest.mark.asyncio
     async def test_get_task_not_found(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         assert await store.get_task("nonexistent") is None
 
     @pytest.mark.asyncio
     async def test_update_task(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         task = _make_task()
         await store.add_task(task)
         updated = await store.update_task(task.id, name="renamed", cron="0 8 * * *")
@@ -91,12 +125,12 @@ class TestTaskStore:
 
     @pytest.mark.asyncio
     async def test_update_task_not_found(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         assert await store.update_task("nonexistent", name="x") is None
 
     @pytest.mark.asyncio
     async def test_remove_task(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         task = _make_task()
         await store.add_task(task)
         assert await store.remove_task(task.id) is True
@@ -104,12 +138,12 @@ class TestTaskStore:
 
     @pytest.mark.asyncio
     async def test_remove_task_not_found(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         assert await store.remove_task("nonexistent") is False
 
     @pytest.mark.asyncio
     async def test_update_run_status(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         task = _make_task()
         await store.add_task(task)
         await store.update_run_status(task.id, "success", "done")
@@ -127,62 +161,62 @@ class TestTaskStore:
 class TestCronMatching:
     @pytest.mark.asyncio
     async def test_cron_match_7am(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="0 7 * * *")
         now = datetime(2026, 1, 1, 7, 0, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now) is True
+        assert await scheduler._should_run(task, now) is True
 
     @pytest.mark.asyncio
     async def test_cron_no_match_7_01(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="0 7 * * *")
         now = datetime(2026, 1, 1, 7, 1, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now) is False
+        assert await scheduler._should_run(task, now) is False
 
     @pytest.mark.asyncio
     async def test_cron_monday_9am(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="0 9 * * 1")
         # 2026-01-05 is a Monday
         now = datetime(2026, 1, 5, 9, 0, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now) is True
+        assert await scheduler._should_run(task, now) is True
 
     @pytest.mark.asyncio
     async def test_cron_tuesday_no_match(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="0 9 * * 1")
         # 2026-01-06 is a Tuesday
         now = datetime(2026, 1, 6, 9, 0, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now) is False
+        assert await scheduler._should_run(task, now) is False
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("sec", [0, 1, 2, 15, 30, 45, 59])
     async def test_cron_fires_within_entire_minute(self, tmp_path: Path, sec: int) -> None:
         """30s轮询间隔下，检查可能在分钟内的任意秒数到达，都应触发。"""
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="30 21 * * *")
         now = datetime(2026, 4, 10, 21, 30, sec, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now) is True
+        assert await scheduler._should_run(task, now) is True
 
     @pytest.mark.asyncio
     async def test_cron_no_match_next_minute(self, tmp_path: Path) -> None:
         """cron 分钟过后不应再触发。"""
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="30 21 * * *")
         now = datetime(2026, 4, 10, 21, 31, 0, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now) is False
+        assert await scheduler._should_run(task, now) is False
 
 
 # ---------------------------------------------------------------------------
@@ -193,23 +227,23 @@ class TestCronMatching:
 class TestTimezone:
     @pytest.mark.asyncio
     async def test_utc_23_matches_beijing_7(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="0 7 * * *", timezone="Asia/Shanghai")
         # UTC 23:00 = Beijing 07:00
         now_beijing = datetime(2026, 1, 1, 7, 0, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now_beijing) is True
+        assert await scheduler._should_run(task, now_beijing) is True
 
     @pytest.mark.asyncio
     async def test_utc_7_no_match(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="0 7 * * *", timezone="Asia/Shanghai")
         # UTC 07:00 = Beijing 15:00 — should NOT match
         now_beijing = datetime(2026, 1, 1, 15, 0, tzinfo=_BEIJING)
-        assert scheduler._should_run(task, now_beijing) is False
+        assert await scheduler._should_run(task, now_beijing) is False
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +254,7 @@ class TestTimezone:
 class TestTaskExecution:
     @pytest.mark.asyncio
     async def test_execution_timeout(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         task = _make_task()
         await store.add_task(task)
 
@@ -233,9 +267,13 @@ class TestTaskExecution:
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
 
         with patch("backend.core.s07_task_system.scheduler.asyncio.wait_for") as mock_wait:
-            mock_wait.side_effect = asyncio.TimeoutError
-            with patch.object(scheduler, "_should_run", return_value=True):
-                await scheduler._run_task(task)
+            async def _timeout(awaitable: object, timeout: float) -> str:
+                if hasattr(awaitable, "close"):
+                    awaitable.close()  # type: ignore[call-arg]
+                raise asyncio.TimeoutError
+
+            mock_wait.side_effect = _timeout
+            await scheduler._run_task(task)
 
         found = await store.get_task(task.id)
         assert found.last_run_status == "error"
@@ -250,7 +288,7 @@ class TestTaskExecution:
 class TestSchedulerLifecycle:
     @pytest.mark.asyncio
     async def test_start_stop(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         await scheduler.start()
@@ -269,7 +307,7 @@ class TestSchedulerLifecycle:
 class TestTaskTools:
     @pytest.mark.asyncio
     async def test_add_scheduled_task_tool(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
 
@@ -294,7 +332,7 @@ class TestTaskTools:
 
     @pytest.mark.asyncio
     async def test_list_scheduled_tasks_tool(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         await store.add_task(_make_task(name="task1"))
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
@@ -310,7 +348,7 @@ class TestTaskTools:
 
     @pytest.mark.asyncio
     async def test_remove_scheduled_task_tool(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         task = _make_task()
         await store.add_task(task)
         executor = MagicMock(spec=TaskExecutor)
@@ -335,7 +373,7 @@ class TestTaskTools:
 class TestDedup:
     @pytest.mark.asyncio
     async def test_no_duplicate_within_minute(self, tmp_path: Path) -> None:
-        store = _temp_store(tmp_path)
+        store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         executor.execute = AsyncMock(return_value="ok")
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
@@ -343,11 +381,135 @@ class TestDedup:
         task = _make_task(cron="0 7 * * *")
         now = datetime(2026, 1, 1, 7, 0, tzinfo=_BEIJING)
 
-        assert scheduler._should_run(task, now) is True
-        # Simulate triggering
-        scheduler._last_triggered[task.id] = now
-        # Second check within the same minute should be False
-        assert scheduler._should_run(task, now) is False
+        assert await scheduler._should_run(task, now) is True
+        assert await scheduler._should_run(task, now) is False
+
+    @pytest.mark.asyncio
+    async def test_should_run_uses_redis_for_dedup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = await _temp_store(tmp_path)
+        executor = MagicMock(spec=TaskExecutor)
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+        fake = await use_fake_redis(monkeypatch)
+        task = _make_task(cron="0 7 * * *")
+        now = datetime(2026, 1, 1, 7, 0, tzinfo=_BEIJING)
+
+        assert await scheduler._should_run(task, now) is True
+        assert await scheduler._should_run(task, now) is False
+        assert await fake.client.ttl(f"task:trigger:{task.id}:202601010700") == 120
+
+    @pytest.mark.asyncio
+    async def test_should_run_falls_back_to_memory_without_redis(self, tmp_path: Path) -> None:
+        store = await _temp_store(tmp_path)
+        executor = MagicMock(spec=TaskExecutor)
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+        task = _make_task(cron="0 7 * * *")
+        now = datetime(2026, 1, 1, 7, 0, tzinfo=_BEIJING)
+
+        assert await scheduler._should_run(task, now) is True
+        assert await scheduler._should_run(task, now) is False
+
+    @pytest.mark.asyncio
+    async def test_execute_task_sets_running_key_in_redis(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = await _temp_store(tmp_path)
+        task = _make_task()
+        await store.add_task(task)
+        fake = await use_fake_redis(monkeypatch)
+
+        async def _execute(_: ScheduledTask) -> str:
+            assert await fake.client.exists(f"task:running:{task.id}") == 1
+            return "ok"
+
+        executor = MagicMock(spec=TaskExecutor)
+        executor.execute = AsyncMock(side_effect=_execute)
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+
+        await scheduler._execute_task(task, None)
+
+        assert await fake.client.exists(f"task:running:{task.id}") == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_task_running_key_blocks_concurrent_execution(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = await _temp_store(tmp_path)
+        task = _make_task()
+        await store.add_task(task)
+        fake = await use_fake_redis(monkeypatch)
+        await fake.client.set(f"task:running:{task.id}", "other-worker", ex=600)
+        executor = MagicMock(spec=TaskExecutor)
+        executor.execute = AsyncMock(return_value="ok")
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+
+        await scheduler._execute_task(task, None)
+
+        executor.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recover_missed_tasks_triggers_overdue_task(self, tmp_path: Path) -> None:
+        store = await _temp_store(tmp_path)
+        now = datetime.now(timezone.utc)
+        task = _make_task(cron="0 * * * *", last_run_at=now - timedelta(hours=2))
+        await store.add_task(task)
+        executor = MagicMock(spec=TaskExecutor)
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+        scheduler._execute_task = AsyncMock()  # type: ignore[method-assign]
+
+        await scheduler._recover_missed_tasks()
+
+        assert scheduler._execute_task.await_count == 1  # type: ignore[attr-defined]
+        recovered_task = scheduler._execute_task.await_args.args[0]  # type: ignore[attr-defined]
+        assert recovered_task.id == task.id
+
+    @pytest.mark.asyncio
+    async def test_recover_missed_tasks_skips_never_run_tasks(self, tmp_path: Path) -> None:
+        store = await _temp_store(tmp_path)
+        task = _make_task(last_run_at=None)
+        await store.add_task(task)
+        executor = MagicMock(spec=TaskExecutor)
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+        scheduler._execute_task = AsyncMock()  # type: ignore[method-assign]
+
+        await scheduler._recover_missed_tasks()
+
+        scheduler._execute_task.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_recover_missed_tasks_skips_disabled_tasks(self, tmp_path: Path) -> None:
+        store = await _temp_store(tmp_path)
+        now = datetime.now(timezone.utc)
+        task = _make_task(enabled=False, last_run_at=now - timedelta(hours=2))
+        await store.add_task(task)
+        executor = MagicMock(spec=TaskExecutor)
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+        scheduler._execute_task = AsyncMock()  # type: ignore[method-assign]
+
+        await scheduler._recover_missed_tasks()
+
+        scheduler._execute_task.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_recover_missed_tasks_skips_up_to_date_tasks(self, tmp_path: Path) -> None:
+        store = await _temp_store(tmp_path)
+        now = datetime.now(timezone.utc)
+        task = _make_task(cron="0 * * * *", last_run_at=now - timedelta(minutes=5))
+        await store.add_task(task)
+        executor = MagicMock(spec=TaskExecutor)
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+        scheduler._execute_task = AsyncMock()  # type: ignore[method-assign]
+
+        await scheduler._recover_missed_tasks()
+
+        scheduler._execute_task.assert_not_awaited()  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +544,14 @@ class TestTaskExecutor:
         ), patch(
             "backend.core.s07_task_system.executor.MCPToolBridge.sync_all",
             new_callable=AsyncMock,
+        ), patch(
+            "backend.core.s07_task_system.executor.AgentLoop.run",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ), patch(
+            "backend.core.s07_task_system.executor.TaskExecutor._save_report",
+            new_callable=AsyncMock,
+            return_value=Path("/tmp/report.md"),
         ), patch(
             "backend.core.s07_task_system.executor.build_system_prompt",
             return_value="system",

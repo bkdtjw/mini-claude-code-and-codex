@@ -26,6 +26,9 @@ from backend.common.types import (
     ToolResult,
 )
 from backend.core.s02_tools.mcp import MCPServerManager
+from backend.storage import MCPServerStore
+
+from .storage_test_support import make_test_session_factory
 
 
 class FakeAdapter(LLMAdapter):
@@ -71,12 +74,9 @@ def _make_workspace() -> str:
     return tempfile.mkdtemp(dir=root)
 
 
-def _make_empty_mcp_manager() -> MCPServerManager:
-    root = Path(__file__).resolve().parents[1] / ".tmp_cli_display_mcp"
-    root.mkdir(exist_ok=True)
-    config_path = root / f"{uuid4().hex}.json"
-    config_path.write_text(json.dumps({"servers": []}), encoding="utf-8")
-    return MCPServerManager(config_path=str(config_path))
+async def _make_empty_mcp_manager(tmp_path: Path) -> MCPServerManager:
+    _engine, session_factory = await make_test_session_factory(tmp_path, f"cli_display_{uuid4().hex}")
+    return MCPServerManager(store=MCPServerStore(session_factory))
 
 
 async def _noop_tool(_: dict[str, object]) -> ToolResult:
@@ -100,10 +100,11 @@ def _register_tool(session_name: str, session: object) -> None:
 async def test_print_welcome_groups_tools_and_shows_provider_command(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    workspace = _make_workspace()
     session = await create_session(
-        CliArgs(workspace=_make_workspace()),
+        CliArgs(workspace=workspace),
         manager=FakeProviderManager(_provider()),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     session.state.workspace = "C:/Users/nirvana/Desktop/projects/very/deep/repo/agent-studio"
     for name in [
@@ -130,10 +131,11 @@ async def test_print_welcome_groups_tools_and_shows_provider_command(
 
 @pytest.mark.asyncio
 async def test_tools_command_prints_grouped_tools(capsys: pytest.CaptureFixture[str]) -> None:
+    workspace = _make_workspace()
     session = await create_session(
-        CliArgs(workspace=_make_workspace()),
+        CliArgs(workspace=workspace),
         manager=FakeProviderManager(_provider("test-model")),
-        mcp_manager=_make_empty_mcp_manager(),
+        mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
     for name in ["mcp__git__status", "mcp__git__diff", "mcp__github__create_issue"]:
         _register_tool(name, session)
