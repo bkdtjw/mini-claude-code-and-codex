@@ -5,16 +5,16 @@ import asyncio
 import hashlib
 import hmac
 import json
-import logging
 from collections.abc import Callable, Coroutine
 from typing import Any
 
 from fastapi import APIRouter, Request
 
+from backend.common.logging import bound_log_context, get_logger, new_trace_id
 from backend.config.settings import settings as app_settings
 from backend.schemas.feishu import FeishuCardActionPayload
 
-logger = logging.getLogger(__name__)
+logger = get_logger(component="feishu_card_action")
 
 router = APIRouter(prefix="/api/feishu", tags=["feishu"])
 
@@ -51,7 +51,12 @@ def set_task_executor(executor: Any) -> None:
 async def _handle_rerun(payload: FeishuCardActionPayload) -> dict[str, Any]:
     """Handle 'rerun' button click from task execution report card."""
     task_id: str | None = getattr(payload.action.value, "task_id", None)
-    logger.info("_handle_rerun: task_id=%s, payload.action.value=%s", task_id, payload.action.value)
+    logger.info(
+        "feishu_card_action",
+        action_type="rerun",
+        task_id=task_id or "",
+        open_id=payload.open_id,
+    )
     if not task_id:
         return {"toast": {"type": "error", "content": "缺少任务 ID"}}
 
@@ -71,7 +76,7 @@ async def _handle_rerun(payload: FeishuCardActionPayload) -> dict[str, Any]:
 
         asyncio.create_task(_background_rerun(task_id, task.name))
     except Exception:
-        logger.exception("Failed to queue rerun for task %s", task_id)
+        logger.exception("feishu_card_action_error", action_type="rerun", task_id=task_id)
         return {"toast": {"type": "error", "content": "加入执行队列失败"}}
 
     return {"toast": {"type": "info", "content": f"任务 {task.name} 已加入执行队列"}}
@@ -88,13 +93,13 @@ async def _background_rerun(task_id: str, task_name: str) -> None:
             return
         result = await _task_executor.execute(task)
         await store.update_run_status(task_id, "success", result[:500])
-        logger.info("Rerun task %s completed", task_name)
+        logger.info("feishu_card_rerun_completed", task_id=task_id, task_name=task_name)
     except Exception:
-        logger.exception("Rerun task %s failed", task_name)
+        logger.exception("feishu_card_rerun_failed", task_id=task_id, task_name=task_name)
         try:
             await store.update_run_status(task_id, "error", "rerun failed")
         except Exception:
-            logger.exception("Failed to update rerun status for %s", task_id)
+            logger.exception("feishu_card_rerun_status_failed", task_id=task_id)
 
 
 # Register handlers
@@ -135,18 +140,23 @@ async def card_action(request: Request) -> dict[str, Any]:
     signature = request.headers.get("X-Lark-Signature-Signature", "")
     if timestamp and signature:
         if not _verify_signature(body, timestamp, signature):
-            logger.warning("Card action signature verification failed")
+            logger.warning("feishu_signature_invalid")
             return {}
 
     try:
         payload = FeishuCardActionPayload.model_validate(data)
     except Exception:
-        logger.warning("Failed to parse card action payload: %s", data)
+        logger.warning("feishu_card_action_parse_failed")
         return {}
 
-    result = await dispatcher.dispatch(payload)
-    logger.info("card_action dispatch result: %s", result)
-    return result
+    with bound_log_context(trace_id=new_trace_id(), session_id=payload.open_id):
+        result = await dispatcher.dispatch(payload)
+        logger.info(
+            "feishu_card_action_dispatched",
+            action_type=payload.action.value.action_type,
+            open_id=payload.open_id,
+        )
+        return result
 
 
 __all__ = ["CardActionDispatcher", "dispatcher", "router"]

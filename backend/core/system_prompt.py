@@ -31,6 +31,14 @@ def build_system_prompt(workspace: str | None = None) -> str:
     ]
     if workspace:
         parts.append(f"当前工作目录: {workspace}")
+    parts.extend(
+        [
+            "你有 spawn_agent 工具可以派生子 agent 并行执行任务。",
+            "多个子任务互不依赖、可以同时进行时，用 spawn_agent 一次传多个任务并行执行。",
+            "子任务之间有先后依赖，或任务简单到你自己几步就能完成时，不要派子 agent。",
+            "子 agent 执行完成后你会收到全部结果，请汇总后再回复用户。",
+        ]
+    )
     parts.append("回复使用中文。")
     return "\n".join(part for part in parts if part)
 

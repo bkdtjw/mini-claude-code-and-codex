@@ -9,6 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+import backend.config.redis_client as redis_client
+
+from backend.common.errors import AgentError
+from backend.config.settings import settings
+from backend.core.s05_skills import AgentCategory, AgentSpec, SpecRegistry
 from .redis_test_support import use_fake_redis
 from backend.api.routes.feishu_handler import FeishuMessageHandler, _extract_text
 
@@ -41,8 +46,18 @@ def _make_event(
 def _mock_handler() -> tuple[FeishuMessageHandler, AsyncMock, AsyncMock]:
     client = AsyncMock()
     pm = AsyncMock()
+    provider = MagicMock(id="provider-1", is_default=True, default_model="model-1")
+    provider.provider_type.value = "provider-1"
+    pm.list_all.return_value = [provider]
     handler = FeishuMessageHandler(client, pm)
+    handler._store = AsyncMock()
+    handler._store.get = AsyncMock(return_value=None)
     return handler, client, pm
+
+
+@pytest.fixture(autouse=True)
+async def _init_fake_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    await use_fake_redis(monkeypatch)
 
 
 class TestUrlVerification:
@@ -72,6 +87,7 @@ class TestMessageHandling:
         mock_result = MagicMock()
         mock_result.content = "Agent reply"
         mock_loop.run = AsyncMock(return_value=mock_result)
+        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event(text="hello")
@@ -90,6 +106,7 @@ class TestMessageHandling:
         mock_result = MagicMock()
         mock_result.content = "reply"
         mock_loop.run = AsyncMock(return_value=mock_result)
+        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event(event_id="evt_dup")
@@ -118,21 +135,23 @@ class TestMessageHandling:
         assert await handler._seen("evt_redis_twice") is True
 
     @pytest.mark.asyncio
-    async def test_seen_falls_back_to_memory_when_no_redis(self) -> None:
+    async def test_seen_raises_when_no_redis(self) -> None:
         handler, _, _ = _mock_handler()
-        assert await handler._seen("evt_memory") is False
-        assert await handler._seen("evt_memory") is True
+        settings.redis_url = ""
+        await redis_client.close_redis()
+        with pytest.raises(AgentError, match="FEISHU_REDIS_UNAVAILABLE"):
+            await handler._seen("evt_memory")
 
     @pytest.mark.asyncio
-    async def test_seen_falls_back_to_memory_when_redis_error(
+    async def test_seen_raises_when_redis_error(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         handler, _, _ = _mock_handler()
         fake = await use_fake_redis(monkeypatch)
         fake.client.fail_operations.add("set")
-        assert await handler._seen("evt_redis_error") is False
-        assert await handler._seen("evt_redis_error") is True
+        with pytest.raises(AgentError, match="FEISHU_DEDUP_ERROR"):
+            await handler._seen("evt_redis_error")
 
     @pytest.mark.asyncio
     async def test_redis_key_has_correct_prefix_and_ttl(
@@ -149,6 +168,7 @@ class TestMessageHandling:
     async def test_bot_message_ignored(self) -> None:
         handler, client, pm = _mock_handler()
         mock_loop = AsyncMock()
+        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event(sender_type="bot")
@@ -174,8 +194,10 @@ class TestMessageHandling:
         handler, client, pm = _mock_handler()
         loop_a = AsyncMock()
         loop_a.run = AsyncMock(return_value=MagicMock(content="reply A"))
+        loop_a._config = MagicMock(provider="provider-1")
         loop_b = AsyncMock()
         loop_b.run = AsyncMock(return_value=MagicMock(content="reply B"))
+        loop_b._config = MagicMock(provider="provider-1")
         handler._sessions["oc_a"] = loop_a
         handler._sessions["oc_b"] = loop_b
 
@@ -194,6 +216,7 @@ class TestMessageHandling:
         handler, client, pm = _mock_handler()
         mock_loop = AsyncMock()
         mock_loop.run = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event()
@@ -219,6 +242,55 @@ class TestExtractText:
 
     def test_invalid_json_returns_none(self) -> None:
         assert _extract_text({"content": "not json"}, "text") is None
+
+
+class TestSlashCommand:
+    @pytest.mark.asyncio
+    async def test_slash_command_runs_spec_once(self) -> None:
+        handler, client, _ = _mock_handler()
+        registry = SpecRegistry()
+        registry.register(
+            AgentSpec(
+                id="daily-ai-news",
+                title="AI 圈早报",
+                category=AgentCategory.AGGREGATION,
+                system_prompt="prompt",
+            )
+        )
+        result = MagicMock(content="spec reply")
+        loop = AsyncMock()
+        loop.run = AsyncMock(return_value=result)
+        runtime = AsyncMock()
+        runtime.create_loop_from_id = AsyncMock(return_value=loop)
+        handler.configure_runtime(runtime, registry, None)
+        handler._try_reply_card = AsyncMock(return_value=False)
+
+        await handler.handle_message(_make_event(text="/daily-ai-news"))
+
+        runtime.create_loop_from_id.assert_called_once()
+        loop.run.assert_called_once_with("")
+        reply_text = json.loads(client.reply_message.call_args[0][1])["text"]
+        assert reply_text == "spec reply"
+
+    @pytest.mark.asyncio
+    async def test_slash_command_missing_spec_lists_available_specs(self) -> None:
+        handler, client, _ = _mock_handler()
+        registry = SpecRegistry()
+        registry.register(
+            AgentSpec(
+                id="code-reviewer",
+                title="代码审查",
+                category=AgentCategory.CODING,
+                system_prompt="prompt",
+            )
+        )
+        handler.configure_runtime(AsyncMock(), registry, None)
+
+        await handler.handle_message(_make_event(text="/missing"))
+
+        reply_text = json.loads(client.reply_message.call_args[0][1])["text"]
+        assert "未找到场景：missing" in reply_text
+        assert "code-reviewer" in reply_text
 
 
 class TestFeishuClient:

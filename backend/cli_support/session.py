@@ -6,11 +6,13 @@ import signal
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError, LLMError
 from backend.common.types import AgentConfig, AgentEventHandler, Message, ProviderConfig
-from backend.config import init_redis, settings
+from backend.config import get_redis, init_redis, settings
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
+from backend.core.s05_skills import AgentRuntime, AgentRuntimeDeps, SkillLoader, SpecRegistry
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
+from backend.core.sub_agent_queue import create_sub_agent_task_queue
 from backend.core.system_prompt import build_system_prompt
 from backend.storage import init_db
 
@@ -71,6 +73,19 @@ async def create_session(
         workspace = _resolve_workspace(args.workspace)
         provider = await _resolve_provider(provider_manager, args.provider)
         adapter = await provider_manager.get_adapter(provider.id)
+        spec_registry = SpecRegistry()
+        for spec in SkillLoader().load_all():
+            spec_registry.register(spec)
+        agent_runtime = AgentRuntime(
+            AgentRuntimeDeps(
+                provider_manager=provider_manager,
+                mcp_manager=resolved_mcp_manager,
+                settings=settings,
+                spec_registry=spec_registry,
+            )
+        )
+        redis = get_redis()
+        task_queue = create_sub_agent_task_queue(redis) if redis is not None else None
         registry = _build_registry(
             CliState(
                 provider_id=provider.id,
@@ -95,6 +110,10 @@ async def create_session(
             twitter_password=settings.twitter_password or None,
             twitter_proxy_url=settings.twitter_proxy_url or None,
             twitter_cookies_file=settings.twitter_cookies_file or None,
+            agent_runtime=agent_runtime,
+            spec_registry=spec_registry,
+            task_queue=task_queue,
+            event_handler=event_handler,
         )
         bridge = MCPToolBridge(resolved_mcp_manager, registry)
         await bridge.sync_all()
@@ -124,6 +143,9 @@ async def create_session(
                 permission_mode=args.permission_mode,
             ),
             event_handler=event_handler,
+            agent_runtime=agent_runtime,
+            spec_registry=spec_registry,
+            task_queue=task_queue,
         )
     except (CliError, LLMError):
         raise

@@ -21,7 +21,7 @@ from backend.core.s07_task_system.card_notify import (
     match_card_scenario,
     try_send_card,
 )
-from backend.core.s07_task_system.executor import TaskExecutor
+from backend.core.s07_task_system import TaskExecutor, TaskExecutorDeps
 from backend.core.s07_task_system.models import (
     NotifyConfig,
     OutputConfig,
@@ -271,13 +271,17 @@ class TestExecutorCardFlow:
         with patch("backend.core.s07_task_system.executor.register_builtin_tools"), \
              patch("backend.core.s07_task_system.executor.MCPToolBridge.sync_all", new_callable=AsyncMock), \
              patch("backend.core.s07_task_system.executor.build_system_prompt", return_value="sys"), \
-             patch("backend.core.s07_task_system.executor.TaskExecutor._try_card", return_value=True) as mock_card:
+             patch("backend.core.s07_task_system.executor.TaskExecutor._save_report", new_callable=AsyncMock, return_value=Path('/tmp/report.md')), \
+             patch("backend.core.s07_task_system.executor.TaskExecutor._persist_session", new_callable=AsyncMock), \
+             patch("backend.core.s07_task_system.executor.TaskExecutor._notify_feishu", new_callable=AsyncMock, return_value=True) as mock_notify:
 
-            executor = TaskExecutor(provider_manager=mock_pm, mcp_manager=mock_mcp)
+            executor = TaskExecutor(
+                TaskExecutorDeps.model_construct(provider_manager=mock_pm, mcp_manager=mock_mcp)
+            )
             result = await executor.execute(task)
 
         assert result == "agent result"
-        mock_card.assert_called_once()
+        mock_notify.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_card_failure_falls_back_to_text(self) -> None:
@@ -302,17 +306,23 @@ class TestExecutorCardFlow:
         with patch("backend.core.s07_task_system.executor.register_builtin_tools"), \
              patch("backend.core.s07_task_system.executor.MCPToolBridge.sync_all", new_callable=AsyncMock), \
              patch("backend.core.s07_task_system.executor.build_system_prompt", return_value="sys"), \
-             patch("backend.core.s07_task_system.executor.TaskExecutor._try_card", return_value=False), \
-             patch("backend.core.s07_task_system.executor.TaskExecutor._send_feishu", new_callable=AsyncMock) as mock_send:
+             patch("backend.core.s07_task_system.executor.TaskExecutor._save_report", new_callable=AsyncMock, return_value=Path('/tmp/report.md')), \
+             patch("backend.core.s07_task_system.executor.TaskExecutor._persist_session", new_callable=AsyncMock), \
+             patch("backend.core.s07_task_system.card_notify.try_send_card", new_callable=AsyncMock, return_value=False), \
+             patch("backend.core.s07_task_system.executor.TaskExecutor._send_feishu_text", new_callable=AsyncMock, return_value=True) as mock_send:
 
-            executor = TaskExecutor(provider_manager=mock_pm, mcp_manager=mock_mcp)
+            executor = TaskExecutor(
+                TaskExecutorDeps.model_construct(provider_manager=mock_pm, mcp_manager=mock_mcp)
+            )
             await executor.execute(task)
 
         mock_send.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_report_file_created(self, tmp_path: Path) -> None:
-        executor = TaskExecutor(provider_manager=AsyncMock(), mcp_manager=AsyncMock())
+        executor = TaskExecutor(
+            TaskExecutorDeps.model_construct(provider_manager=AsyncMock(), mcp_manager=AsyncMock())
+        )
         task = _make_task(name="my task!")
         meta = {
             "status": "success",

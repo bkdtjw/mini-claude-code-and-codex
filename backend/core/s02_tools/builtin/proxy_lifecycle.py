@@ -24,6 +24,7 @@ INTERNET_OPTION_SETTINGS_CHANGED = 39
 INTERNET_OPTION_REFRESH = 37
 
 IS_WINDOWS = platform.system() == "Windows"
+MIHOMO_SERVICE_NAME = "mihomo"
 
 
 class ProxyLifecycleError(Exception):
@@ -38,59 +39,218 @@ class ProxyLifecycle:
 
     async def start(self, force: bool = True) -> str:
         try:
-            self._kill_process(Path(self._config.mihomo_path).name)
-            generator = ProxyConfigGenerator(self._config.config_path)
-            config = (
-                generator.load()
-                if not force and Path(self._config.config_path).exists()
-                else self._build_config(generator)
-            )
-            merged = CustomNodesManager(self._config.custom_nodes_path).merge_into_config(config)
-            generator.save(merged)
-            version = await MihomoProcess(_process_config(self._config)).start()
-            if not version.startswith("v"):
-                raise ProxyLifecycleError(version)
-            proxy_set = self.set_system_proxy("127.0.0.1", self._config.proxy_port)
-            exit_nodes = CustomNodesManager(self._config.custom_nodes_path).get_exit_nodes()
-            chains = ChainProxyManager.list_chains(merged)
-            first_exit = str(exit_nodes[0]["name"]) if exit_nodes else "None"
-            return "\n".join(
-                [
-                    "Proxy started",
-                    f"mihomo: {version}",
-                    f"Proxy port: 127.0.0.1:{self._config.proxy_port}",
-                    f"System proxy: {'set' if proxy_set else 'failed to set'}",
-                    f"Node count: {len(merged.get('proxies') or [])}",
-                    f"Exit node: {first_exit}",
-                    f"Chain nodes: {len(chains)}",
-                ]
-            )
+            # 检查是否使用 systemd 服务管理
+            use_systemd = self._check_systemd_service()
+            if use_systemd:
+                return await self._start_via_systemd(force)
+            # 降级到进程管理模式
+            return await self._start_via_process(force)
         except Exception as exc:  # noqa: BLE001
             raise ProxyLifecycleError(f"Failed to start proxy: {exc}") from exc
 
+    async def _start_via_systemd(self, force: bool) -> str:
+        """通过 systemd 服务启动 mihomo."""
+        # 如果强制重启，先停止服务
+        if force:
+            result = subprocess.run(
+                ["systemctl", "stop", MIHOMO_SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode not in (0, 3):  # 3 = service not found but acceptable
+                raise ProxyLifecycleError(f"Failed to stop service: {result.stderr}")
+
+        # 重新生成配置（如果 force=True 且订阅文件存在）
+        config_reloaded = False
+        if force and Path(self._config.sub_path).exists():
+            generator = ProxyConfigGenerator(self._config.config_path)
+            config = self._build_config(generator)
+            merged = CustomNodesManager(self._config.custom_nodes_path).merge_into_config(config)
+            generator.save(merged)
+            config_reloaded = True
+
+        # 启动服务
+        result = subprocess.run(
+            ["systemctl", "start", MIHOMO_SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise ProxyLifecycleError(f"Failed to start service: {result.stderr}")
+
+        # 等待服务就绪
+        version = await self._wait_for_service()
+        if not version:
+            raise ProxyLifecycleError("mihomo service started but API not ready")
+
+        # 获取状态信息
+        status_result = subprocess.run(
+            ["systemctl", "is-active", MIHOMO_SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        service_status = status_result.stdout.strip()
+
+        exit_nodes = CustomNodesManager(self._config.custom_nodes_path).get_exit_nodes()
+        first_exit = str(exit_nodes[0]["name"]) if exit_nodes else "None"
+
+        # 读取配置获取节点数
+        generator = ProxyConfigGenerator(self._config.config_path)
+        config = generator.load()
+        node_count = len(config.get("proxies") or [])
+
+        lines = [
+            "Proxy started (systemd)",
+            f"Service: {MIHOMO_SERVICE_NAME}",
+            f"Status: {service_status}",
+            f"mihomo: {version}",
+            f"Mode: TUN (transparent proxy)",
+            f"Node count: {node_count}",
+            f"Exit node: {first_exit}",
+        ]
+        if config_reloaded:
+            lines.append("Config: Reloaded from subscription")
+        elif force:
+            lines.append("Config: Using existing (subscription file not found)")
+        return "\n".join(lines)
+
+    async def _start_via_process(self, force: bool) -> str:
+        """通过进程管理启动 mihomo (降级方案)."""
+        self._kill_process(Path(self._config.mihomo_path).name)
+        generator = ProxyConfigGenerator(self._config.config_path)
+        config = (
+            generator.load()
+            if not force and Path(self._config.config_path).exists()
+            else self._build_config(generator)
+        )
+        merged = CustomNodesManager(self._config.custom_nodes_path).merge_into_config(config)
+        generator.save(merged)
+        version = await MihomoProcess(_process_config(self._config)).start()
+        if not version.startswith("v"):
+            raise ProxyLifecycleError(version)
+        proxy_set = self.set_system_proxy("127.0.0.1", self._config.proxy_port)
+        exit_nodes = CustomNodesManager(self._config.custom_nodes_path).get_exit_nodes()
+        chains = ChainProxyManager.list_chains(merged)
+        first_exit = str(exit_nodes[0]["name"]) if exit_nodes else "None"
+        return "\n".join(
+            [
+                "Proxy started (process)",
+                f"mihomo: {version}",
+                f"Proxy port: 127.0.0.1:{self._config.proxy_port}",
+                f"System proxy: {'set' if proxy_set else 'failed to set'}",
+                f"Node count: {len(merged.get('proxies') or [])}",
+                f"Exit node: {first_exit}",
+                f"Chain nodes: {len(chains)}",
+            ]
+        )
+
     async def stop(self) -> str:
         try:
-            cleared = self.clear_system_proxy()
-            self._kill_process(Path(self._config.mihomo_path).name)
-            return "\n".join(
-                ["Proxy stopped", f"System proxy: {'cleared' if cleared else 'failed to clear'}"]
-            )
+            use_systemd = self._check_systemd_service()
+            if use_systemd:
+                return await self._stop_via_systemd()
+            return await self._stop_via_process()
         except Exception as exc:  # noqa: BLE001
             raise ProxyLifecycleError(f"Failed to stop proxy: {exc}") from exc
 
+    async def _stop_via_systemd(self) -> str:
+        """通过 systemd 停止 mihomo."""
+        result = subprocess.run(
+            ["systemctl", "stop", MIHOMO_SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise ProxyLifecycleError(f"Failed to stop service: {result.stderr}")
+        return "Proxy stopped (systemd)\nService: mihomo stopped"
+
+    async def _stop_via_process(self) -> str:
+        """通过进程管理停止 mihomo."""
+        cleared = self.clear_system_proxy()
+        self._kill_process(Path(self._config.mihomo_path).name)
+        return "\n".join(
+            ["Proxy stopped (process)", f"System proxy: {'cleared' if cleared else 'failed to clear'}"]
+        )
+
     async def status(self) -> str:
         try:
-            version = await MihomoAPI(self._config.api_url, self._config.api_secret).get_version()
-            chain_config = CustomNodesManager(self._config.custom_nodes_path).get_chain_config()
-            return "\n".join(
-                [
-                    f"mihomo: {version or 'not running'}",
-                    f"System proxy: {'set' if self.is_system_proxy_set() else 'not set'}",
-                    f"Chain exit: {chain_config.get('exit_node') or 'None'}",
-                ]
-            )
+            use_systemd = self._check_systemd_service()
+            if use_systemd:
+                return await self._status_via_systemd()
+            return await self._status_via_process()
         except Exception as exc:  # noqa: BLE001
             raise ProxyLifecycleError(f"Failed to query proxy status: {exc}") from exc
+
+    async def _status_via_systemd(self) -> str:
+        """通过 systemd 查询状态."""
+        # 服务状态
+        status_result = subprocess.run(
+            ["systemctl", "is-active", MIHOMO_SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        service_status = status_result.stdout.strip()
+
+        # API 版本
+        api = MihomoAPI(self._config.api_url, self._config.api_secret)
+        version = await api.get_version()
+
+        # 链配置
+        chain_config = CustomNodesManager(self._config.custom_nodes_path).get_chain_config()
+
+        lines = [
+            f"Service: {MIHOMO_SERVICE_NAME}",
+            f"Status: {service_status}",
+            f"mihomo: {version or 'not running'}",
+            f"Mode: TUN (transparent proxy)",
+            f"Chain exit: {chain_config.get('exit_node') or 'None'}",
+        ]
+        return "\n".join(lines)
+
+    async def _status_via_process(self) -> str:
+        """通过进程查询状态."""
+        version = await MihomoAPI(self._config.api_url, self._config.api_secret).get_version()
+        chain_config = CustomNodesManager(self._config.custom_nodes_path).get_chain_config()
+        return "\n".join(
+            [
+                f"mihomo: {version or 'not running'}",
+                f"System proxy: {'set' if self.is_system_proxy_set() else 'not set'}",
+                f"Chain exit: {chain_config.get('exit_node') or 'None'}",
+            ]
+        )
+
+    def _check_systemd_service(self) -> bool:
+        """检查是否存在 systemd 服务管理."""
+        if IS_WINDOWS:
+            return False
+        try:
+            result = subprocess.run(
+                ["systemctl", "list-unit-files", f"{MIHOMO_SERVICE_NAME}.service"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return MIHOMO_SERVICE_NAME in result.stdout and result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    async def _wait_for_service(self, timeout: int = 30) -> str:
+        """等待 mihomo API 就绪."""
+        import asyncio
+
+        api = MihomoAPI(self._config.api_url, self._config.api_secret)
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            version = await api.get_version()
+            if version:
+                return version
+            await asyncio.sleep(0.5)
+        return ""
 
     @staticmethod
     def set_system_proxy(host: str, port: int) -> bool:

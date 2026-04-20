@@ -22,6 +22,9 @@ AgentEventType = Literal[
     "tool_call",
     "tool_result",
     "security_reject",
+    "sub_agent_spawned",
+    "sub_agent_completed",
+    "sub_agent_failed",
     "error",
 ]
 
@@ -30,6 +33,7 @@ class AgentConfig(BaseModel):
     model: str
     provider: str = "anthropic"
     system_prompt: str = ""
+    session_id: str = ""
     tools: list[str] = Field(default_factory=list)
     max_iterations: int = 20
     max_consecutive_tool_failures: int = 3

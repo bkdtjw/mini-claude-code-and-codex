@@ -28,6 +28,7 @@ class ScheduledTask(BaseModel):
     cron: str = "0 * * * *"
     timezone: str = "Asia/Shanghai"
     prompt: str = ""
+    spec_id: str = ""
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     card_scenario: str | None = None

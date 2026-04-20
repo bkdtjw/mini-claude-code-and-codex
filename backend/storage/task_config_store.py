@@ -18,6 +18,7 @@ _TASK_FIELDS = (
     "cron",
     "timezone",
     "prompt",
+    "spec_id",
     "notify_json",
     "output_json",
     "card_scenario",

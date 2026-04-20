@@ -1,0 +1,5 @@
+allowed_tools:
+  - Read
+  - Bash
+  - x_search
+  - feishu_notify

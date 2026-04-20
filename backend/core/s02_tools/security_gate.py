@@ -9,9 +9,12 @@ from hashlib import sha256
 from pydantic import BaseModel, Field
 
 from backend.common.errors import AgentError
+from backend.common.logging import get_logger
 from backend.common.types import SecurityPolicy, SignedToolCall, ToolCall, ToolResult
 
 from .registry import ToolRegistry
+
+logger = get_logger(component="security_gate")
 
 
 class SecurityGateError(AgentError):
@@ -46,6 +49,7 @@ class SecurityGate:
             for tool_call in tool_calls:
                 reason = self._reject_reason(tool_call, len(result.signed_calls))
                 if reason:
+                    logger.warning("tool_rejected", tool=tool_call.name, tool_call_id=tool_call.id, reason=reason)
                     result.rejected_results.append(self._rejected_result(tool_call, reason))
                     continue
                 self._sequence += 1

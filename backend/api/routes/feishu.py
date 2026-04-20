@@ -5,14 +5,14 @@ import asyncio
 import hashlib
 import hmac
 import json
-import logging
 from typing import Any
 
 from fastapi import APIRouter, Request
 
+from backend.common.logging import bound_log_context, get_logger, new_trace_id
 from backend.config.settings import settings as app_settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(component="feishu_route")
 
 router = APIRouter(prefix="/api/feishu", tags=["feishu"])
 
@@ -49,12 +49,16 @@ async def feishu_event(request: Request) -> dict[str, Any]:
     if data.get("type") == "url_verification":
         return {"challenge": data.get("challenge", "")}
 
+    event_id = data.get("header", {}).get("event_id", "")
+    event_type = data.get("header", {}).get("event_type", "")
+    chat_id = data.get("event", {}).get("message", {}).get("chat_id", "")
+
     # Signature verification
     timestamp = request.headers.get("X-Lark-Signature-Timestamp", "")
     signature = request.headers.get("X-Lark-Signature-Signature", "")
     if timestamp and signature:
         if not _verify_signature(body, timestamp, signature):
-            logger.warning("Feishu event signature verification failed")
+            logger.warning("feishu_signature_invalid")
             return {"error": "signature mismatch"}
 
     # Card action fallback: action field without header → card callback
@@ -67,15 +71,15 @@ async def feishu_event(request: Request) -> dict[str, Any]:
             payload = FeishuCardActionPayload.model_validate(data)
             return await dispatcher.dispatch(payload)
         except Exception:
-            logger.warning("Failed to dispatch card action via event fallback")
+            logger.warning("feishu_card_action_fallback_failed")
             return {}
 
-    event_type = data.get("header", {}).get("event_type", "")
     if event_type != "im.message.receive_v1":
         return {"status": "ignored"}
 
-    # Dispatch to handler asynchronously (must return 200 within 3s)
-    if _handler is not None:
-        asyncio.create_task(_handler.handle_message(data))
+    with bound_log_context(trace_id=new_trace_id(), session_id=chat_id):
+        logger.info("feishu_event_received", event_id=event_id, event_type=event_type)
+        if _handler is not None:
+            asyncio.create_task(_handler.handle_message(data))
 
     return {"status": "ok"}

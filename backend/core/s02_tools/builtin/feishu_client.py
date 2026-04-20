@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import json
-import logging
 import time
 from typing import Any
 
 import httpx
 
+from backend.common.logging import get_logger
 from backend.common.feishu_markdown import strip_markdown_for_feishu
 
-logger = logging.getLogger(__name__)
+logger = get_logger(component="feishu_client")
 
 _TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal/"
 _SEND_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
@@ -39,11 +39,11 @@ class FeishuClient:
                     },
                 )
                 data = resp.json()
-        except Exception:
-            logger.exception("Failed to get feishu tenant_access_token")
+        except Exception as exc:
+            logger.error("feishu_token_error", error=str(exc))
             return
         if data.get("code") != 0:
-            logger.error("Feishu token error: %s", data.get("msg"))
+            logger.error("feishu_token_error", error=str(data.get("msg", "")))
             return
         self._token = data["tenant_access_token"]
         self._token_expires = time.time() + data.get("expire", 7200)
@@ -86,14 +86,21 @@ class FeishuClient:
             "msg_type": msg_type,
             "content": content,
         }
-        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
-            resp = await client.post(
-                _SEND_MSG_URL,
-                headers=self._headers(),
-                params={"receive_id_type": "chat_id"},
-                json=body,
-            )
-            return resp.json()
+        try:
+            logger.info("feishu_api_request_start", action="send_message", msg_type=msg_type)
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                resp = await client.post(
+                    _SEND_MSG_URL,
+                    headers=self._headers(),
+                    params={"receive_id_type": "chat_id"},
+                    json=body,
+                )
+                payload = resp.json()
+            logger.info("feishu_api_request_end", action="send_message", msg_type=msg_type, success=payload.get("code") == 0)
+            return payload
+        except Exception as exc:
+            logger.error("feishu_api_request_error", action="send_message", msg_type=msg_type, error=str(exc))
+            raise
 
     async def reply_message(
         self,
@@ -105,9 +112,16 @@ class FeishuClient:
         content = self._build_content(content, msg_type)
         url = f"{_SEND_MSG_URL}/{message_id}/reply"
         body: dict[str, Any] = {"msg_type": msg_type, "content": content}
-        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
-            resp = await client.post(url, headers=self._headers(), json=body)
-            return resp.json()
+        try:
+            logger.info("feishu_api_request_start", action="reply_message", msg_type=msg_type)
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                resp = await client.post(url, headers=self._headers(), json=body)
+                payload = resp.json()
+            logger.info("feishu_api_request_end", action="reply_message", msg_type=msg_type, success=payload.get("code") == 0)
+            return payload
+        except Exception as exc:
+            logger.error("feishu_api_request_error", action="reply_message", msg_type=msg_type, error=str(exc))
+            raise
 
 
 __all__ = ["FeishuClient"]

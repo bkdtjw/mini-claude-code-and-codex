@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
-from backend.common.types import Message, ToolCall, ToolResult
+from backend.common.logging import bound_log_context, get_log_context, get_logger, new_trace_id
+from backend.common.types import LLMResponse, Message, ToolCall, ToolResult
 
 
 def summarize_tool_call(tool_call: ToolCall) -> str:
@@ -52,4 +54,66 @@ def update_tool_failures(
     return consecutive_failures, failures, build_tool_failure_message(max_failures, failures)
 
 
-__all__ = ["build_tool_failure_message", "summarize_tool_call", "update_tool_failures"]
+def build_run_logger(session_id: str) -> tuple[str, str, Any, Any]:
+    context = get_log_context()
+    trace_id = str(context.get("trace_id") or new_trace_id())
+    effective_session_id = session_id or str(context.get("session_id") or "")
+    return trace_id, effective_session_id, get_logger(
+        component="agent_loop",
+        trace_id=trace_id,
+        session_id=effective_session_id,
+    ), bound_log_context(
+        trace_id=trace_id,
+        session_id=effective_session_id,
+    )
+
+
+def log_llm_call_end(logger: Any, response: LLMResponse) -> None:
+    logger.info(
+        "llm_call_end",
+        prompt_tokens=response.usage.prompt_tokens,
+        completion_tokens=response.usage.completion_tokens,
+        total_tokens=response.usage.prompt_tokens + response.usage.completion_tokens,
+    )
+
+
+def log_tool_result(logger: Any, tool_call: ToolCall | None, result: ToolResult) -> None:
+    logger.info(
+        "tool_call_end",
+        tool=tool_call.name if tool_call is not None else "",
+        tool_call_id=result.tool_call_id,
+        is_error=result.is_error,
+    )
+
+
+def build_orphan_tool_results(message: Message) -> list[ToolResult]:
+    return [
+        ToolResult(
+            tool_call_id=call.id,
+            output="[error] tool execution failed, no response captured",
+            is_error=True,
+        )
+        for call in message.tool_calls or []
+    ]
+
+
+def patch_orphan_tool_calls(messages: list[Message]) -> list[Message]:
+    if not messages:
+        return messages
+    last = messages[-1]
+    if last.role != "assistant" or not last.tool_calls:
+        return messages
+    messages.append(Message(role="tool", content="", tool_results=build_orphan_tool_results(last)))
+    return messages
+
+
+__all__ = [
+    "build_orphan_tool_results",
+    "build_run_logger",
+    "build_tool_failure_message",
+    "log_llm_call_end",
+    "log_tool_result",
+    "patch_orphan_tool_calls",
+    "summarize_tool_call",
+    "update_tool_failures",
+]

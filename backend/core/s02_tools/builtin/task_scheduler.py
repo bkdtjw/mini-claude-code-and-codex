@@ -38,6 +38,7 @@ def _create_add_task(store: TaskStore) -> tuple[ToolDefinition, ToolExecuteFn]:
                 "name": {"type": "string", "description": "Task name, e.g. '推特AI日报'"},
                 "cron": {"type": "string", "description": "Cron expression in Beijing time, e.g. '0 7 * * *'"},
                 "prompt": {"type": "string", "description": "Full prompt to send to the agent when task fires"},
+                "spec_id": {"type": "string", "description": "Optional skill spec id, e.g. 'daily-ai-news'"},
                 "notify_feishu": {"type": "boolean", "description": "Whether to send result to Feishu, default true"},
                 "feishu_webhook_url": {"type": "string", "description": "Custom Feishu webhook URL, leave empty for global"},
                 "feishu_title": {"type": "string", "description": "Feishu message title, leave empty for task name"},
@@ -53,6 +54,7 @@ def _create_add_task(store: TaskStore) -> tuple[ToolDefinition, ToolExecuteFn]:
                 name=str(args["name"]),
                 cron=str(args["cron"]),
                 prompt=str(args["prompt"]),
+                spec_id=str(args.get("spec_id", "")),
                 notify=NotifyConfig(
                     feishu=args.get("notify_feishu", True),
                     feishu_webhook_url=str(args.get("feishu_webhook_url", "")),
@@ -116,6 +118,7 @@ def _create_update_task(store: TaskStore) -> tuple[ToolDefinition, ToolExecuteFn
                 "name": {"type": "string", "description": "New task name"},
                 "cron": {"type": "string", "description": "New cron expression"},
                 "prompt": {"type": "string", "description": "New prompt"},
+                "spec_id": {"type": "string", "description": "New spec id"},
                 "enabled": {"type": "boolean", "description": "Enable or disable the task"},
                 "notify_feishu": {"type": "boolean", "description": "Feishu notification toggle"},
                 "feishu_title": {"type": "string", "description": "New Feishu title"},
@@ -129,7 +132,7 @@ def _create_update_task(store: TaskStore) -> tuple[ToolDefinition, ToolExecuteFn
         try:
             task_id = str(args["task_id"])
             updates: dict[str, Any] = {}
-            for key in ("name", "cron", "prompt", "enabled"):
+            for key in ("name", "cron", "prompt", "spec_id", "enabled"):
                 if key in args and args[key] is not None:
                     updates[key] = args[key]
             task = await store.update_task(task_id, **updates)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -107,15 +108,16 @@ def test_ollama_adapter_parses_reasoning_content() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider_type", list(ProviderType))
 @pytest.mark.parametrize("status_code", [500, 502, 503, 504])
-async def test_complete_retries_on_retryable_status_codes(provider_type: ProviderType, status_code: int) -> None:
+async def test_complete_retries_on_retryable_status_codes(provider_type: ProviderType, status_code: int, caplog: pytest.LogCaptureFixture) -> None:
     adapter = _adapter(provider_type)
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0), patch("builtins.print") as mock_print:
+    with caplog.at_level(logging.WARNING), patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0):
         mock_post.side_effect = [_error_response(status_code), _success_response(provider_type)]
         response = await adapter.complete(_llm_request())
     assert response.content == "answer"
     assert mock_post.await_count == 2
     mock_sleep.assert_awaited_once()
-    mock_print.assert_called_once()
+    assert "llm_request_retry" in caplog.text
+    assert "llm_request_retry_wait" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import WebSocket
 from pydantic import BaseModel, ConfigDict
 
+from backend.common import sanitize_message_history
 from backend.common.errors import AgentError
 from backend.common.types import AgentEvent, Message, Session, ToolCall, ToolResult
 from backend.core.s01_agent_loop import AgentLoop
@@ -13,10 +15,11 @@ from backend.storage import SessionStore
 
 
 class LoopSettings(BaseModel):
-    model: str
+    model: str = ""
     provider_id: str | None = None
     workspace: str | None = None
     permission_mode: str = "auto"
+    spec_id: str = ""
 
 
 class RunLoopInput(BaseModel):
@@ -24,7 +27,7 @@ class RunLoopInput(BaseModel):
 
     loop: AgentLoop
     message: str
-    websocket: WebSocket
+    send_message: Callable[[dict[str, Any]], Awaitable[None]]
     session_id: str
     store: SessionStore | None = None
 
@@ -34,19 +37,23 @@ def get_store(websocket: WebSocket) -> SessionStore | None:
 
 
 def parse_loop_settings(data: dict[str, Any]) -> LoopSettings:
+    spec_id = str(data.get("spec_id", "")).strip()
     model = str(data.get("model", "")).strip()
-    if not model:
+    if not model and not spec_id:
         raise AgentError("MODEL_REQUIRED", "model is required")
     return LoopSettings(
         model=model,
         provider_id=str(data.get("provider_id", "")).strip() or None,
         workspace=str(data.get("workspace", "")).strip() or None,
         permission_mode=str(data.get("permission_mode", "auto")).strip() or "auto",
+        spec_id=spec_id,
     )
 
 
 async def resolve_loop_settings(settings: LoopSettings, provider_manager: Any) -> LoopSettings:
     try:
+        if settings.spec_id:
+            return settings
         if settings.provider_id is not None:
             return settings
         default_provider = await provider_manager.get_default()
@@ -69,7 +76,7 @@ def restore_messages(
         if clear_provider_metadata:
             cloned.provider_metadata = {}
         restored.append(cloned)
-    return restored
+    return sanitize_message_history(restored)
 
 
 def serialize_message_for_client(message: Message) -> dict[str, Any]:
@@ -115,6 +122,23 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
             "output": data.output,
             "is_error": data.is_error,
         }
+    if event.type == "sub_agent_spawned" and isinstance(data, dict):
+        return {
+            "type": "sub_agent_spawned",
+            "total": data.get("total"),
+            "specs": data.get("specs"),
+            "message": data.get("message"),
+        }
+    if event.type in {"sub_agent_completed", "sub_agent_failed"} and isinstance(data, dict):
+        return {
+            "type": event.type,
+            "task_id": data.get("task_id"),
+            "spec_id": data.get("spec_id"),
+            "completed": data.get("completed"),
+            "total": data.get("total"),
+            "error": data.get("error"),
+            "message": data.get("message"),
+        }
     return {"type": "error", "message": str(getattr(data, "message", data))}
 
 
@@ -122,7 +146,7 @@ async def run_loop(payload: RunLoopInput) -> None:
     try:
         result = await payload.loop.run(payload.message)
         try:
-            await payload.websocket.send_json(
+            await payload.send_message(
                 {
                     "type": "done",
                     "message": serialize_message_for_client(result) if result else None,
@@ -134,7 +158,7 @@ async def run_loop(payload: RunLoopInput) -> None:
         return
     except Exception as exc:  # noqa: BLE001
         try:
-            await payload.websocket.send_json({"type": "error", "message": str(exc)})
+            await payload.send_message({"type": "error", "message": str(exc)})
         except Exception:
             return
     finally:

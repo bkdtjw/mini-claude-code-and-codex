@@ -86,6 +86,7 @@ class ScheduledTaskRecord(Base):
     cron: Mapped[str] = mapped_column(String(100), default="0 * * * *", nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Shanghai", nullable=False)
     prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    spec_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     notify_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     output_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     card_scenario: Mapped[str | None] = mapped_column(String(100), nullable=True)

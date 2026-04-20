@@ -40,10 +40,11 @@ def create_proxy_on_tool(
     definition = ToolDefinition(
         name="proxy_on",
         description=(
-            "Start the mihomo proxy service: regenerate config from subscription, "
-            "restore custom exit nodes and chain proxies, launch the mihomo process, "
-            "and set the system proxy. Use this tool whenever the user asks to "
-            "enable, start, or turn on proxy, TUN mode, or mihomo. "
+            "Start the mihomo proxy service: detects and uses systemd service if available, "
+            "otherwise falls back to process management. When force=true, regenerates config "
+            "from subscription and restarts the service. For systemd mode (TUN), no environment "
+            "variables are set as TUN provides transparent proxying. Use this tool whenever the "
+            "user asks to enable, start, or turn on proxy, TUN mode, or mihomo. "
             "Do NOT start mihomo via the Bash tool because it will time out."
         ),
         category="shell",
@@ -51,7 +52,7 @@ def create_proxy_on_tool(
             properties={
                 "force": {
                     "type": "boolean",
-                    "description": "Force config regeneration. Defaults to true.",
+                    "description": "Force service restart and config regeneration. Defaults to true.",
                 }
             },
             required=[],
@@ -72,9 +73,10 @@ def create_proxy_off_tool() -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="proxy_off",
         description=(
-            "Stop the mihomo proxy service and clear the system proxy. "
-            "Use this tool whenever the user asks to disable, stop, or turn off "
-            "proxy, TUN mode, or mihomo."
+            "Stop the mihomo proxy service: uses systemctl stop if systemd service exists, "
+            "otherwise kills the mihomo process. For systemd mode (TUN), this simply stops "
+            "the service as TUN mode does not use environment variables. Use this tool "
+            "whenever the user asks to disable, stop, or turn off proxy, TUN mode, or mihomo."
         ),
         category="shell",
         parameters=ToolParameterSchema(properties={}, required=[]),

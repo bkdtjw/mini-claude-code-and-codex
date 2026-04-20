@@ -5,12 +5,15 @@ from pathlib import Path
 from typing import Any
 
 from backend.common import LLMError
+from backend.common.logging import get_logger
 from backend.common.types import ProviderConfig
 from backend.storage import ProviderStore
 
 from .base import LLMAdapter
 from .factory import AdapterFactory
 from .provider_seed_loader import DEFAULT_PROVIDER_SEED_PATH, load_provider_seed
+
+logger = get_logger(component="provider_manager")
 
 
 class ProviderManager:
@@ -61,6 +64,7 @@ class ProviderManager:
                     for item_id, config in list(self._providers.items()):
                         self._providers[item_id] = config.model_copy(update={"is_default": item_id == default.id})
                 self._initialized = True
+                logger.info("provider_manager_initialized", provider_count=len(self._providers))
         except LLMError:
             raise
         except Exception as exc:
@@ -76,6 +80,7 @@ class ProviderManager:
                 self._providers[stored.id] = stored
                 if stored.is_default or not any(item.is_default for item in self._providers.values()):
                     await self._set_default_locked(stored.id)
+                logger.info("provider_added", provider_id=stored.id, provider_type=stored.provider_type.value)
                 return self._providers[stored.id]
         except LLMError:
             raise
@@ -99,6 +104,7 @@ class ProviderManager:
                 self._adapters.pop(provider_id, None)
                 if updated.is_default or not any(item.is_default for item in self._providers.values()):
                     await self._set_default_locked(provider_id)
+                logger.info("provider_updated", provider_id=provider_id)
                 return self._providers[provider_id]
         except LLMError:
             raise
@@ -116,6 +122,7 @@ class ProviderManager:
                 await self._store.remove(provider_id)
                 if removed.is_default and self._providers:
                     await self._set_default_locked(next(iter(self._providers)))
+                logger.info("provider_removed", provider_id=provider_id)
                 return True
         except LLMError:
             raise
@@ -148,7 +155,9 @@ class ProviderManager:
 
     async def test_connection(self, provider_id: str) -> bool:
         try:
-            return await (await self.get_adapter(provider_id)).test_connection()
+            success = await (await self.get_adapter(provider_id)).test_connection()
+            logger.info("provider_test", provider_id=provider_id, success=success)
+            return success
         except LLMError:
             raise
         except Exception as exc:
@@ -166,6 +175,7 @@ class ProviderManager:
                 raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {target_id}", "provider_manager")
             if target_id not in self._adapters:
                 self._adapters[target_id] = AdapterFactory.create(config)
+                logger.info("provider_adapter_created", provider_id=target_id, provider_type=config.provider_type.value)
             return self._adapters[target_id]
         except LLMError:
             raise
@@ -182,6 +192,7 @@ class ProviderManager:
                 if config.is_default != is_default:
                     self._providers[item_id] = config.model_copy(update={"is_default": is_default})
                     self._adapters.pop(item_id, None)
+            logger.info("provider_default_set", provider_id=provider_id)
         except LLMError:
             raise
         except Exception as exc:

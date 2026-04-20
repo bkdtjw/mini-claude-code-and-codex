@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import json
 
 import pytest
 
 from backend.adapters.base import LLMAdapter
 from backend.common.errors import AgentError
+from backend.common.logging import setup_logging
 from backend.common.types import AgentConfig, LLMRequest, LLMResponse, StreamChunk, ToolCall, ToolDefinition, ToolParameterSchema, ToolResult
 from backend.core.s01_agent_loop.agent_loop import AgentLoop
 from backend.core.s02_tools.registry import ToolRegistry
@@ -148,3 +150,44 @@ async def test_run_stops_after_three_consecutive_tool_failures() -> None:
     assert result.role == "assistant"
     assert loop.status == "done"
     assert len(adapter.requests) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_emits_structured_logs_with_shared_trace_id(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOG_FORMAT", "json")
+    setup_logging("INFO")
+    loop = AgentLoop(
+        AgentConfig(model="test-model", session_id="session-1"),
+        MockAdapter([LLMResponse(content="hello")]),
+        ToolRegistry(),
+    )
+    await loop.run("hi")
+    lines = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if '"component": "agent_loop"' in line
+    ]
+    assert len(lines) >= 3
+    assert len({line["trace_id"] for line in lines}) == 1
+    assert {line["session_id"] for line in lines} == {"session-1"}
+    assert all("worker_id" in line for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_run_increments_agent_runs_metric(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, int]] = []
+
+    async def fake_incr(metric: str, value: int = 1) -> None:
+        calls.append((metric, value))
+
+    monkeypatch.setattr("backend.core.s01_agent_loop.agent_loop.incr", fake_incr)
+    loop = AgentLoop(
+        AgentConfig(model="test-model"),
+        MockAdapter([LLMResponse(content="hello")]),
+        ToolRegistry(),
+    )
+    await loop.run("hi")
+    assert ("agent_runs", 1) in calls

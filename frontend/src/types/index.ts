@@ -44,6 +44,67 @@ export interface Provider {
   enabled: boolean;
 }
 
+export type MetricName =
+  | "llm_calls"
+  | "llm_errors"
+  | "llm_prompt_tokens"
+  | "llm_completion_tokens"
+  | "tool_calls"
+  | "tool_errors"
+  | "task_triggers"
+  | "task_successes"
+  | "task_failures"
+  | "feishu_messages"
+  | "feishu_replies"
+  | "agent_runs";
+
+export interface MetricSeries {
+  total: number;
+  daily: Record<string, number>;
+}
+
+export interface MetricsSummary {
+  periodDays: number;
+  metrics: Record<MetricName, MetricSeries>;
+}
+
+export interface MetricDetail {
+  name: string;
+  total: number;
+  daily: Record<string, number>;
+}
+
+export type LogLevel = "debug" | "info" | "warning" | "error";
+
+export interface LogEntry {
+  timestamp: string;
+  level: LogLevel;
+  event: string;
+  traceId: string;
+  sessionId: string;
+  workerId: string;
+  component: string;
+  extra: Record<string, unknown>;
+}
+
+export interface LogSearchParams {
+  traceId?: string;
+  sessionId?: string;
+  level?: LogLevel | "";
+  limit?: number;
+  minutes?: number;
+}
+
+export interface LogSearchResult {
+  count: number;
+  logs: LogEntry[];
+}
+
+export interface TraceResult {
+  traceId: string;
+  events: LogEntry[];
+}
+
 export type WsIncoming =
   | { type: "status"; status: AgentStatus }
   | { type: "message"; content: string; toolCalls?: ToolCall[] }

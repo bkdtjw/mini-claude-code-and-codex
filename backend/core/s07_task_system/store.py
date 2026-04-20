@@ -5,11 +5,13 @@ from pathlib import Path
 from typing import Any
 
 from backend.common.errors import AgentError
+from backend.common.logging import get_logger
 from backend.storage import TaskConfigStore
 
 from .models import ScheduledTask, TaskStoreData
 
 _DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "scheduled_tasks.json"
+logger = get_logger(component="task_store")
 
 
 class TaskStore:
@@ -41,6 +43,7 @@ class TaskStore:
             async with self._lock:
                 stored = await self._store.add_task(task)
                 self._tasks[stored.id] = stored
+                logger.info("task_store_added", task_id=stored.id, task_name=stored.name)
                 return stored
         except Exception as exc:
             raise AgentError("TASK_STORE_ADD_ERROR", str(exc)) from exc
@@ -53,6 +56,7 @@ class TaskStore:
                 if task is None:
                     return None
                 self._tasks[task.id] = task
+                logger.info("task_store_updated", task_id=task.id, task_name=task.name)
                 return task
         except Exception as exc:
             raise AgentError("TASK_STORE_UPDATE_ERROR", str(exc)) from exc
@@ -64,6 +68,7 @@ class TaskStore:
                 removed = await self._store.remove_task(task_id)
                 if removed:
                     self._tasks.pop(task_id, None)
+                    logger.info("task_store_removed", task_id=task_id)
                 return removed
         except Exception as exc:
             raise AgentError("TASK_STORE_REMOVE_ERROR", str(exc)) from exc
@@ -76,6 +81,7 @@ class TaskStore:
                 task = await self._store.get_task(task_id)
                 if task is not None:
                     self._tasks[task.id] = task
+                logger.debug("task_store_run_status_updated", task_id=task_id, status=status)
         except Exception as exc:
             raise AgentError("TASK_STORE_RUN_STATUS_ERROR", str(exc)) from exc
 
@@ -103,6 +109,7 @@ class TaskStore:
                         tasks = seeds
                 self._tasks = {task.id: task for task in tasks}
                 self._initialized = True
+                logger.info("task_store_initialized", task_count=len(self._tasks))
         except AgentError:
             raise
         except Exception as exc:

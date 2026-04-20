@@ -9,7 +9,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from backend.core.s07_task_system.executor import TaskExecutor
+import backend.config.redis_client as redis_client
+
+from backend.config.settings import settings
+from backend.core.s07_task_system import TaskExecutor, TaskExecutorDeps
 from backend.core.s07_task_system.models import (
     NotifyConfig,
     OutputConfig,
@@ -25,6 +28,11 @@ from .redis_test_support import use_fake_redis
 # ---------------------------------------------------------------------------
 
 _BEIJING = ZoneInfo("Asia/Shanghai")
+
+
+@pytest.fixture(autouse=True)
+async def _init_fake_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    await use_fake_redis(monkeypatch)
 
 
 def _make_task(**overrides) -> ScheduledTask:
@@ -402,14 +410,15 @@ class TestDedup:
         assert await fake.client.ttl(f"task:trigger:{task.id}:202601010700") == 120
 
     @pytest.mark.asyncio
-    async def test_should_run_falls_back_to_memory_without_redis(self, tmp_path: Path) -> None:
+    async def test_should_run_skips_when_redis_unavailable(self, tmp_path: Path) -> None:
         store = await _temp_store(tmp_path)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
         task = _make_task(cron="0 7 * * *")
         now = datetime(2026, 1, 1, 7, 0, tzinfo=_BEIJING)
+        settings.redis_url = ""
+        await redis_client.close_redis()
 
-        assert await scheduler._should_run(task, now) is True
         assert await scheduler._should_run(task, now) is False
 
     @pytest.mark.asyncio
@@ -534,7 +543,9 @@ class TestTaskExecutor:
         mock_mcp = MagicMock()
         mock_mcp.list_servers.return_value = []
 
-        executor = TaskExecutor(provider_manager=mock_pm, mcp_manager=mock_mcp)
+        executor = TaskExecutor(
+            TaskExecutorDeps.model_construct(provider_manager=mock_pm, mcp_manager=mock_mcp)
+        )
         task = _make_task(
             notify=NotifyConfig(feishu=False),
             output=OutputConfig(save_markdown=False),
@@ -553,8 +564,52 @@ class TestTaskExecutor:
             new_callable=AsyncMock,
             return_value=Path("/tmp/report.md"),
         ), patch(
+            "backend.core.s07_task_system.executor.TaskExecutor._persist_session",
+            new_callable=AsyncMock,
+        ), patch(
             "backend.core.s07_task_system.executor.build_system_prompt",
             return_value="system",
         ):
             result = await executor.execute(task)
         assert result == "execution result"
+
+    @pytest.mark.asyncio
+    async def test_execute_uses_agent_runtime_when_spec_id_present(self) -> None:
+        mock_loop = AsyncMock()
+        mock_loop._config = MagicMock(provider="provider-1", model="model-1")
+        mock_loop.messages = []
+        mock_result = MagicMock(content="spec result")
+        mock_loop.run = AsyncMock(return_value=mock_result)
+
+        runtime = AsyncMock()
+        runtime.create_loop_from_id = AsyncMock(return_value=mock_loop)
+        provider_manager = AsyncMock()
+        provider_manager.get_adapter = AsyncMock(return_value=AsyncMock())
+
+        executor = TaskExecutor(
+            TaskExecutorDeps.model_construct(
+                provider_manager=provider_manager,
+                mcp_manager=AsyncMock(),
+                agent_runtime=runtime,
+            )
+        )
+        task = _make_task(spec_id="daily-ai-news", prompt="hello")
+
+        with patch(
+            "backend.core.s07_task_system.executor.TaskExecutor._save_report",
+            new_callable=AsyncMock,
+            return_value=Path("/tmp/report.md"),
+        ), patch(
+            "backend.core.s07_task_system.executor.TaskExecutor._persist_session",
+            new_callable=AsyncMock,
+        ):
+            result = await executor.execute(task)
+
+        assert result == "spec result"
+        runtime.create_loop_from_id.assert_called_once_with(
+            "daily-ai-news",
+            workspace="/agent-studio/agent-studio",
+            session_id=f"scheduled-task:{task.id}",
+            task_queue=None,
+        )
+        mock_loop.run.assert_called_once_with("hello")

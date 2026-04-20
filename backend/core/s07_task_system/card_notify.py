@@ -7,17 +7,17 @@ Pure Python + asyncio. No FastAPI dependency.
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
 import httpx
 
 from backend.common.feishu_card import CardRegistry, build_card_content
 from backend.common.feishu_card_formatter import CardFormatter
+from backend.common.logging import get_logger
 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
 from backend.core.s02_tools.builtin.feishu_notify import _generate_sign
 
-logger = logging.getLogger(__name__)
+logger = get_logger(component="task_card_notify")
 
 
 def extract_tool_names(messages: list[Any]) -> set[str]:
@@ -68,7 +68,7 @@ async def _build_card_variables(
             existing_variables=meta,
         )
     except Exception:
-        logger.warning("LLM formatter failed, using fallback values", exc_info=True)
+        logger.warning("task_card_format_fallback")
         llm_variables = {
             "summary_md": (agent_reply or "(无输出)")[:300] + "...",
             "result_summary": (agent_reply or "(无输出)")[:300] + "...",
@@ -114,7 +114,7 @@ async def try_send_card(
         scenario = match_card_scenario(task_card_scenario, tool_names)
         card_config = registry.get_scenario(scenario)
         if card_config is None:
-            logger.info("Card scenario '%s' not found in config", scenario)
+            logger.info("task_card_scenario_missing", scenario=scenario)
             return False
 
         _, variables = await _build_card_variables(
@@ -131,9 +131,9 @@ async def try_send_card(
             )
             code = result.get("code", -1)
             if code == 0:
-                logger.info("Feishu card sent via app bot to chat %s", chat_id)
+                logger.info("task_card_sent", channel="app_bot", chat_id=chat_id)
                 return True
-            logger.warning("FeishuClient send failed: code=%s msg=%s", code, result.get("msg"))
+            logger.warning("task_card_send_failed", channel="app_bot", code=code, error=str(result.get("msg", "")))
 
         # Channel 2: Webhook (no card callback support)
         if webhook_url:
@@ -148,13 +148,13 @@ async def try_send_card(
 
             async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 resp = await client.post(webhook_url, json=body)
-                logger.info("Feishu card sent via webhook: %s", resp.status_code)
+                logger.info("task_card_sent", channel="webhook", status_code=resp.status_code)
             return True
 
-        logger.warning("No card send channel configured")
+        logger.warning("task_card_channel_missing")
         return False
     except Exception:
-        logger.warning("Card send failed, will fallback to text", exc_info=True)
+        logger.warning("task_card_send_fallback")
         return False
 
 

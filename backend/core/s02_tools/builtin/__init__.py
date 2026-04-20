@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from backend.adapters.base import LLMAdapter
-from backend.common.types import LLMRequest, Message
+from backend.common.types import AgentEventHandler, LLMRequest, Message
 from backend.config.settings import settings as app_settings
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s04_sub_agents import (
@@ -19,6 +19,10 @@ from .dispatch_agent import create_dispatch_agent_tool
 from .feishu_notify import create_feishu_notify_tool
 from .file_read import create_read_tool
 from .file_write import create_write_tool
+
+if TYPE_CHECKING:
+    from backend.core.s05_skills import AgentRuntime, SpecRegistry
+    from backend.core.task_queue import TaskQueue
 
 PermissionMode = Literal["readonly", "auto", "full"]
 
@@ -39,6 +43,11 @@ def register_builtin_tools(
     twitter_password: str | None = None,
     twitter_proxy_url: str | None = None,
     twitter_cookies_file: str | None = None,
+    agent_runtime: AgentRuntime | None = None,
+    spec_registry: SpecRegistry | None = None,
+    task_queue: TaskQueue | None = None,
+    event_handler: AgentEventHandler | None = None,
+    is_sub_agent: bool = False,
 ) -> None:
     """根据权限模式注册不同的工具集。"""
     tools = [create_read_tool(workspace)] if workspace else []
@@ -46,7 +55,7 @@ def register_builtin_tools(
     if workspace and mode in ("auto", "full"):
         tools.append(create_write_tool(workspace))
         tools.append(create_bash_tool(workspace))
-        if adapter is not None:
+        if adapter is not None and not is_sub_agent:
             loader = AgentDefinitionLoader(agents_dir)
             spawner = SubAgentSpawner(adapter, registry, loader, default_model)
             lifecycle = SubAgentLifecycle(timeout=120.0)
@@ -127,6 +136,24 @@ def register_builtin_tools(
     resolved_feishu_secret = feishu_secret or os.environ.get("FEISHU_WEBHOOK_SECRET", "")
     if feishu_url:
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
+    if spec_registry is not None and not is_sub_agent:
+        from .query_specs import create_query_specs_tool
+
+        tools.append(create_query_specs_tool(spec_registry))
+    if not is_sub_agent and task_queue is not None and spec_registry is not None:
+        from .spawn_agent import create_spawn_agent_tool
+        from .spawn_agent_support import SpawnAgentDeps
+
+        tools.append(
+            create_spawn_agent_tool(
+                SpawnAgentDeps(
+                    task_queue=task_queue,
+                    spec_registry=spec_registry,
+                    workspace=workspace or "",
+                    event_handler=event_handler,
+                )
+            )
+        )
 
     proxy_api_url = os.environ.get("MIHOMO_API_URL", "http://127.0.0.1:9090")
     proxy_api_secret = os.environ.get("MIHOMO_SECRET", "")
@@ -217,15 +244,19 @@ def register_builtin_tools(
     try:
         from backend.adapters.provider_manager import ProviderManager
         from backend.core.s02_tools.mcp import MCPServerManager
-        from backend.core.s07_task_system.executor import TaskExecutor
+        from backend.core.s07_task_system import TaskExecutor, TaskExecutorDeps
         from backend.core.s07_task_system.store import TaskStore
 
         from .task_scheduler import create_task_tools
 
         task_store = TaskStore()
         task_executor = TaskExecutor(
-            provider_manager=ProviderManager(),
-            mcp_manager=MCPServerManager(),
+            TaskExecutorDeps(
+                provider_manager=ProviderManager(),
+                mcp_manager=MCPServerManager(),
+                agent_runtime=agent_runtime,
+                task_queue=task_queue,
+            )
         )
         for defn, exec_fn in create_task_tools(task_store, None, task_executor):
             tools.append((defn, exec_fn))

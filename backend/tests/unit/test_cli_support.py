@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 import json
 from pathlib import Path
 import tempfile
-from uuid import uuid4
 
 import pytest
 
@@ -13,9 +12,6 @@ from backend.adapters.provider_manager import ProviderManager
 from backend.cli_support import CliArgs, CliCommand, CliPrinter, create_session, handle_command, parse_args
 from backend.common.types import LLMRequest, LLMResponse, Message, ProviderConfig, ProviderType, StreamChunk
 from backend.core.s02_tools.mcp import MCPServerManager
-from backend.storage import MCPServerStore
-
-from .storage_test_support import make_test_session_factory
 
 
 class FakeAdapter(LLMAdapter):
@@ -78,9 +74,25 @@ def _make_workspace() -> str:
     return tempfile.mkdtemp(dir=root)
 
 
-async def _make_empty_mcp_manager(tmp_path: Path) -> MCPServerManager:
-    _engine, session_factory = await make_test_session_factory(tmp_path, f"cli_support_{uuid4().hex}")
-    return MCPServerManager(store=MCPServerStore(session_factory))
+class FakeMCPManager(MCPServerManager):
+    def __init__(self) -> None:
+        self._version = 0
+
+    async def list_servers(self) -> list[object]:
+        return []
+
+
+async def _make_empty_mcp_manager(_tmp_path: Path) -> FakeMCPManager:
+    return FakeMCPManager()
+
+
+@pytest.fixture(autouse=True)
+def _patch_cli_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _noop() -> None:
+        return None
+
+    monkeypatch.setattr("backend.cli_support.session.init_db", _noop)
+    monkeypatch.setattr("backend.cli_support.session.init_redis", _noop)
 
 
 def test_parse_args_supports_permission_mode() -> None:
@@ -88,6 +100,13 @@ def test_parse_args_supports_permission_mode() -> None:
     assert args.permission_mode == "readonly"
     assert args.model == "mini"
     assert args.workspace
+
+
+def test_parse_args_supports_run_subcommand() -> None:
+    args = parse_args(["run", "daily-ai-news", "--input", "hello", "--workspace", "."])
+    assert args.command == "run"
+    assert args.spec_id == "daily-ai-news"
+    assert args.input_text == "hello"
 
 
 @pytest.mark.asyncio
@@ -103,6 +122,7 @@ async def test_create_session_uses_default_provider_model_and_tools() -> None:
     assert session.state.provider_id == "provider-1"
     assert session.state.available_models == ["test-model", "new-model"]
     assert tool_names[:5] == ["Read", "Write", "Bash", "dispatch_agent", "orchestrate_agents"]
+    assert "query_specs" in tool_names
 
 
 @pytest.mark.asyncio

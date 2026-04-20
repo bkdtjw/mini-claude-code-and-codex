@@ -10,6 +10,8 @@ from backend.common.types import AgentEventHandler
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
+from backend.core.s05_skills import AgentRuntime, SpecRegistry
+from backend.core.task_queue import TaskQueue
 
 PermissionMode = Literal["readonly", "auto", "full"]
 
@@ -20,6 +22,9 @@ class CliError(AgentError):
 
 
 class CliArgs(BaseModel):
+    command: str = ""
+    spec_id: str = ""
+    input_text: str = ""
     workspace: str
     model: str | None = None
     provider: str | None = None
@@ -60,6 +65,9 @@ class CliSession(BaseModel):
     registry: ToolRegistry
     state: CliState
     event_handler: AgentEventHandler | None = None
+    agent_runtime: AgentRuntime | None = None
+    spec_registry: SpecRegistry | None = None
+    task_queue: TaskQueue | None = None
 
 
 class CliCommandResult(BaseModel):

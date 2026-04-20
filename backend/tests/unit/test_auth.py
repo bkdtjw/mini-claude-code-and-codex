@@ -103,7 +103,10 @@ def test_protected_routes_accept_valid_token(client: TestClient) -> None:
     assert response.json()["id"] == "valid-id_123"
 
 
-@pytest.mark.parametrize("path", ["/api/providers", "/api/sessions"])
+@pytest.mark.parametrize(
+    "path",
+    ["/api/providers", "/api/sessions", "/api/metrics/summary", "/api/logs/search?trace_id=test"],
+)
 def test_provider_and_session_routes_require_auth(
     client: TestClient,
     path: str,

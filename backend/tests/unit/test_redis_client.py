@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+from backend.common.errors import AgentError
 from backend.config import get_redis, init_redis
 from backend.config.settings import settings
 
@@ -13,15 +14,16 @@ from .redis_test_support import FakeAsyncRedis, FakeRedisPool
 
 
 @pytest.mark.asyncio
-async def test_get_redis_returns_none_when_url_empty() -> None:
+async def test_init_redis_raises_when_url_empty() -> None:
     settings.redis_url = ""
     await redis_client.close_redis()
-    await init_redis()
+    with pytest.raises(AgentError, match="REDIS_URL_MISSING"):
+        await init_redis()
     assert get_redis() is None
 
 
 @pytest.mark.asyncio
-async def test_get_redis_returns_none_when_connection_fails(
+async def test_init_redis_raises_when_connection_fails(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -32,10 +34,10 @@ async def test_get_redis_returns_none_when_connection_fails(
 
     monkeypatch.setattr(redis_client, "_create_redis_client", _fail)
     await redis_client.close_redis()
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.ERROR), pytest.raises(AgentError, match="REDIS_INIT_ERROR"):
         await init_redis()
     assert get_redis() is None
-    assert "Failed to initialize Redis" in caplog.text
+    assert "redis_init_failed" in caplog.text
 
 
 @pytest.mark.asyncio

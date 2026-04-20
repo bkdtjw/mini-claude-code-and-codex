@@ -1,8 +1,19 @@
-import type { Provider, Session } from "@/types";
+import type {
+  LogEntry,
+  LogSearchParams,
+  LogSearchResult,
+  MetricDetail,
+  MetricsSummary,
+  Provider,
+  Session,
+  TraceResult,
+} from "@/types";
 
 type JsonBody = Record<string, unknown> | unknown[];
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
+const API_AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
+const AUTH_STORAGE_KEY = "agent-studio.auth-token";
 
 interface SessionResponse {
   id: string;
@@ -30,6 +41,43 @@ interface ProviderResponse {
   enabled: boolean;
 }
 
+interface MetricSeriesResponse {
+  total: number;
+  daily: Record<string, number>;
+}
+
+interface MetricsSummaryResponse {
+  period_days: number;
+  metrics: Record<string, MetricSeriesResponse>;
+}
+
+interface MetricDetailResponse {
+  name: string;
+  total: number;
+  daily: Record<string, number>;
+}
+
+interface LogEntryResponse {
+  timestamp: string;
+  level: LogEntry["level"];
+  event: string;
+  trace_id: string;
+  session_id: string;
+  worker_id: string;
+  component: string;
+  extra: Record<string, unknown>;
+}
+
+interface LogSearchResponse {
+  count: number;
+  logs: LogEntryResponse[];
+}
+
+interface TraceResponse {
+  trace_id: string;
+  events: LogEntryResponse[];
+}
+
 const toSession = (item: SessionResponse): Session => ({
   id: item.id,
   model: item.config?.model ?? "",
@@ -53,9 +101,30 @@ const toProvider = (item: ProviderResponse): Provider => ({
   enabled: item.enabled,
 });
 
+const toLogEntry = (item: LogEntryResponse): LogEntry => ({
+  timestamp: item.timestamp,
+  level: item.level,
+  event: item.event,
+  traceId: item.trace_id,
+  sessionId: item.session_id,
+  workerId: item.worker_id,
+  component: item.component,
+  extra: item.extra ?? {},
+});
+
+const getAuthToken = (): string => {
+  if (API_AUTH_TOKEN) return API_AUTH_TOKEN;
+  if (typeof window !== "undefined") {
+    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)?.trim();
+    if (stored) return stored;
+  }
+  return "change-me-in-production";
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
   const headers = new Headers(options.headers);
+  if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${getAuthToken()}`);
   const body = options.body;
   if (body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(url, { ...options, headers });
@@ -98,5 +167,30 @@ export const api = {
   setDefault: async (id: string): Promise<Provider> => {
     const res = await request<ProviderResponse>(`/api/providers/${id}/default`, { method: "PUT" });
     return toProvider(res);
+  },
+  getMetricsSummary: async (days = 7): Promise<MetricsSummary> => {
+    const res = await request<MetricsSummaryResponse>(`/api/metrics/summary?days=${days}`);
+    return {
+      periodDays: res.period_days,
+      metrics: res.metrics as MetricsSummary["metrics"],
+    };
+  },
+  getMetricDetail: async (name: string, days = 30): Promise<MetricDetail> => {
+    const res = await request<MetricDetailResponse>(`/api/metrics/metric/${encodeURIComponent(name)}?days=${days}`);
+    return res;
+  },
+  searchLogs: async (params: LogSearchParams): Promise<LogSearchResult> => {
+    const search = new URLSearchParams();
+    if (params.traceId) search.set("trace_id", params.traceId);
+    if (params.sessionId) search.set("session_id", params.sessionId);
+    if (params.level) search.set("level", params.level);
+    if (params.limit) search.set("limit", String(params.limit));
+    if (params.minutes) search.set("minutes", String(params.minutes));
+    const res = await request<LogSearchResponse>(`/api/logs/search?${search.toString()}`);
+    return { count: res.count, logs: (res.logs ?? []).map(toLogEntry) };
+  },
+  getTrace: async (traceId: string): Promise<TraceResult> => {
+    const res = await request<TraceResponse>(`/api/logs/trace/${encodeURIComponent(traceId)}`);
+    return { traceId: res.trace_id, events: (res.events ?? []).map(toLogEntry) };
   },
 };

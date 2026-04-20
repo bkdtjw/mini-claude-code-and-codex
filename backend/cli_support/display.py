@@ -87,6 +87,9 @@ class CliPrinter:
         if event.type == "message" and isinstance(event.data, Message):
             self._handle_message(event.data)
             return
+        if event.type in {"sub_agent_spawned", "sub_agent_completed", "sub_agent_failed"}:
+            self._handle_sub_agent_event(event.data)
+            return
         if event.type == "error":
             self._handle_error(event.data)
 
@@ -131,6 +134,17 @@ class CliPrinter:
         message = getattr(error, "message", str(error))
         if message:
             print(self._paint(f"[error] {message}", "31"))
+
+    def _handle_sub_agent_event(self, data: object) -> None:
+        if not isinstance(data, dict):
+            return
+        message = str(data.get("message", "")).strip()
+        if message:
+            self._renderer.pause()
+            try:
+                print(self._paint(f"[sub-agent] {message}", "36"))
+            finally:
+                self._renderer.resume()
 
     def _summarize_call(self, tool_call: ToolCall) -> str:
         detail = tool_call.arguments.get("command") or tool_call.arguments.get("path")

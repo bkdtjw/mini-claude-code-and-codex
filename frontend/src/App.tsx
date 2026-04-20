@@ -2,6 +2,8 @@ import { BrowserRouter, HashRouter, Route, Routes } from "react-router-dom";
 
 import Sidebar from "@/components/sidebar/Sidebar";
 import Dashboard from "@/pages/Dashboard";
+import Logs from "@/pages/Logs";
+import Metrics from "@/pages/Metrics";
 import Session from "@/pages/Session";
 import Settings from "@/pages/Settings";
 
@@ -15,6 +17,8 @@ export default function App() {
         <main className="min-w-0 flex-1 overflow-hidden bg-[#000000]">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/metrics" element={<Metrics />} />
+            <Route path="/logs" element={<Logs />} />
             <Route path="/session/:id" element={<Session />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

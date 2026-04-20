@@ -7,7 +7,10 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from .logging_support import adapter_logger
 from backend.common.types import LLMRequest, LLMResponse, StreamChunk
+
+logger = adapter_logger("llm_adapter_base")
 
 
 class LLMAdapter(ABC):
@@ -44,5 +47,11 @@ class LLMAdapter(ABC):
     async def _backoff(self, attempt: int, reason: str) -> None:
         delay = self._retry_delay(attempt)
         provider = getattr(self, "_provider", self.__class__.__name__)
-        print(f"[{provider}] attempt {attempt} failed ({reason}), retrying in {delay:.1f}s...")
+        logger.warning(
+            "llm_request_retry_wait",
+            provider=provider,
+            attempt=attempt,
+            reason=reason,
+            delay_ms=int(delay * 1000),
+        )
         await asyncio.sleep(delay)

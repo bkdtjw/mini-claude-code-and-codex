@@ -1,0 +1,90 @@
+import { useState } from "react";
+
+import LogResults from "@/components/observability/LogResults";
+import LogSearchForm from "@/components/observability/LogSearchForm";
+import { api } from "@/lib/api-client";
+import type { LogEntry, LogLevel } from "@/types";
+
+export default function Logs() {
+  const [query, setQuery] = useState("");
+  const [searchType, setSearchType] = useState<"trace" | "session">("trace");
+  const [level, setLevel] = useState<LogLevel | "">("");
+  const [minutes, setMinutes] = useState(60);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [title, setTitle] = useState("日志结果");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+
+  const runSearch = async () => {
+    if (!query.trim()) {
+      setError("请输入 trace_id 或 session_id。");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      const result = await api.searchLogs({
+        traceId: searchType === "trace" ? query.trim() : undefined,
+        sessionId: searchType === "session" ? query.trim() : undefined,
+        level,
+        limit: 100,
+        minutes,
+      });
+      setTitle(`${searchType === "trace" ? "trace" : "session"} 检索结果`);
+      setLogs(result.logs);
+    } catch (err) {
+      setError((err as Error).message || "搜索失败");
+      setLogs([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTrace = async () => {
+    if (!query.trim()) {
+      setError("请输入 trace_id。");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      const result = await api.getTrace(query.trim());
+      setTitle(`完整调用链 · ${result.traceId}`);
+      setLogs(result.events);
+    } catch (err) {
+      setError((err as Error).message || "加载调用链失败");
+      setLogs([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto bg-[#050505] px-6 py-6 text-[#e6edf3]">
+      <section className="mx-auto flex max-w-7xl flex-col gap-6">
+        <header className="rounded-3xl border border-[#252525] bg-[radial-gradient(circle_at_top_right,_rgba(210,153,34,0.14),_transparent_32%),linear-gradient(180deg,#0d1117_0%,#070707_100%)] p-6">
+          <div className="text-xs uppercase tracking-[0.28em] text-[#7d8590]">Trace Search</div>
+          <h1 className="mt-3 text-3xl font-semibold text-[#f0f6fc]">日志检索</h1>
+          <p className="mt-2 max-w-2xl text-sm text-[#9aa7b2]">按 trace_id 或 session_id 找结构化日志，点击任意一行可以展开完整 JSON。</p>
+        </header>
+
+        <LogSearchForm
+          query={query}
+          searchType={searchType}
+          level={level}
+          minutes={minutes}
+          loading={loading}
+          onQueryChange={setQuery}
+          onSearchTypeChange={setSearchType}
+          onLevelChange={setLevel}
+          onMinutesChange={setMinutes}
+          onSearch={() => void runSearch()}
+          onLoadTrace={() => void loadTrace()}
+        />
+
+        {error ? <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
+        {loading ? <div className="h-[320px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" /> : <LogResults logs={logs} title={title} />}
+      </section>
+    </div>
+  );
+}

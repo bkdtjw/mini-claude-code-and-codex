@@ -30,11 +30,27 @@ def parse_args(argv: Sequence[str] | None = None) -> CliArgs:
         default="auto",
         help="tool permission mode",
     )
+    subparsers = parser.add_subparsers(dest="command")
+    run_parser = subparsers.add_parser("run", help="用指定 spec 执行一次性任务")
+    run_parser.add_argument("spec_id", help="Skill spec ID")
+    run_parser.add_argument("--input", "-i", dest="input_text", default="", help="输入文本")
+    run_parser.add_argument("-w", "--workspace", default=os.getcwd(), help="workspace path")
+    run_parser.add_argument("-p", "--provider", default=None, help="provider id or name")
+    run_parser.add_argument("--mcp-config", default=None, help="path to MCP server config")
+    run_parser.add_argument(
+        "--permission-mode",
+        choices=["readonly", "auto", "full"],
+        default="auto",
+        help="tool permission mode",
+    )
     namespace = parser.parse_args(list(argv) if argv is not None else None)
     return CliArgs(
+        command=str(getattr(namespace, "command", "") or ""),
+        spec_id=str(getattr(namespace, "spec_id", "") or ""),
+        input_text=str(getattr(namespace, "input_text", "") or ""),
         workspace=os.path.abspath(namespace.workspace),
-        model=namespace.model,
-        provider=namespace.provider,
+        model=getattr(namespace, "model", None),
+        provider=getattr(namespace, "provider", None),
         permission_mode=namespace.permission_mode,
         mcp_config=os.path.abspath(namespace.mcp_config) if namespace.mcp_config else None,
     )
@@ -157,9 +173,16 @@ async def handle_command(
                     try:
                         from backend.adapters.provider_manager import ProviderManager
                         from backend.core.s02_tools.mcp import MCPServerManager
-                        from backend.core.s07_task_system.executor import TaskExecutor
+                        from backend.core.s07_task_system import TaskExecutor, TaskExecutorDeps
 
-                        executor = TaskExecutor(ProviderManager(), MCPServerManager())
+                        executor = TaskExecutor(
+                            TaskExecutorDeps(
+                                provider_manager=ProviderManager(),
+                                mcp_manager=MCPServerManager(),
+                                agent_runtime=session.agent_runtime,
+                                task_queue=session.task_queue,
+                            )
+                        )
                         result = await executor.execute(task)
                         await task_store.update_run_status(task.id, "success", result[:500])
                         printer.print_info(f"[info] 任务执行完成：\n{result[:2000]}")

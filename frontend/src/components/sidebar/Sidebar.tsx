@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import SessionList from "@/components/sidebar/SessionList";
 import { useAgentStore } from "@/stores/agentStore";
@@ -7,6 +7,7 @@ import { useSessionStore } from "@/stores/sessionStore";
 
 export default function Sidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const sessions = useSessionStore((state) => state.sessions);
   const currentSessionId = useSessionStore((state) => state.currentSessionId);
   const loadSessions = useSessionStore((state) => state.loadSessions);
@@ -36,6 +37,8 @@ export default function Sidebar() {
 
   const actionBtnClass =
     "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-[#e0e0e0] transition hover:bg-[#1a1a1a]";
+  const navBtnClass = (path: string) =>
+    `${actionBtnClass} ${location.pathname === path ? "bg-[#1a1a1a] text-[#f0f6fc]" : ""}`;
 
   return (
     <aside className="flex h-screen w-[260px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0a0a0a]">
@@ -52,9 +55,17 @@ export default function Sidebar() {
           {workspaceName ?? "选择项目文件夹..."}
         </button>
         {workspace ? <div className="truncate px-1 text-[10px] text-[#555555]">{workspace}</div> : null}
-        <button type="button" onClick={() => navigate("/")} className={actionBtnClass}>
+        <button type="button" onClick={() => navigate("/")} className={navBtnClass("/")}>
           <span className="w-4 text-center">#</span>
           <span>总览</span>
+        </button>
+        <button type="button" onClick={() => navigate("/metrics")} className={navBtnClass("/metrics")}>
+          <span className="w-4 text-center">%</span>
+          <span>指标</span>
+        </button>
+        <button type="button" onClick={() => navigate("/logs")} className={navBtnClass("/logs")}>
+          <span className="w-4 text-center">@</span>
+          <span>日志</span>
         </button>
         <button type="button" onClick={() => navigate("/")} className={actionBtnClass}>
           <span className="w-4 text-center">*</span>
@@ -81,7 +92,7 @@ export default function Sidebar() {
       </div>
 
       <div className="border-t border-[#1a1a1a] px-2 py-2">
-        <button type="button" onClick={() => navigate("/settings")} className={actionBtnClass}>
+        <button type="button" onClick={() => navigate("/settings")} className={navBtnClass("/settings")}>
           <span className="w-4 text-center">=</span>
           <span>设置</span>
         </button>

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import datetime, timezone
+
+from backend.common.logging import get_logger
+from backend.common.metrics import incr
 
 from .executor import TaskExecutor
 from .models import ScheduledTask
@@ -10,7 +12,7 @@ from .runtime_state import SchedulerRuntimeState
 from .schedule_utils import get_next_run_at, get_scheduled_minute_key
 from .store import TaskStore
 
-logger = logging.getLogger(__name__)
+logger = get_logger(component="task_scheduler")
 
 
 class TaskScheduler:
@@ -26,8 +28,6 @@ class TaskScheduler:
         self._running = False
         self._task: asyncio.Task | None = None
         self._runtime_state = SchedulerRuntimeState(check_interval)
-        self._last_triggered = self._runtime_state.triggered_minutes
-        self._running_tasks = self._runtime_state.running_tasks
 
     async def start(self) -> None:
         if self._running:
@@ -35,7 +35,7 @@ class TaskScheduler:
         self._running = True
         await self._recover_missed_tasks()
         self._task = asyncio.create_task(self._loop())
-        logger.info("TaskScheduler started")
+        logger.info("task_scheduler_started", interval=self._check_interval)
 
     async def stop(self) -> None:
         self._running = False
@@ -46,7 +46,7 @@ class TaskScheduler:
             except asyncio.CancelledError:
                 pass
             self._task = None
-        logger.info("TaskScheduler stopped")
+        logger.info("task_scheduler_stopped")
 
     async def _loop(self) -> None:
         while self._running:
@@ -55,9 +55,11 @@ class TaskScheduler:
                 tasks = await self._store.list_tasks()
                 for task in tasks:
                     if task.enabled and await self._should_run(task, now):
-                        asyncio.create_task(self._execute_task(task, None))
+                        logger.info("task_triggered", task_id=task.id, task_name=task.name, trigger_type="schedule")
+                        await incr("task_triggers")
+                        asyncio.create_task(self._execute_task(task, None, "schedule"))
             except Exception:
-                logger.exception("Scheduler loop error")
+                logger.exception("task_scheduler_loop_error")
             await asyncio.sleep(self._check_interval)
 
     async def _should_run(self, task: ScheduledTask, now: datetime) -> bool:
@@ -66,18 +68,31 @@ class TaskScheduler:
             if minute_key is None:
                 return False
             if await self._runtime_state.is_task_running(task.id):
+                logger.debug("task_skipped", task_id=task.id, task_name=task.name, reason="already_running")
                 return False
-            return await self._runtime_state.acquire_trigger(task.id, minute_key)
+            acquired = await self._runtime_state.acquire_trigger(task.id, minute_key)
+            if not acquired:
+                logger.debug("task_skipped", task_id=task.id, task_name=task.name, reason="cooldown")
+            return acquired
         except Exception:
-            logger.exception("Failed to evaluate task schedule for %s", task.id)
+            logger.exception("task_schedule_evaluate_failed", task_id=task.id, task_name=task.name)
             return False
 
     async def _run_task(self, task: ScheduledTask) -> None:
-        await self._execute_task(task, None)
+        await self._execute_task(task, None, "manual")
 
-    async def _execute_task(self, task: ScheduledTask, trigger_minute: str | None) -> None:
-        if not await self._runtime_state.acquire_running(task.id):
-            logger.info("Task %s is already running, skip trigger %s", task.id, trigger_minute)
+    async def _execute_task(
+        self,
+        task: ScheduledTask,
+        trigger_minute: str | None,
+        trigger_type: str = "manual",
+    ) -> None:
+        try:
+            if not await self._runtime_state.acquire_running(task.id):
+                logger.debug("task_skipped", task_id=task.id, task_name=task.name, reason="running_lock_held")
+                return
+        except Exception:
+            logger.exception("task_running_lock_failed", task_id=task.id, task_name=task.name)
             return
         try:
             result = await asyncio.wait_for(
@@ -85,17 +100,21 @@ class TaskScheduler:
                 timeout=600.0,
             )
             await self._store.update_run_status(task.id, "success", result[:500])
-            logger.info("Task %s executed successfully", task.id)
+            logger.info("task_trigger_completed", task_id=task.id, task_name=task.name, trigger_type=trigger_type, trigger_minute=trigger_minute or "")
         except asyncio.TimeoutError:
             await self._store.update_run_status(task.id, "error", "Execution timed out (10min)")
-            logger.error("Task %s timed out", task.id)
+            await incr("task_failures")
+            logger.error("task_execute_timeout", task_id=task.id, task_name=task.name, timeout_seconds=600)
         except Exception:
             import traceback
             msg = traceback.format_exc()[:500]
             await self._store.update_run_status(task.id, "error", msg)
-            logger.exception("Task %s failed", task.id)
+            logger.exception("task_execute_error", task_id=task.id, task_name=task.name)
         finally:
-            await self._runtime_state.release_running(task.id)
+            try:
+                await self._runtime_state.release_running(task.id)
+            except Exception:
+                logger.exception("task_running_release_failed", task_id=task.id, task_name=task.name)
 
     async def _recover_missed_tasks(self) -> None:
         try:
@@ -107,11 +126,13 @@ class TaskScheduler:
                 if get_next_run_at(task, task.last_run_at) >= now:
                     continue
                 try:
-                    await self._execute_task(task, None)
+                    logger.info("task_missed_recovery", task_id=task.id, task_name=task.name)
+                    await incr("task_triggers")
+                    await self._execute_task(task, None, "missed_recovery")
                 except Exception:
-                    logger.exception("Failed to recover missed task %s", task.id)
+                    logger.exception("task_missed_recovery_failed", task_id=task.id, task_name=task.name)
         except Exception:
-            logger.exception("Failed to recover missed tasks")
+            logger.exception("task_missed_recovery_scan_failed")
 
 
 __all__ = ["TaskScheduler"]

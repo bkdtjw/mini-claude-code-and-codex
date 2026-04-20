@@ -48,3 +48,9 @@ cache.db
 .tmp/
 .claude/
 reports/
+task_outputs/
+.codex
+2025-01-01
+server.log
+mihomo.log
+tests/.tmp_proxy*/

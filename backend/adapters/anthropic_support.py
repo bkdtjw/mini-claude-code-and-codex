@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import httpx
+
+from backend.common import LLMError
+from backend.common.types import (
+    LLMRequest,
+    LLMResponse,
+    LLMUsage,
+    Message,
+    StreamChunk,
+    ToolCall,
+    ToolDefinition,
+)
+
+
+def build_payload(request: LLMRequest, default_model: str, *, stream: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": request.model or default_model,
+        "messages": to_anthropic_messages(request.messages),
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature,
+    }
+    if request.tools:
+        payload["tools"] = to_anthropic_tools(request.tools)
+    if stream:
+        payload["stream"] = True
+    return payload
+
+
+def to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for msg in messages:
+        if msg.role == "assistant":
+            result.append(_assistant_message(msg))
+            continue
+        if msg.role == "tool" and msg.tool_results:
+            content = [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": res.tool_call_id,
+                    "content": res.output,
+                    "is_error": res.is_error,
+                }
+                for res in msg.tool_results
+            ]
+            result.append({"role": "user", "content": content})
+            continue
+        text = msg.content if msg.role != "system" else f"[system] {msg.content}"
+        result.append({"role": "user", "content": [{"type": "text", "text": text}]})
+    return result
+
+
+def _assistant_message(msg: Message) -> dict[str, Any]:
+    content = [block for block in msg.provider_metadata.get("thinking_blocks", []) if isinstance(block, dict)]
+    if msg.content:
+        content.append({"type": "text", "text": msg.content})
+    for call in msg.tool_calls or []:
+        content.append({"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments})
+    return {"role": "assistant", "content": content or [{"type": "text", "text": ""}]}
+
+
+def to_anthropic_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+    return [
+        {"name": tool.name, "description": tool.description, "input_schema": tool.parameters.model_dump()}
+        for tool in tools
+    ]
+
+
+def parse_response(data: dict[str, Any]) -> LLMResponse:
+    content_blocks = data.get("content", [])
+    content = "".join(block.get("text", "") for block in content_blocks if block.get("type") == "text")
+    tool_calls = [
+        ToolCall(id=block.get("id", ""), name=block.get("name", ""), arguments=block.get("input", {}))
+        for block in content_blocks
+        if block.get("type") == "tool_use"
+    ]
+    usage = data.get("usage", {})
+    provider_metadata = _provider_metadata(content_blocks)
+    return LLMResponse(
+        id=data.get("id", ""),
+        content=content,
+        tool_calls=tool_calls,
+        usage=LLMUsage(
+            prompt_tokens=usage.get("input_tokens", 0),
+            completion_tokens=usage.get("output_tokens", 0),
+        ),
+        provider_metadata=provider_metadata,
+    )
+
+
+def _provider_metadata(content_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    thinking_blocks = [block for block in content_blocks if block.get("type") == "thinking"]
+    if not thinking_blocks:
+        return {}
+    return {
+        "thinking_blocks": thinking_blocks,
+        "thinking": "".join(str(block.get("thinking", "")) for block in thinking_blocks),
+    }
+
+
+def parse_stream_line(event_type: str, raw: str, provider: str) -> StreamChunk | None:
+    if raw == "[DONE]" or event_type == "message_stop":
+        return StreamChunk(type="done")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if event_type == "content_block_delta":
+        delta = data.get("delta", {})
+        text = delta.get("text", "") if delta.get("type") == "text_delta" else ""
+        return StreamChunk(type="text", data=text) if text else None
+    if event_type == "content_block_start":
+        block = data.get("content_block", {})
+        if block.get("type") == "tool_use":
+            return StreamChunk(
+                type="tool_call",
+                data={"id": block.get("id", ""), "name": block.get("name", ""), "arguments": block.get("input", {})},
+            )
+    if event_type == "error":
+        detail = data.get("error", {}).get("message", str(data))
+        raise LLMError("STREAM_ERROR", detail, provider, None)
+    return None
+
+
+def build_headers(api_key: str, extra_headers: dict[str, str]) -> dict[str, str]:
+    return {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        **extra_headers,
+    }
+
+
+def error_message(response: httpx.Response) -> str:
+    try:
+        return response.json().get("error", {}).get("message", response.text)
+    except Exception:
+        return response.text
+
+
+__all__ = [
+    "build_headers",
+    "build_payload",
+    "error_message",
+    "parse_response",
+    "parse_stream_line",
+]

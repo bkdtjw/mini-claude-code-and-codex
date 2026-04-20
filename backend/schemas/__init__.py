@@ -16,6 +16,14 @@ from .provider import (
     TestConnectionResponse,
 )
 from .session import CreateSessionRequest, SessionListResponse, SessionResponse
+from .observability import (
+    LogEntryResponse,
+    LogSearchResponse,
+    MetricDetailResponse,
+    MetricsSummaryResponse,
+    MetricSeriesResponse,
+    TraceResponse,
+)
 
 __all__ = [
     "ChatCompletionRequest",
@@ -34,4 +42,10 @@ __all__ = [
     "ProviderDeleteResponse",
     "ProviderTestResponse",
     "ProviderDefaultResponse",
+    "MetricSeriesResponse",
+    "MetricsSummaryResponse",
+    "MetricDetailResponse",
+    "LogEntryResponse",
+    "LogSearchResponse",
+    "TraceResponse",
 ]

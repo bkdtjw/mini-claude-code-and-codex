@@ -5,7 +5,6 @@ Pure Python + asyncio. Depends on LLMAdapter (injected), not on httpx or FastAPI
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
 from backend.adapters.base import LLMAdapter
@@ -14,9 +13,10 @@ from backend.common.feishu_card import (
     FeishuCardError,
     build_formatter_prompt,
 )
+from backend.common.logging import get_logger
 from backend.common.types import LLMRequest, Message
 
-logger = logging.getLogger(__name__)
+logger = get_logger(component="feishu_card_formatter")
 
 
 class CardFormatter:
@@ -83,7 +83,7 @@ class CardFormatter:
             return {k: str(v) for k, v in variables.items()}
 
         except Exception:
-            logger.warning("LLM formatter failed, using fallback values", exc_info=True)
+            logger.warning("feishu_card_format_fallback", scenario=scenario)
             return _build_fallback(missing_vars, agent_reply)
 
 
