@@ -53,7 +53,9 @@ class MCPToolBridge:
             async with self._lock:
                 total = 0
                 statuses = await self._server_manager.list_servers()
-                active_ids = {status.id for status in statuses if status.enabled and status.connected}
+                active_ids = {
+                    status.id for status in statuses if status.enabled and status.connected
+                }
                 for server_id in set(self._server_tools) - active_ids:
                     self._remove_server_tools_locked(server_id)
                 for status in statuses:
@@ -65,6 +67,30 @@ class MCPToolBridge:
             raise
         except Exception as exc:
             raise AgentError("MCP_SYNC_ALL_TOOLS_ERROR", str(exc)) from exc
+
+    async def sync_servers(self, server_ids: set[str]) -> int:
+        try:
+            async with self._lock:
+                if not server_ids:
+                    return 0
+                total = 0
+                statuses = await self._server_manager.list_servers()
+                target_ids = {
+                    status.id
+                    for status in statuses
+                    if status.enabled and status.id in server_ids
+                }
+                for server_id in set(self._server_tools) - target_ids:
+                    self._remove_server_tools_locked(server_id)
+                for status in statuses:
+                    if status.id in target_ids:
+                        total += await self._sync_server_tools_locked(status.id)
+                self._synced_version = self._server_manager.version
+                return total
+        except AgentError:
+            raise
+        except Exception as exc:
+            raise AgentError("MCP_SYNC_SERVERS_TOOLS_ERROR", str(exc)) from exc
 
     async def remove_server_tools(self, server_id: str) -> int:
         try:
@@ -93,7 +119,11 @@ class MCPToolBridge:
 
     def _discover_names(self, server_id: str) -> set[str]:
         prefix = self._tool_prefix(server_id)
-        return {tool.name for tool in self._registry.list_definitions() if tool.name.startswith(prefix)}
+        return {
+            tool.name
+            for tool in self._registry.list_definitions()
+            if tool.name.startswith(prefix)
+        }
 
     def _build_definition(self, server_id: str, tool: MCPToolInfo) -> ToolDefinition:
         return ToolDefinition(
@@ -122,14 +152,21 @@ class MCPToolBridge:
                         await self._server_manager.connect_server(server_id)
                         client = await self._server_manager.get_client(server_id)
                     if client is None:
-                        return ToolResult(output=f"MCP server not connected: {server_id}", is_error=True)
+                        return ToolResult(
+                            output=f"MCP server not connected: {server_id}",
+                            is_error=True,
+                        )
                     result = await client.call_tool(tool_name, args)
                     return ToolResult(output=result.content, is_error=result.is_error)
                 except AgentError as exc:
                     if not retried and await self._should_retry(server_id, exc):
                         retried = True
                         continue
-                    message = f"MCP tool failed after retry: {exc.message}" if retried else f"MCP tool error: {exc.message}"
+                    message = (
+                        f"MCP tool failed after retry: {exc.message}"
+                        if retried
+                        else f"MCP tool error: {exc.message}"
+                    )
                     return ToolResult(output=message, is_error=True)
                 except Exception as exc:
                     return ToolResult(output=str(exc), is_error=True)

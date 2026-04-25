@@ -1,8 +1,10 @@
 ﻿import os
 import sys
 
-from backend.common.errors import AgentError
+from pydantic import Field
 from pydantic_settings import BaseSettings
+
+from backend.common.errors import AgentError
 
 
 class Settings(BaseSettings):
@@ -12,7 +14,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
     default_provider: str = "anthropic"
-    default_model: str = "K2.6-code-preview"
+    default_model: str = "kimi-k2.6"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     database_url: str = ""
@@ -22,6 +24,7 @@ class Settings(BaseSettings):
     database_pool_timeout: int = 30
     database_pool_recycle: int = 1800
     metrics_ttl_days: int = 30
+    sub_worker_concurrency: int = Field(default=2, ge=1)
     auth_secret: str = "change-me-in-production"
     server_base_url: str = ""
     feishu_webhook_url: str = ""

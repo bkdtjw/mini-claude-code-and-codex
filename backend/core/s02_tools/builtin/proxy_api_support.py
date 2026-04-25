@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
 from .proxy_models import ProxyDelayRecord
+
+_BEIJING = ZoneInfo("Asia/Shanghai")
 
 GROUP_TYPES = {"selector", "urltest", "fallback", "loadbalance"}
 SKIP_TYPES = {"direct", "reject", "compatible"}
@@ -61,7 +64,7 @@ def normalize_type(proxy_type: str) -> str:
 
 
 def now_text() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(_BEIJING).strftime("%Y-%m-%d %H:%M:%S")
 
 
 __all__ = [

@@ -97,6 +97,14 @@ def test_anthropic_adapter_round_trips_thinking_blocks() -> None:
     assert response.provider_metadata["thinking_blocks"][0]["type"] == "thinking"
 
 
+def test_anthropic_adapter_uses_v1_messages_for_compat_base_url() -> None:
+    provider = _provider(ProviderType.ANTHROPIC).model_copy(
+        update={"base_url": "https://open.bigmodel.cn/api/anthropic"}
+    )
+    adapter = AnthropicAdapter(provider)
+    assert adapter._url == "https://open.bigmodel.cn/api/anthropic/v1/messages"  # noqa: SLF001
+
+
 def test_ollama_adapter_parses_reasoning_content() -> None:
     adapter = OllamaAdapter(_provider(ProviderType.OLLAMA))
     response = adapter._parse_response(  # noqa: SLF001
@@ -149,6 +157,22 @@ async def test_complete_does_not_retry_on_non_retryable_status_codes(provider_ty
     assert exc_info.value.code == error_code
     assert mock_post.await_count == 1
     mock_sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_complete_raises_on_success_false_body() -> None:
+    adapter = AnthropicAdapter(_provider(ProviderType.ANTHROPIC))
+    bad_body = httpx.Response(
+        200,
+        json={"code": 500, "msg": "404 NOT_FOUND", "success": False},
+        request=_request(),
+    )
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = bad_body
+        with pytest.raises(LLMError) as exc_info:
+            await adapter.complete(_llm_request())
+    assert exc_info.value.code == "API_ERROR"
+    assert "404 NOT_FOUND" in exc_info.value.message
 
 
 @pytest.mark.asyncio

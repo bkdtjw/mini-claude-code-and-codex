@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,7 @@ import pytest
 
 import backend.config.redis_client as redis_client
 
+from backend.common.types import Message, ProviderConfig, ProviderType, Session, SessionConfig
 from backend.common.errors import AgentError
 from backend.config.settings import settings
 from backend.core.s05_skills import AgentCategory, AgentSpec, SpecRegistry
@@ -226,6 +228,46 @@ class TestMessageHandling:
         reply_json = client.reply_message.call_args[0][1]
         reply_text = json.loads(reply_json)["text"]
         assert "出错" in reply_text
+
+    @pytest.mark.asyncio
+    async def test_empty_message_uses_fallback_text(self) -> None:
+        handler, client, _ = _mock_handler()
+        mock_loop = AsyncMock()
+        mock_loop.run = AsyncMock(return_value=Message(role="assistant", content=""))
+        mock_loop._config = MagicMock(provider="provider-1")
+        handler._sessions["oc_abc"] = mock_loop
+
+        await handler.handle_message(_make_event())
+
+        reply_json = client.reply_message.call_args[0][1]
+        reply_text = json.loads(reply_json)["text"]
+        assert reply_text == "模型返回了空响应，请重试。"
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_loop_uses_provider_default_for_stale_session_model(self) -> None:
+        handler, _, pm = _mock_handler()
+        provider = ProviderConfig(
+            id="provider-1",
+            name="Zhipu",
+            provider_type=ProviderType.ANTHROPIC,
+            base_url="https://open.bigmodel.cn/api/anthropic",
+            default_model="glm-5.1",
+            available_models=["glm-5.1"],
+            is_default=True,
+        )
+        pm.list_all.return_value = [provider]
+        handler._store.get = AsyncMock(
+            return_value=Session(
+                id="oc_abc",
+                config=SessionConfig(model="K2.6-code-preview", provider="anthropic"),
+                created_at=datetime.utcnow(),
+            )
+        )
+        loop = AsyncMock()
+        loop._config = MagicMock(provider="provider-1", model="glm-5.1", system_prompt="")
+        with patch("backend.api.routes.feishu_handler.build_agent_loop", AsyncMock(return_value=loop)) as build_loop:
+            await handler._get_or_create_loop("oc_abc")
+        assert build_loop.await_args.kwargs["model"] == "glm-5.1"
 
 
 class TestExtractText:

@@ -5,12 +5,9 @@ from typing import Any
 
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
+from backend.core.s07_task_system import TaskExecutionError
 from backend.core.s07_task_system.executor import TaskExecutor
-from backend.core.s07_task_system.models import (
-    NotifyConfig,
-    OutputConfig,
-    ScheduledTask,
-)
+from backend.core.s07_task_system.models import NotifyConfig, OutputConfig, ScheduledTask
 from backend.core.s07_task_system.store import TaskStore
 
 
@@ -211,6 +208,9 @@ def _create_run_task_now(
             await store.update_run_status(task_id, "success", result[:500])
             preview = result[:1000] + ("..." if len(result) > 1000 else "")
             return ToolResult(output=f"任务 {task.name} 执行完成：\n{preview}")
+        except TaskExecutionError as exc:
+            await store.update_run_status(task_id, "error", (exc.output or exc.message)[:500])
+            return ToolResult(output=f"执行任务失败：{exc.message}", is_error=True)
         except Exception as exc:
             return ToolResult(output=f"执行任务失败：{exc}", is_error=True)
 

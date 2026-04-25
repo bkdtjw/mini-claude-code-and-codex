@@ -2,17 +2,20 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
+
+_BEIJING = ZoneInfo("Asia/Shanghai")
 
 
 def is_in_cooldown(history: list[dict[str, Any]], cooldown_seconds: int) -> bool:
     if cooldown_seconds <= 0 or not history:
         return False
-    cutoff = datetime.now() - timedelta(seconds=cooldown_seconds)
+    cutoff = _now_beijing() - timedelta(seconds=cooldown_seconds)
     return any((stamp := parse_time(item.get("time", ""))) and stamp >= cutoff for item in history)
 
 
 def count_recent_switches(history: list[dict[str, Any]], minutes: int = 10) -> int:
-    cutoff = datetime.now() - timedelta(minutes=minutes)
+    cutoff = _now_beijing() - timedelta(minutes=minutes)
     return sum(
         1
         for item in history
@@ -21,7 +24,7 @@ def count_recent_switches(history: list[dict[str, Any]], minutes: int = 10) -> i
 
 
 def node_had_timeout(node: str, history: list[dict[str, Any]], minutes: int = 5) -> bool:
-    cutoff = datetime.now() - timedelta(minutes=minutes)
+    cutoff = _now_beijing() - timedelta(minutes=minutes)
     return any(
         (stamp := parse_time(item.get("time", "")))
         and stamp >= cutoff
@@ -65,6 +68,10 @@ def parse_time(text: object) -> datetime | None:
         return datetime.strptime(str(text), "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
+
+
+def _now_beijing() -> datetime:
+    return datetime.now(_BEIJING).replace(tzinfo=None)
 
 
 __all__ = [

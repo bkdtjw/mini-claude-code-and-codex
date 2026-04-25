@@ -12,7 +12,7 @@ import pytest
 import backend.config.redis_client as redis_client
 
 from backend.config.settings import settings
-from backend.core.s07_task_system import TaskExecutor, TaskExecutorDeps
+from backend.core.s07_task_system import TaskExecutionError, TaskExecutor, TaskExecutorDeps
 from backend.core.s07_task_system.models import (
     NotifyConfig,
     OutputConfig,
@@ -464,6 +464,27 @@ class TestDedup:
         executor.execute.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_execute_task_marks_error_when_executor_raises_task_execution_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = await _temp_store(tmp_path)
+        task = _make_task()
+        await store.add_task(task)
+        await use_fake_redis(monkeypatch)
+        executor = MagicMock(spec=TaskExecutor)
+        executor.execute = AsyncMock(side_effect=TaskExecutionError("boom"))
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+
+        await scheduler._execute_task(task, None)
+
+        saved = await store.get_task(task.id)
+        assert saved is not None
+        assert saved.last_run_status == "error"
+        assert saved.last_run_output == "boom"
+
+    @pytest.mark.asyncio
     async def test_recover_missed_tasks_triggers_overdue_task(self, tmp_path: Path) -> None:
         store = await _temp_store(tmp_path)
         now = datetime.now(timezone.utc)
@@ -572,6 +593,45 @@ class TestTaskExecutor:
         ):
             result = await executor.execute(task)
         assert result == "execution result"
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_when_agent_run_fails(self) -> None:
+        mock_pm = AsyncMock()
+        mock_pm.list_all.return_value = [MagicMock(id="p1", is_default=True)]
+        mock_pm.get_adapter.return_value = AsyncMock()
+
+        mock_mcp = MagicMock()
+        mock_mcp.list_servers.return_value = []
+
+        executor = TaskExecutor(
+            TaskExecutorDeps.model_construct(provider_manager=mock_pm, mcp_manager=mock_mcp)
+        )
+        task = _make_task(
+            notify=NotifyConfig(feishu=False),
+            output=OutputConfig(save_markdown=False),
+        )
+        with patch(
+            "backend.core.s07_task_system.executor.register_builtin_tools"
+        ), patch(
+            "backend.core.s07_task_system.executor.MCPToolBridge.sync_all",
+            new_callable=AsyncMock,
+        ), patch(
+            "backend.core.s07_task_system.executor.AgentLoop.run",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ), patch(
+            "backend.core.s07_task_system.executor.TaskExecutor._save_report",
+            new_callable=AsyncMock,
+            return_value=Path("/tmp/report.md"),
+        ), patch(
+            "backend.core.s07_task_system.executor.TaskExecutor._persist_session",
+            new_callable=AsyncMock,
+        ), patch(
+            "backend.core.s07_task_system.executor.build_system_prompt",
+            return_value="system",
+        ):
+            with pytest.raises(TaskExecutionError, match="boom"):
+                await executor.execute(task)
 
     @pytest.mark.asyncio
     async def test_execute_uses_agent_runtime_when_spec_id_present(self) -> None:

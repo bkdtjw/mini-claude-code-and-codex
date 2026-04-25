@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 import re
 
-from backend.adapters.base import LLMAdapter
 from pydantic import BaseModel, ConfigDict
 
+from backend.adapters.base import LLMAdapter
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError
 from backend.common.types import AgentConfig, AgentEventHandler, ProviderConfig
@@ -14,10 +14,11 @@ from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.builtin.bash import create_bash_tool
-from backend.core.s02_tools.mcp import MCPToolBridge, MCPServerManager
+from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
 from backend.core.task_queue import TaskQueue
 
+from .mcp_requirements import extract_required_mcp_servers
 from .models import AgentCategory, AgentSpec, ToolConfig
 from .registry import SpecRegistry
 
@@ -33,17 +34,28 @@ class AgentRuntimeDeps(BaseModel):
 
 
 class _FilteredBridge:
-    def __init__(self, bridge: MCPToolBridge, registry: ToolRegistry, allowed_tools: set[str]) -> None:
+    def __init__(
+        self,
+        bridge: MCPToolBridge,
+        registry: ToolRegistry,
+        allowed_tools: set[str],
+        required_mcp_servers: set[str],
+    ) -> None:
         self._bridge = bridge
         self._registry = registry
         self._allowed_tools = allowed_tools
+        self._required_mcp_servers = required_mcp_servers
 
     def needs_sync(self) -> bool:
+        if not self._required_mcp_servers:
+            return False
         return self._bridge.needs_sync()
 
     async def sync_all(self) -> int:
         try:
-            count = await self._bridge.sync_all()
+            count = 0
+            if self._required_mcp_servers:
+                count = await self._bridge.sync_servers(self._required_mcp_servers)
             self._prune_disallowed()
             return count
         except AgentError:
@@ -53,7 +65,9 @@ class _FilteredBridge:
 
     async def sync_if_needed(self) -> int:
         try:
-            count = await self._bridge.sync_if_needed()
+            if not self.needs_sync():
+                return -1
+            count = await self._bridge.sync_servers(self._required_mcp_servers)
             self._prune_disallowed()
             return count
         except AgentError:
@@ -86,9 +100,8 @@ class AgentRuntime:
     ) -> AgentLoop:
         try:
             resolved_provider = await self._resolve_provider(provider or spec.provider)
-            resolved_model = (
-                model or spec.model or resolved_provider.default_model or self._deps.settings.default_model
-            )
+            resolved_model = model or spec.model or resolved_provider.default_model
+            resolved_model = resolved_model or self._deps.settings.default_model
             resolved_workspace = os.path.abspath(workspace or os.getcwd())
             adapter = await self._deps.provider_manager.get_adapter(resolved_provider.id)
             registry = self._build_registry(
@@ -105,13 +118,17 @@ class AgentRuntime:
                 MCPToolBridge(self._deps.mcp_manager, registry),
                 registry,
                 set(spec.tools.allowed_tools),
+                extract_required_mcp_servers(spec),
             )
             await bridge.sync_all()
             loop = AgentLoop(
                 config=AgentConfig(
                     model=resolved_model,
                     provider=resolved_provider.id,
-                    system_prompt=self._compose_system_prompt(resolved_workspace, spec.system_prompt),
+                    system_prompt=self._compose_system_prompt(
+                        resolved_workspace,
+                        spec.system_prompt,
+                    ),
                     session_id=session_id,
                     tools=sorted(tool.name for tool in registry.list_definitions()),
                     max_iterations=spec.max_iterations,
@@ -172,7 +189,8 @@ class AgentRuntime:
         is_sub_agent: bool = False,
     ) -> AgentLoop:
         try:
-            slug = re.sub(r"[^A-Za-z0-9_-]+", "-", role or "inline-agent").strip("-_") or "inline-agent"
+            slug = re.sub(r"[^A-Za-z0-9_-]+", "-", role or "inline-agent")
+            slug = slug.strip("-_") or "inline-agent"
             spec = AgentSpec(
                 id=f"inline_{slug}"[:64],
                 title=role or "Inline Agent",
@@ -249,7 +267,9 @@ class AgentRuntime:
 
     @staticmethod
     def _compose_system_prompt(workspace: str, spec_prompt: str) -> str:
-        return "\n\n".join(part for part in [build_system_prompt(workspace), spec_prompt.strip()] if part)
+        return "\n\n".join(
+            part for part in [build_system_prompt(workspace), spec_prompt.strip()] if part
+        )
 
 
 __all__ = ["AgentRuntime", "AgentRuntimeDeps"]

@@ -1,6 +1,7 @@
 from typing import Any
 
 from .loader import SkillLoader
+from .mcp_requirements import extract_required_mcp_servers
 from .models import AgentCategory, AgentSpec, SubAgentPolicy, ToolConfig
 from .registry import SpecRegistry
 
@@ -11,6 +12,7 @@ __all__ = [
     "SpecRegistry",
     "SubAgentPolicy",
     "ToolConfig",
+    "extract_required_mcp_servers",
     "AgentRuntime",
     "AgentRuntimeDeps",
 ]

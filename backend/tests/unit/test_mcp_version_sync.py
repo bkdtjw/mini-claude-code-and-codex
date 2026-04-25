@@ -65,7 +65,10 @@ class RecordingBridge:
 
 
 async def _make_manager(tmp_path: Path) -> MCPServerManager:
-    _engine, session_factory = await make_test_session_factory(tmp_path, f"mcp_versions_{uuid4().hex}")
+    _engine, session_factory = await make_test_session_factory(
+        tmp_path,
+        f"mcp_versions_{uuid4().hex}",
+    )
     return MCPServerManager(
         config_path=str(tmp_path / "empty_mcp.json"),
         client_factory=FakeMCPClient,
@@ -111,7 +114,9 @@ async def test_bridge_detects_version_changes_and_resyncs(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_new_bridge_requires_full_sync_when_manager_version_starts_at_zero(tmp_path: Path) -> None:
+async def test_new_bridge_requires_full_sync_when_manager_version_starts_at_zero(
+    tmp_path: Path,
+) -> None:
     manager = await _make_manager(tmp_path)
     bridge = MCPToolBridge(manager, ToolRegistry())
     assert manager.version == 0
@@ -168,6 +173,32 @@ async def test_sync_if_needed_adds_new_server_tools(tmp_path: Path) -> None:
     await manager.add_server(_server_config("fresh"))
     assert await bridge.sync_if_needed() == 1
     assert registry.has("mcp__fresh__echo") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_servers_only_registers_requested_servers(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
+    await manager.add_server(_server_config("server-a"))
+    await manager.add_server(_server_config("server-b"))
+    registry = ToolRegistry()
+    bridge = MCPToolBridge(manager, registry)
+
+    assert await bridge.sync_servers({"server-a"}) == 1
+    assert registry.has("mcp__server-a__echo") is True
+    assert registry.has("mcp__server-b__echo") is False
+
+
+@pytest.mark.asyncio
+async def test_sync_servers_reconnects_enabled_disconnected_server_tools(tmp_path: Path) -> None:
+    manager = await _make_manager(tmp_path)
+    registry = ToolRegistry()
+    bridge = MCPToolBridge(manager, registry)
+    await manager.add_server(_server_config("paused"))
+    await bridge.sync_servers({"paused"})
+    assert registry.has("mcp__paused__echo") is True
+    await manager.disconnect_server("paused")
+    assert await bridge.sync_servers({"paused"}) == 1
+    assert registry.has("mcp__paused__echo") is True
 
 
 @pytest.mark.asyncio

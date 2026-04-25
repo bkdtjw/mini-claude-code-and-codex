@@ -8,6 +8,7 @@ __all__ = [
     "ScheduledTask",
     "TaskExecutor",
     "TaskExecutorDeps",
+    "TaskExecutionError",
     "TaskScheduler",
     "TaskStore",
     "TaskStoreData",
@@ -23,6 +24,10 @@ def __getattr__(name: str) -> object:
         from .executor_models import TaskExecutorDeps
 
         return TaskExecutorDeps
+    if name == "TaskExecutionError":
+        from .executor_errors import TaskExecutionError
+
+        return TaskExecutionError
     if name == "TaskScheduler":
         from .scheduler import TaskScheduler
 

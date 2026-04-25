@@ -136,6 +136,22 @@ def register_builtin_tools(
     resolved_feishu_secret = feishu_secret or os.environ.get("FEISHU_WEBHOOK_SECRET", "")
     if feishu_url:
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
+
+    # 灵犀金融数据Skills
+    try:
+        from .lingxi import (
+            create_lingxi_financial_search_tool,
+            create_lingxi_realtime_marketdata_tool,
+            create_lingxi_ranklist_tool,
+            create_lingxi_smart_stock_selection_tool,
+        )
+
+        tools.append(create_lingxi_financial_search_tool())
+        tools.append(create_lingxi_realtime_marketdata_tool())
+        tools.append(create_lingxi_ranklist_tool())
+        tools.append(create_lingxi_smart_stock_selection_tool())
+    except ImportError:
+        pass
     if spec_registry is not None and not is_sub_agent:
         from .query_specs import create_query_specs_tool
 

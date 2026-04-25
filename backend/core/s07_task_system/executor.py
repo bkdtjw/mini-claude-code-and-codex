@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -18,11 +19,14 @@ from backend.core.s02_tools.mcp import MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
 from backend.storage.session_store import SessionStore
 
+from .executor_errors import TaskExecutionError
 from .executor_models import TaskExecutorDeps
 from .executor_support import build_card_meta, save_markdown, save_report
 from .models import ScheduledTask
 
 logger = get_logger(component="task_executor")
+_BEIJING = ZoneInfo("Asia/Shanghai")
+_SUB_AGENT_TOOL_CALLS_PREFIX = "[meta] sub_agent_tool_calls="
 
 
 class TaskExecutor:
@@ -32,8 +36,9 @@ class TaskExecutor:
     async def execute(self, task: ScheduledTask) -> str:
         with bound_log_context(trace_id=new_trace_id(), session_id=f"scheduled-task:{task.id}"):
             agent, adapter = await self._create_loop(task)
-            started_at = datetime.now()
+            started_at = datetime.now(_BEIJING)
             started_perf = monotonic()
+            error_message = ""
             logger.info(
                 "task_execute_start",
                 task_id=task.id,
@@ -50,14 +55,26 @@ class TaskExecutor:
             except Exception as exc:
                 content = ""
                 status = "error"
+                error_message = str(exc)
                 await incr("task_failures")
-                logger.exception("task_execute_error", task_id=task.id, task_name=task.name, error=str(exc))
-            finished_at = datetime.now()
-            tool_call_count = sum(
+                logger.exception(
+                    "task_execute_error",
+                    task_id=task.id,
+                    task_name=task.name,
+                    error=str(exc),
+                )
+            finished_at = datetime.now(_BEIJING)
+            main_tool_call_count = sum(
                 len(message.tool_calls)
                 for message in agent.messages
                 if message.role == "assistant" and message.tool_calls
             )
+            sub_tool_call_count = sum(
+                _extract_sub_agent_tool_calls(result.output)
+                for message in agent.messages
+                for result in (message.tool_results or [])
+            )
+            tool_call_count = main_tool_call_count + sub_tool_call_count
             meta: dict[str, Any] = {
                 "status": status,
                 "tool_call_count": tool_call_count,
@@ -90,8 +107,17 @@ class TaskExecutor:
                 )
                 logger.info("task_feishu_notify", task_id=task.id, success=sent)
             if task.output.save_markdown:
-                path = self._save_markdown(task, content)
-                logger.info("task_report_saved", task_id=task.id, path=str(path))
+                try:
+                    path = self._save_markdown(task, content)
+                    logger.info("task_report_saved", task_id=task.id, path=str(path))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "task_markdown_save_failed",
+                        task_id=task.id,
+                        error=str(exc),
+                    )
+            if status != "success":
+                raise TaskExecutionError(error_message or "Task execution failed", content)
             return content
 
     async def _create_loop(self, task: ScheduledTask) -> tuple[AgentLoop, Any]:
@@ -163,14 +189,20 @@ class TaskExecutor:
 
     async def _persist_session(self, task: ScheduledTask, agent: AgentLoop) -> None:
         try:
-            run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             session_id = f"task-{task.id}-{run_id}"
             store = SessionStore()
+            system_prompt = (
+                agent.messages[0].content
+                if agent.messages and agent.messages[0].role == "system"
+                else ""
+            )
             await store.ensure_session(
                 session_id,
                 model=agent._config.model,  # noqa: SLF001
                 provider=agent._config.provider,  # noqa: SLF001
-                system_prompt=agent.messages[0].content if agent.messages and agent.messages[0].role == "system" else "",
+                system_prompt=system_prompt,
+                max_tokens=16384,
                 title=f"{task.name} @ {run_id}",
                 workspace="scheduled_task",
             )
@@ -251,6 +283,16 @@ class TaskExecutor:
         except Exception as exc:
             logger.error("task_feishu_notify_failed", task_id=task.id, error=str(exc))
             return False
+
+def _extract_sub_agent_tool_calls(output: str) -> int:
+    for line in output.splitlines():
+        if not line.startswith(_SUB_AGENT_TOOL_CALLS_PREFIX):
+            continue
+        try:
+            return int(line.removeprefix(_SUB_AGENT_TOOL_CALLS_PREFIX).strip())
+        except ValueError:
+            return 0
+    return 0
 
 
 __all__ = ["TaskExecutor"]

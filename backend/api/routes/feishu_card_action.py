@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request
 
 from backend.common.logging import bound_log_context, get_logger, new_trace_id
 from backend.config.settings import settings as app_settings
+from backend.core.s07_task_system import TaskExecutionError
 from backend.schemas.feishu import FeishuCardActionPayload
 
 logger = get_logger(component="feishu_card_action")
@@ -94,6 +95,12 @@ async def _background_rerun(task_id: str, task_name: str) -> None:
         result = await _task_executor.execute(task)
         await store.update_run_status(task_id, "success", result[:500])
         logger.info("feishu_card_rerun_completed", task_id=task_id, task_name=task_name)
+    except TaskExecutionError as exc:
+        logger.exception("feishu_card_rerun_failed", task_id=task_id, task_name=task_name)
+        try:
+            await store.update_run_status(task_id, "error", (exc.output or exc.message)[:500])
+        except Exception:
+            logger.exception("feishu_card_rerun_status_failed", task_id=task_id)
     except Exception:
         logger.exception("feishu_card_rerun_failed", task_id=task_id, task_name=task_name)
         try:

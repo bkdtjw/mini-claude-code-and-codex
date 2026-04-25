@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -17,6 +18,7 @@ from .x_client import (
 )
 
 SearchType = Literal["Latest", "Top"]
+_BEIJING = ZoneInfo("Asia/Shanghai")
 
 
 class XSearchToolError(Exception):
@@ -152,7 +154,11 @@ def _format_report(
 
 def _format_date(created_at: str) -> str:
     try:
-        return datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y").strftime("%Y-%m-%d")
+        return (
+            datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+            .astimezone(_BEIJING)
+            .strftime("%Y-%m-%d")
+        )
     except ValueError:
         return created_at
 

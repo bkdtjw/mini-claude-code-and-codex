@@ -4,52 +4,56 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger, setup_logging
 from backend.common.metrics import close_metrics, init_metrics
-from backend.config import close_redis, init_redis, settings as app_settings
+from backend.config import close_redis, init_redis
+from backend.config import settings as app_settings
+from backend.core import init_agent_runtime
 from backend.storage import SessionStore, init_db
-from .lifespan_support import check_readiness, start_task_queue_runtime, stop_task_queue_runtime
+
+from .lifespan_support import check_readiness, init_task_queue
 
 logger = get_logger(component="api_app")
+_FRONTEND_DIR = Path(os.getenv("FRONTEND_DIST_DIR", "/app/dist/frontend"))
+_RESERVED_FRONTEND_PATHS = {"api", "assets", "health", "metrics", "reports", "v1", "ws"}
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     from backend.api.routes.mcp import mcp_server_manager
     from backend.api.routes.providers import provider_manager
-    from backend.core.s05_skills import AgentRuntime, AgentRuntimeDeps, SkillLoader, SpecRegistry
 
     task_scheduler = None
-    task_queue_runtime = None
     try:
         await init_db()
         await init_redis()
         await init_metrics()
         app.state.session_store = SessionStore()
-        loader = SkillLoader()
-        spec_registry = SpecRegistry()
-        for spec in loader.load_all():
-            spec_registry.register(spec)
-        app.state.spec_registry = spec_registry
-        app.state.agent_runtime = AgentRuntime(
-            AgentRuntimeDeps(
-                provider_manager=provider_manager,
-                mcp_manager=mcp_server_manager,
-                settings=app_settings,
-                spec_registry=spec_registry,
-            )
+        spec_registry, agent_runtime = await init_agent_runtime(
+            provider_manager=provider_manager,
+            mcp_manager=mcp_server_manager,
+            settings=app_settings,
         )
-        task_queue_runtime = await start_task_queue_runtime(app)
+        app.state.spec_registry = spec_registry
+        app.state.agent_runtime = agent_runtime
+        init_task_queue(app)
         try:
             from backend.adapters.provider_manager import ProviderManager
             from backend.core.s02_tools.mcp import MCPServerManager
-            from backend.core.s07_task_system import TaskExecutor, TaskExecutorDeps, TaskScheduler, TaskStore
+            from backend.core.s07_task_system import (
+                TaskExecutor,
+                TaskExecutorDeps,
+                TaskScheduler,
+                TaskStore,
+            )
 
             store = TaskStore()
             # Create FeishuClient if app credentials are configured
@@ -92,7 +96,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await task_scheduler.stop()
             except Exception:  # noqa: BLE001
                 pass
-        await stop_task_queue_runtime(task_queue_runtime)
         close_metrics()
         await close_redis()
         try:
@@ -125,7 +128,15 @@ def _init_feishu_handler(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     setup_logging(os.getenv("LOG_LEVEL", "INFO"))
-    from backend.api.routes import chat_completions, logs, mcp, metrics, providers, sessions, websocket
+    from backend.api.routes import (
+        chat_completions,
+        logs,
+        mcp,
+        metrics,
+        providers,
+        sessions,
+        websocket,
+    )
     from backend.api.routes.reports import router as reports_router
 
     app = FastAPI(title="Agent Studio", version="0.1.0", lifespan=_lifespan)
@@ -173,4 +184,26 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             raise AgentError("HEALTH_READY_ERROR", str(exc)) from exc
 
+    _mount_frontend(app)
     return app
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    index_path = _FRONTEND_DIR / "index.html"
+    assets_dir = _FRONTEND_DIR / "assets"
+    if not index_path.is_file() or not assets_dir.is_dir():
+        logger.warning("frontend_dist_not_found", path=str(_FRONTEND_DIR))
+        return
+
+    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+
+    @app.get("/", include_in_schema=False)
+    async def frontend_index() -> FileResponse:
+        return FileResponse(index_path)
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def frontend_spa(full_path: str) -> FileResponse:
+        root_segment = full_path.split("/", 1)[0]
+        if root_segment in _RESERVED_FRONTEND_PATHS:
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(index_path)

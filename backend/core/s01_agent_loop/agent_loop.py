@@ -125,8 +125,11 @@ class AgentLoop:
                         )
                     )
                     log_llm_call_end(logger, response)
+                    content = response.content or ""
+                    if not content.strip():
+                        content = response.provider_metadata.get("reasoning_content", "") or ""
                     assistant = Message(
-                        content=response.content,
+                        content=content,
                         role="assistant",
                         tool_calls=response.tool_calls or None,
                         provider_metadata=response.provider_metadata,

@@ -33,7 +33,7 @@ class LLMRequest(BaseModel):
     messages: list[Message]
     tools: list[ToolDefinition] | None = None
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_tokens: int = 16384
 
 
 class LLMUsage(BaseModel):

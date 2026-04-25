@@ -6,10 +6,13 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from backend.config.settings import settings as app_settings
 
 from .models import ScheduledTask
+
+_BEIJING = ZoneInfo("Asia/Shanghai")
 
 
 def build_card_meta(
@@ -44,7 +47,7 @@ async def save_report(
 ) -> Path:
     report_dir = Path(os.getcwd()) / "reports" / "scheduled_tasks"
     report_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(_BEIJING).strftime("%Y%m%d-%H%M%S")
     safe_name = re.sub(r"[^\w\-]", "_", task.name)[:50]
     filepath = report_dir / f"{task.id}-{safe_name}-{timestamp}.md"
     execution_id = f"{task.id}-{timestamp}"
@@ -72,7 +75,13 @@ def save_markdown(task: ScheduledTask, content: str) -> Path:
     output_dir = task.output.output_dir or os.path.join(os.getcwd(), "task_outputs")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     filepath = Path(output_dir) / f"{task.name}_{task.id}.md"
-    filepath.write_text(f"# {task.name}\n\n{content}", encoding="utf-8")
+    markdown = f"# {task.name}\n\n{content}"
+    try:
+        filepath.write_text(markdown, encoding="utf-8")
+    except PermissionError:
+        timestamp = datetime.now(_BEIJING).strftime("%Y%m%d-%H%M%S")
+        filepath = Path(output_dir) / f"{task.name}_{task.id}_{timestamp}.md"
+        filepath.write_text(markdown, encoding="utf-8")
     return filepath
 
 

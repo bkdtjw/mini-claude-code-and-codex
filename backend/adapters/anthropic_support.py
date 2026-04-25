@@ -71,6 +71,8 @@ def to_anthropic_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
 
 
 def parse_response(data: dict[str, Any]) -> LLMResponse:
+    if data.get("success") is False:
+        raise LLMError("API_ERROR", str(data.get("msg") or data), "anthropic", None)
     content_blocks = data.get("content", [])
     content = "".join(block.get("text", "") for block in content_blocks if block.get("type") == "text")
     tool_calls = [

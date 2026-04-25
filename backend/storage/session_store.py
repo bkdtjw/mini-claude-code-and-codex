@@ -118,13 +118,27 @@ class SessionStore:
         model: str = "",
         provider: str = "",
         system_prompt: str = "",
+        max_tokens: int = 16384,
         title: str = "",
         workspace: str = "",
     ) -> None:
         """Create session record if not exists."""
         try:
             async with get_db_session(self._session_factory) as db:
-                if await db.get(SessionRecord, session_id) is not None:
+                record = await db.get(SessionRecord, session_id)
+                if record is not None:
+                    if model:
+                        record.model = model
+                    if provider:
+                        record.provider = provider
+                    if system_prompt:
+                        record.system_prompt = system_prompt
+                    if title:
+                        record.title = title
+                    if workspace:
+                        record.workspace = workspace
+                    record.max_tokens = max_tokens
+                    await db.commit()
                     return
                 db.add(SessionRecord(
                     id=session_id,
@@ -134,6 +148,7 @@ class SessionStore:
                     provider=provider,
                     system_prompt=system_prompt,
                     status="idle",
+                    max_tokens=max_tokens,
                     created_at=datetime.utcnow(),
                 ))
                 await db.commit()

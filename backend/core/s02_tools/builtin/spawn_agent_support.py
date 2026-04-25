@@ -51,7 +51,9 @@ def prepare_tasks(tasks: list[SpawnAgentTask], deps: SpawnAgentDeps) -> list[Pre
         spec = deps.spec_registry.get(spec_id) if spec_id else None
         if spec_id and (spec is None or not spec.enabled):
             raise ValueError(f"未找到可用场景：{spec_id}")
-        timeout_seconds = float(task.timeout_seconds or (spec.timeout_seconds if spec is not None else 120))
+        timeout_seconds = float(
+            task.timeout_seconds or (spec.timeout_seconds if spec is not None else 120)
+        )
         prepared.append(
             PreparedTask(
                 index=index,
@@ -90,18 +92,24 @@ async def wait_for_prepared_tasks(
             return statuses
         if monotonic() >= deadline:
             waiter.cancel()
-            raise asyncio.TimeoutError("wait_for_tasks timed out")
+            raise TimeoutError("wait_for_tasks timed out")
         await asyncio.sleep(0.5)
 
 
 def format_result(prepared: list[PreparedTask], statuses: list[TaskPayload]) -> ToolResult:
     status_map = {status.task_id: status for status in statuses}
     success_count = sum(1 for status in statuses if status.status == TaskStatus.SUCCEEDED)
+    total_sub_tool_calls = sum(
+        (status.result or {}).get("tool_call_count", 0)
+        for status in statuses
+        if status.status == TaskStatus.SUCCEEDED
+    )
     lines = [f"子 agent 执行完成（{success_count}/{len(prepared)} 成功）", ""]
     for item in prepared:
         status = status_map.get(item.task_id)
         state = status.status.value if status is not None else "failed"
         lines.extend([f"[{item.index}] {item.label} ({state})", _result_content(status), ""])
+    lines.append(f"[meta] sub_agent_tool_calls={total_sub_tool_calls}")
     return ToolResult(output="\n".join(lines).strip(), is_error=success_count == 0)
 
 
@@ -123,7 +131,11 @@ async def _poll_progress(
     deps: SpawnAgentDeps,
 ) -> list[TaskPayload]:
     statuses = [await deps.task_queue.get_status(item.task_id) for item in prepared]
-    completed = sum(1 for status in statuses if status is not None and status.status in _TERMINAL_STATUSES)
+    completed = sum(
+        1
+        for status in statuses
+        if status is not None and status.status in _TERMINAL_STATUSES
+    )
     for item, status in zip(prepared, statuses, strict=False):
         if status is None or status.task_id in observed or status.status not in _TERMINAL_STATUSES:
             continue

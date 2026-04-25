@@ -41,6 +41,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 1000 --create-home --home-dir /home/appuser --shell /bin/bash appuser
 
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @notionhq/notion-mcp-server \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN chown -R appuser:appuser /home/appuser
+
 COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 COPY --chown=appuser:appuser backend /app/backend
 COPY --chown=appuser:appuser agents /app/agents

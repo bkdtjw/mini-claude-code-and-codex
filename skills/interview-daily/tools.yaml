@@ -1,0 +1,9 @@
+mcp_servers:
+  - notion
+
+allowed_tools:
+  - Read
+  - Bash
+  - mcp__notion__API-retrieve-a-data-source
+  - mcp__notion__API-query-data-source
+  - mcp__notion__API-post-page

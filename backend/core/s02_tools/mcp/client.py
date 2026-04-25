@@ -37,11 +37,11 @@ class MCPClient:
                 session = await asyncio.wait_for(self._open_session(stack), timeout=CONNECT_TIMEOUT)
                 self._stack = stack
                 self._session = session
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             await self._close_pending_stack(stack)
             self._session = None
             self._stack = None
-            raise AgentError("MCP_CONNECT_TIMEOUT", f"MCP server connection timed out after {CONNECT_TIMEOUT}s") from exc
+            raise AgentError("MCP_CONNECT_TIMEOUT", f"MCP server connection timed out after {CONNECT_TIMEOUT}s") from exc  # noqa: E501
         except AgentError:
             await self._close_pending_stack(stack)
             self._session = None
@@ -78,9 +78,9 @@ class MCPClient:
                 )
                 for tool in getattr(result, "tools", [])
             ]
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             await self._mark_dead()
-            raise AgentError("MCP_LIST_TOOLS_TIMEOUT", f"list_tools timed out after {LIST_TOOLS_TIMEOUT}s") from exc
+            raise AgentError("MCP_LIST_TOOLS_TIMEOUT", f"list_tools timed out after {LIST_TOOLS_TIMEOUT}s") from exc  # noqa: E501
         except AgentError:
             raise
         except Exception as exc:
@@ -91,14 +91,14 @@ class MCPClient:
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> MCPToolResult:
         try:
             session = await self._ensure_session()
-            result = await asyncio.wait_for(session.call_tool(name, arguments=arguments), timeout=CALL_TOOL_TIMEOUT)
+            result = await asyncio.wait_for(session.call_tool(name, arguments=arguments), timeout=CALL_TOOL_TIMEOUT)  # noqa: E501
             return MCPToolResult(
                 content=self._format_tool_result(result),
                 is_error=bool(getattr(result, "isError", getattr(result, "is_error", False))),
             )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             await self._mark_dead()
-            raise AgentError("MCP_CALL_TOOL_TIMEOUT", f"call_tool '{name}' timed out after {CALL_TOOL_TIMEOUT}s") from exc
+            raise AgentError("MCP_CALL_TOOL_TIMEOUT", f"call_tool '{name}' timed out after {CALL_TOOL_TIMEOUT}s") from exc  # noqa: E501
         except AgentError:
             raise
         except Exception as exc:
@@ -137,7 +137,7 @@ class MCPClient:
             from mcp.client.sse import sse_client
         except ImportError as exc:
             raise AgentError("MCP_SDK_MISSING", "The 'mcp' package is not installed.") from exc
-        read_stream, write_stream = await stack.enter_async_context(sse_client(url=self._server_config.url))
+        read_stream, write_stream = await stack.enter_async_context(sse_client(url=self._server_config.url))  # noqa: E501
         return ClientSession, read_stream, write_stream
 
     def _extract_schema(self, tool: Any) -> dict[str, Any]:
@@ -147,11 +147,11 @@ class MCPClient:
     def _format_tool_result(self, result: Any) -> str:
         parts = [self._format_content_item(item) for item in getattr(result, "content", [])]
         text_parts = [part for part in parts if part]
-        structured = getattr(result, "structuredContent", getattr(result, "structured_content", None))
+        structured = getattr(result, "structuredContent", getattr(result, "structured_content", None))  # noqa: E501
         if structured and not text_parts:
             text_parts.append(json.dumps(structured, ensure_ascii=False))
         if not text_parts and hasattr(result, "model_dump"):
-            text_parts.append(json.dumps(result.model_dump(mode="json", by_alias=True), ensure_ascii=False))
+            text_parts.append(json.dumps(result.model_dump(mode="json", by_alias=True), ensure_ascii=False))  # noqa: E501
         return "\n".join(text_parts) if text_parts else ""
 
     def _format_content_item(self, item: Any) -> str:
@@ -189,7 +189,7 @@ class MCPClient:
         if isinstance(exc, (BrokenPipeError, ConnectionError, EOFError, OSError)):
             return True
         error_msg = str(exc).lower()
-        return any(keyword in error_msg for keyword in ("broken pipe", "connection", "eof", "closed", "transport"))
+        return any(keyword in error_msg for keyword in ("broken pipe", "connection", "eof", "closed", "transport"))  # noqa: E501
 
 
 __all__ = ["MCPClient"]

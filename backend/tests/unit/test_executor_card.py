@@ -319,6 +319,46 @@ class TestExecutorCardFlow:
         mock_send.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_markdown_save_failure_does_not_fail_task(self) -> None:
+        mock_adapter = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = "agent result"
+        mock_response.tool_calls = None
+        mock_response.provider_metadata = {}
+        mock_adapter.complete.return_value = mock_response
+
+        mock_pm = AsyncMock()
+        mock_pm.list_all.return_value = [MagicMock(id="p1", is_default=True)]
+        mock_pm.get_adapter.return_value = mock_adapter
+
+        mock_mcp = MagicMock()
+        mock_mcp.list_servers.return_value = []
+
+        task = _make_task(
+            notify=NotifyConfig(feishu=False),
+            output=OutputConfig(save_markdown=True),
+        )
+        sync_all = "backend.core.s07_task_system.executor.MCPToolBridge.sync_all"
+        system_prompt = "backend.core.s07_task_system.executor.build_system_prompt"
+        save_report = "backend.core.s07_task_system.executor.TaskExecutor._save_report"
+        persist_session = "backend.core.s07_task_system.executor.TaskExecutor._persist_session"
+        save_markdown = "backend.core.s07_task_system.executor.TaskExecutor._save_markdown"
+
+        with patch("backend.core.s07_task_system.executor.register_builtin_tools"), \
+             patch(sync_all, new_callable=AsyncMock), \
+             patch(system_prompt, return_value="sys"), \
+             patch(save_report, new_callable=AsyncMock, return_value=Path("/tmp/report.md")), \
+             patch(persist_session, new_callable=AsyncMock), \
+             patch(save_markdown, side_effect=PermissionError("denied")):
+
+            executor = TaskExecutor(
+                TaskExecutorDeps.model_construct(provider_manager=mock_pm, mcp_manager=mock_mcp)
+            )
+            result = await executor.execute(task)
+
+        assert result == "agent result"
+
+    @pytest.mark.asyncio
     async def test_report_file_created(self, tmp_path: Path) -> None:
         executor = TaskExecutor(
             TaskExecutorDeps.model_construct(provider_manager=AsyncMock(), mcp_manager=AsyncMock())

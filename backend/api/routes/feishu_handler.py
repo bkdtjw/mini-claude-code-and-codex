@@ -10,6 +10,8 @@ from backend.api.routes.feishu_handler_support import (
     build_feishu_log_context,
     extract_text,
     parse_slash_command,
+    resolve_reply_text,
+    resolve_session_model,
 )
 from backend.api.routes.feishu_runtime import FeishuEventDeduplicator, build_agent_loop, collect_tool_calls
 from backend.api.routes.websocket_support import restore_messages
@@ -93,7 +95,7 @@ class FeishuMessageHandler:
                     loop = await self._get_or_create_loop(chat_id)
                     should_persist = True
                     result = await loop.run(text)
-                    content = getattr(result, "content", "") or str(result)
+                    content = resolve_reply_text(result)
                     await self._persist_turn(chat_id, loop)
                     await self._reply_loop_result(loop, message_id, content)
                     logger.info("feishu_message_end", chat_id=chat_id, duration_ms=int((monotonic() - started_at) * 1000))
@@ -155,12 +157,13 @@ class FeishuMessageHandler:
     async def _get_or_create_loop(self, chat_id: str) -> AgentLoop:
         session = await self._store.get(chat_id)
         provider = await self._resolve_provider(session.config.provider if session is not None else None)
+        resolved_model = resolve_session_model(session, provider)
         loop = self._sessions.get(chat_id)
         if loop is None or loop._config.provider != provider.id:
             loop = await build_agent_loop(
                 await self._pm.get_adapter(provider.id),
                 session_id=chat_id,
-                model=session.config.model if session is not None else provider.default_model,
+                model=resolved_model,
                 provider=provider.id,
                 system_prompt=session.config.system_prompt if session is not None else None,
                 agent_runtime=self._agent_runtime,
@@ -171,7 +174,7 @@ class FeishuMessageHandler:
         if session is None:
             loop._messages = []  # noqa: SLF001
             return loop
-        self._restore_loop(loop, session, provider.id)
+        self._restore_loop(loop, session, provider.id, resolved_model)
         return loop
 
     async def _handle_slash_command(self, chat_id: str, message_id: str, text: str) -> None:
@@ -195,7 +198,7 @@ class FeishuMessageHandler:
             task_queue=self._task_queue,
         )
         result = await loop.run(input_text)
-        content = getattr(result, "content", "") or str(result)
+        content = resolve_reply_text(result)
         await self._reply_loop_result(loop, message_id, content)
 
     async def _reply_loop_result(self, loop: AgentLoop, message_id: str, content: str) -> None:
@@ -215,6 +218,7 @@ class FeishuMessageHandler:
                 model=loop._config.model,
                 provider=loop._config.provider,
                 system_prompt=loop._config.system_prompt,
+                max_tokens=16384,
                 title="飞书对话",
             )
             await self._store.save_messages(chat_id, loop.messages)
@@ -229,9 +233,9 @@ class FeishuMessageHandler:
         return lock
 
     @staticmethod
-    def _restore_loop(loop: AgentLoop, session: Session, provider_id: str) -> None:
+    def _restore_loop(loop: AgentLoop, session: Session, provider_id: str, resolved_model: str) -> None:
         system_prompt = session.config.system_prompt or loop._config.system_prompt
-        loop._config.model = session.config.model or loop._config.model
+        loop._config.model = resolved_model or loop._config.model
         loop._config.provider = provider_id
         loop._config.system_prompt = system_prompt
         loop._messages = restore_messages(session.messages, system_prompt) if session.messages else []  # noqa: SLF001

@@ -20,7 +20,7 @@ class SessionRecord(Base):
     provider: Mapped[str] = mapped_column(String(100), nullable=False)
     system_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="idle", nullable=False)
-    max_tokens: Mapped[int] = mapped_column(Integer, default=4096, nullable=False)
+    max_tokens: Mapped[int] = mapped_column(Integer, default=10000, nullable=False)
     temperature: Mapped[float] = mapped_column(Float, default=0.7, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     messages: Mapped[list["MessageRecord"]] = relationship(

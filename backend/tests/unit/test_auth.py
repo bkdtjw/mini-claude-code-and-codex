@@ -9,6 +9,7 @@ from backend.api.app import create_app
 from backend.api.routes import mcp as mcp_routes
 from backend.common.types import MCPServerStatus
 from backend.config.settings import settings
+from backend.core.s05_skills import SpecRegistry
 
 
 class FakeMCPManager:
@@ -44,7 +45,15 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
     async def _noop_init_db() -> None:
         return None
 
+    async def _noop_init_agent_runtime(**_kwargs: object) -> tuple[SpecRegistry, None]:
+        return SpecRegistry(), None
+
+    def _noop_init_task_queue(*_args: object, **_kwargs: object) -> None:
+        return None
+
     monkeypatch.setattr("backend.api.app.init_db", _noop_init_db)
+    monkeypatch.setattr("backend.api.app.init_agent_runtime", _noop_init_agent_runtime)
+    monkeypatch.setattr("backend.api.app.init_task_queue", _noop_init_task_queue)
     monkeypatch.setattr(mcp_routes, "mcp_server_manager", FakeMCPManager())
     with TestClient(create_app()) as test_client:
         yield test_client

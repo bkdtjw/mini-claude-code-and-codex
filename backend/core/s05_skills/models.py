@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 _SPEC_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
-class AgentCategory(str, Enum):
+class AgentCategory(StrEnum):
     CODING = "coding"
     CHAT = "chat"
     RESEARCH = "research"
@@ -28,6 +28,7 @@ class ToolConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     allowed_tools: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(default_factory=list)
     tool_overrides: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         alias="tool_config",

@@ -29,13 +29,14 @@ from .logging_support import (
 )
 
 logger = adapter_logger("anthropic_adapter")
+_REQUEST_TIMEOUT_SECONDS = 120.0
 
 
 class AnthropicAdapter(LLMAdapter):
     def __init__(self, config: ProviderConfig) -> None:
         base_url = config.base_url.rstrip("/") if config.base_url else "https://api.anthropic.com/v1"
         self._api_key = config.api_key
-        self._url = base_url if base_url.endswith("/messages") else f"{base_url}/messages"
+        self._url = self._messages_url(base_url)
         self._provider = config.provider_type.value
         self._default_model = config.default_model
         self._extra_headers = dict(config.extra_headers)
@@ -65,7 +66,7 @@ class AnthropicAdapter(LLMAdapter):
         started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="complete")
         for attempt in range(1, self._max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
+                async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, trust_env=load_http_client_config().trust_env) as client:
                     response = await client.post(self._url, headers=self._headers(), json=payload)
                 if self._is_retryable_status(response.status_code) and attempt < self._max_retries:
                     log_llm_request_retry(
@@ -107,7 +108,7 @@ class AnthropicAdapter(LLMAdapter):
         started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="stream")
         try:
             for attempt in range(1, self._max_retries + 1):
-                async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
+                async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, trust_env=load_http_client_config().trust_env) as client:
                     async with client.stream("POST", self._url, headers=self._headers(), json=payload) as response:
                         if response.status_code == 429 and attempt < self._max_retries:
                             log_llm_request_retry(logger, attempt=attempt, provider=self._provider, request_type="stream", reason="HTTP 429", status_code=429)
@@ -149,6 +150,14 @@ class AnthropicAdapter(LLMAdapter):
 
     def _headers(self) -> dict[str, str]:
         return build_headers(self._api_key, self._extra_headers)
+
+    @staticmethod
+    def _messages_url(base_url: str) -> str:
+        if base_url.endswith("/messages"):
+            return base_url
+        if base_url.endswith("/v1"):
+            return f"{base_url}/messages"
+        return f"{base_url}/v1/messages"
 
     def _to_anthropic_messages(self, messages: list[Message]) -> list[dict[str, object]]:
         return to_anthropic_messages(messages)

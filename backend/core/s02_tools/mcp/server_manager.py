@@ -8,9 +8,9 @@ from backend.common.errors import AgentError
 from backend.common.types import MCPServerConfig, MCPServerStatus, MCPToolInfo
 from backend.storage import MCPServerStore
 
+from . import server_manager_support as support
 from .client import MCPClient
 from .lifecycle import create_connected_client, safe_disconnect
-from .server_manager_support import DEFAULT_MCP_SEED_PATH, build_status, connect_server_state, disconnect_server_state, load_server_seed, missing_status, require_server
 
 
 class MCPServerManager:
@@ -20,7 +20,7 @@ class MCPServerManager:
         client_factory: Callable[[MCPServerConfig], MCPClient] | None = None,
         store: MCPServerStore | None = None,
     ) -> None:
-        self._seed_path = Path(config_path) if config_path else DEFAULT_MCP_SEED_PATH
+        self._seed_path = Path(config_path) if config_path else support.DEFAULT_MCP_SEED_PATH
         self._store = store or MCPServerStore()
         self._client_factory = client_factory or MCPClient
         self._servers: dict[str, MCPServerConfig] = {}
@@ -85,7 +85,10 @@ class MCPServerManager:
         try:
             await self._ensure_initialized()
             async with self._lock:
-                return [build_status(config, self._clients, self._tool_cache) for config in self._servers.values()]
+                return [
+                    support.build_status(config, self._clients, self._tool_cache)
+                    for config in self._servers.values()
+                ]
         except Exception as exc:
             raise AgentError("MCP_LIST_SERVERS_ERROR", str(exc)) from exc
 
@@ -101,7 +104,7 @@ class MCPServerManager:
         try:
             await self._ensure_initialized()
             async with self._lock:
-                await connect_server_state(
+                await support.connect_server_state(
                     server_id,
                     self._servers,
                     self._clients,
@@ -119,7 +122,7 @@ class MCPServerManager:
             await self._ensure_initialized()
             async with self._lock:
                 for server_id in list(self._clients):
-                    await disconnect_server_state(
+                    await support.disconnect_server_state(
                         server_id,
                         self._servers,
                         self._clients,
@@ -135,7 +138,7 @@ class MCPServerManager:
         try:
             await self._ensure_initialized()
             async with self._lock:
-                config = require_server(server_id, self._servers)
+                config = support.require_server(server_id, self._servers)
                 client, tools = await create_connected_client(self._client_factory, config)
                 old_client = self._clients.pop(server_id, None)
                 if old_client is not None:
@@ -143,17 +146,17 @@ class MCPServerManager:
                 self._clients[server_id] = client
                 self._tool_cache[server_id] = tools
                 self._bump_version()
-                return build_status(config, self._clients, self._tool_cache)
+                return support.build_status(config, self._clients, self._tool_cache)
         except AgentError:
             raise
         except Exception as exc:
             raise AgentError("MCP_CONNECT_SERVER_ERROR", str(exc)) from exc
 
-    async def disconnect_server(self, server_id: str, ignore_missing: bool = False) -> MCPServerStatus:
+    async def disconnect_server(self, server_id: str, ignore_missing: bool = False) -> MCPServerStatus:  # noqa: E501
         try:
             await self._ensure_initialized()
             async with self._lock:
-                status = await disconnect_server_state(
+                status = await support.disconnect_server_state(
                     server_id,
                     self._servers,
                     self._clients,
@@ -161,14 +164,14 @@ class MCPServerManager:
                     ignore_missing=ignore_missing,
                 )
                 self._bump_version()
-                return status or missing_status(server_id)
+                return status or support.missing_status(server_id)
         except AgentError:
             raise
         except Exception as exc:
             raise AgentError("MCP_DISCONNECT_SERVER_ERROR", str(exc)) from exc
 
     def _load_json_seed(self) -> list[MCPServerConfig]:
-        return load_server_seed(self._seed_path)
+        return support.load_server_seed(self._seed_path)
 
     async def _ensure_initialized(self) -> None:
         try:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import markdown as md_lib
 from fastapi import APIRouter
@@ -16,6 +17,7 @@ from fastapi.responses import HTMLResponse
 router = APIRouter(tags=["reports"])
 
 _REPORTS_DIR = Path(os.getcwd()) / "reports"
+_BEIJING = ZoneInfo("Asia/Shanghai")
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -26,7 +28,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{
-    font-family: -apple-system, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: -apple-system, "SF Pro Text", "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
     background: #f0f2f5; color: #1a1a1a; line-height: 1.8; min-height: 100vh;
   }}
   .container {{ max-width: 780px; margin: 0 auto; padding: 2rem 1rem; }}
@@ -46,7 +49,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     gap: 1rem; margin-bottom: 1.5rem;
   }}
   .meta-item {{ padding: 0.75rem 1rem; background: #f8f9fb; border-radius: 8px; }}
-  .meta-item .label {{ font-size: 0.75rem; color: #8c8c8c; text-transform: uppercase; letter-spacing: 0.5px; }}
+  .meta-item .label {{ font-size: 0.75rem; color: #8c8c8c;
+    text-transform: uppercase; letter-spacing: 0.5px; }}
   .meta-item .value {{ font-size: 0.95rem; font-weight: 500; margin-top: 0.2rem; }}
   .status-badge {{
     display: inline-block; padding: 0.2rem 0.75rem; border-radius: 20px;
@@ -67,7 +71,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   td {{ padding: 0.6rem 0.8rem; border-bottom: 1px solid #f0f0f0; }}
   tr:hover td {{ background: #fafbfc; }}
   code {{ background: #f1f3f5; padding: 0.15rem 0.45rem; border-radius: 4px;
-          font-size: 0.88em; color: #d63384; font-family: "SF Mono", "Fira Code", Menlo, monospace; }}
+          font-size: 0.88em; color: #d63384;
+          font-family: "SF Mono", "Fira Code", Menlo, monospace; }}
   pre {{
     background: #1e1e2e; color: #cdd6f4; padding: 1.25rem 1.5rem; border-radius: 10px;
     overflow-x: auto; margin: 1rem 0; font-size: 0.85rem; line-height: 1.6;
@@ -130,7 +135,7 @@ async def render_report(filepath: str) -> HTMLResponse:
     body = body.replace("<hr>", '</div><div class="card">')
     body = f'<div class="card">{body}</div>'
     title = target.stem
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    generated_at = datetime.now(_BEIJING).strftime("%Y-%m-%d %H:%M")
     html = _HTML_TEMPLATE.format(title=title, body=body, generated_at=generated_at)
     return HTMLResponse(content=html)
 
@@ -140,5 +145,5 @@ def _error_page(title: str, message: str) -> str:
         title=title,
         body=f'<div class="card" style="text-align:center;padding:3rem;">'
              f'<h2>{title}</h2><p style="color:#888;margin-top:0.5rem;">{message}</p></div>',
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        generated_at=datetime.now(_BEIJING).strftime("%Y-%m-%d %H:%M"),
     )

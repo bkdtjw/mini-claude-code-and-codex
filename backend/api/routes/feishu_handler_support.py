@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from backend.common.types import Message, ProviderConfig, Session
 from backend.common.logging import bound_log_context, get_log_context, new_trace_id
 
 
@@ -34,4 +35,32 @@ def parse_slash_command(text: str) -> tuple[str, str]:
     return spec_id, input_text
 
 
-__all__ = ["build_feishu_log_context", "extract_text", "parse_slash_command"]
+def resolve_session_model(session: Session | None, provider: ProviderConfig) -> str:
+    if session is None:
+        return provider.default_model
+    session_model = session.config.model.strip()
+    if not session_model:
+        return provider.default_model
+    if session.config.provider.strip() == provider.id:
+        return session_model
+    allowed_models = set(provider.available_models)
+    allowed_models.add(provider.default_model)
+    return session_model if session_model in allowed_models else provider.default_model
+
+
+def resolve_reply_text(result: Any) -> str:
+    content = getattr(result, "content", "")
+    if isinstance(content, str) and content:
+        return content
+    if isinstance(result, Message):
+        return "模型返回了空响应，请重试。"
+    return str(result)
+
+
+__all__ = [
+    "build_feishu_log_context",
+    "extract_text",
+    "parse_slash_command",
+    "resolve_reply_text",
+    "resolve_session_model",
+]

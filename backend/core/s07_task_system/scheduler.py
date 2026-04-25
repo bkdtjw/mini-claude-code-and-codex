@@ -7,6 +7,7 @@ from backend.common.logging import get_logger
 from backend.common.metrics import incr
 
 from .executor import TaskExecutor
+from .executor_errors import TaskExecutionError
 from .models import ScheduledTask
 from .runtime_state import SchedulerRuntimeState
 from .schedule_utils import get_next_run_at, get_scheduled_minute_key
@@ -105,6 +106,9 @@ class TaskScheduler:
             await self._store.update_run_status(task.id, "error", "Execution timed out (10min)")
             await incr("task_failures")
             logger.error("task_execute_timeout", task_id=task.id, task_name=task.name, timeout_seconds=600)
+        except TaskExecutionError as exc:
+            await self._store.update_run_status(task.id, "error", (exc.output or exc.message)[:500])
+            logger.error("task_execute_failed", task_id=task.id, task_name=task.name, error=exc.message)
         except Exception:
             import traceback
             msg = traceback.format_exc()[:500]

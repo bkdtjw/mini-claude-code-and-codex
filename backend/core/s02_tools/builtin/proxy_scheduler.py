@@ -187,7 +187,7 @@ class ChainScheduler:
     def _record(self, from_node: str, to_node: str, reason: str, delay: int, source: str) -> None:
         self._history.append(
             {
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "time": now_text(),
                 "from": from_node,
                 "to": to_node,
                 "reason": reason,

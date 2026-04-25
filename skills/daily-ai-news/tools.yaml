@@ -2,4 +2,5 @@ allowed_tools:
   - Read
   - Bash
   - x_search
-  - feishu_notify
+  - youtube_search
+  - spawn_agent

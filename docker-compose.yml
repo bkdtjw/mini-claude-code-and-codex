@@ -24,6 +24,7 @@ services:
     volumes:
       - ./data/logs:/app/data/logs
       - ./reports:/app/reports
+      - ./dist/frontend:/app/dist/frontend:ro
       # Twitter/X cookies for authentication (optional - omit if not using X search)
       # The twikit library reads and writes to this file, so mount is read-write
       - ./twitter_cookies.json:/app/twitter_cookies.json
@@ -33,3 +34,31 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+  sub-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+    container_name: agent-studio-sub-worker
+    env_file:
+      - .env
+    environment:
+      API_PORT: "8000"
+      HTTP_PROXY: ${HTTP_PROXY:-http://127.0.0.1:7890}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://127.0.0.1:7890}
+      ALL_PROXY: ${ALL_PROXY:-socks5://127.0.0.1:7890}
+      NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
+      http_proxy: ${HTTP_PROXY:-http://127.0.0.1:7890}
+      https_proxy: ${HTTPS_PROXY:-http://127.0.0.1:7890}
+      all_proxy: ${ALL_PROXY:-socks5://127.0.0.1:7890}
+      no_proxy: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
+    entrypoint: ["python", "-m", "backend.sub_worker"]
+    command: []
+    network_mode: host
+    depends_on:
+      - app
+    restart: unless-stopped
+    volumes:
+      - ./data/logs:/app/data/logs
+      - ./reports:/app/reports
+      - ./twitter_cookies.json:/app/twitter_cookies.json

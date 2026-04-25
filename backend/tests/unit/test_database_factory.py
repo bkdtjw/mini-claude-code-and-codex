@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
-
 import pytest
 from sqlalchemy.engine import make_url
-from sqlalchemy.pool import StaticPool
 
 from backend.common.errors import AgentError
 from backend.storage import database
@@ -17,21 +13,13 @@ class FakeAsyncEngine:
         self.sync_engine = object()
 
 
-def test_build_session_factory_sqlite_memory() -> None:
-    engine, _ = database.build_session_factory("sqlite+aiosqlite:///:memory:")
-    try:
-        assert isinstance(engine.sync_engine.pool, StaticPool)
-    finally:
-        asyncio.run(engine.dispose())
-
-
-def test_build_session_factory_sqlite_file(tmp_path: Path) -> None:
-    db_path = tmp_path / "nested" / "agent_studio.db"
-    engine, _ = database.build_session_factory(f"sqlite+aiosqlite:///{db_path}")
-    try:
-        assert db_path.parent.exists()
-    finally:
-        asyncio.run(engine.dispose())
+@pytest.mark.parametrize(
+    "database_url",
+    ["sqlite+aiosqlite:///:memory:", "sqlite+aiosqlite:///tmp/agent_studio.db"],
+)
+def test_build_session_factory_rejects_sqlite(database_url: str) -> None:
+    with pytest.raises(AgentError, match="DB_UNSUPPORTED_BACKEND"):
+        database.build_session_factory(database_url)
 
 
 def test_build_session_factory_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,18 +67,11 @@ def test_build_session_factory_unsupported() -> None:
         database.build_session_factory("mysql+aiomysql://agent:password@localhost:3306/agent_studio")
 
 
-def test_sqlite_pragma_not_registered_for_pg(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = 0
+def test_build_session_factory_returns_postgres_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = FakeAsyncEngine("postgresql+asyncpg://agent:password@localhost:5432/agent_studio")
     monkeypatch.setattr(database, "create_async_engine", lambda *_args, **_kwargs: fake_engine)
     monkeypatch.setattr(database, "async_sessionmaker", lambda *_args, **_kwargs: object())
-
-    def fake_register_sqlite_pragma(_engine: object) -> None:
-        nonlocal calls
-        calls += 1
-
-    monkeypatch.setattr(database, "_register_sqlite_pragma", fake_register_sqlite_pragma)
-
-    database.build_session_factory("postgresql+asyncpg://agent:password@localhost:5432/agent_studio")
-
-    assert calls == 0
+    engine, _ = database.build_session_factory(
+        "postgresql+asyncpg://agent:password@localhost:5432/agent_studio"
+    )
+    assert engine is fake_engine

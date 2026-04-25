@@ -173,7 +173,11 @@ async def handle_command(
                     try:
                         from backend.adapters.provider_manager import ProviderManager
                         from backend.core.s02_tools.mcp import MCPServerManager
-                        from backend.core.s07_task_system import TaskExecutor, TaskExecutorDeps
+                        from backend.core.s07_task_system import (
+                            TaskExecutionError,
+                            TaskExecutor,
+                            TaskExecutorDeps,
+                        )
 
                         executor = TaskExecutor(
                             TaskExecutorDeps(
@@ -186,6 +190,9 @@ async def handle_command(
                         result = await executor.execute(task)
                         await task_store.update_run_status(task.id, "success", result[:500])
                         printer.print_info(f"[info] 任务执行完成：\n{result[:2000]}")
+                    except TaskExecutionError as exc:
+                        await task_store.update_run_status(task.id, "error", (exc.output or exc.message)[:500])
+                        printer.print_info(f"[error] 执行失败：{exc.message}")
                     except Exception as exc:
                         printer.print_info(f"[error] 执行失败：{exc}")
                     return CliCommandResult(session=session)
