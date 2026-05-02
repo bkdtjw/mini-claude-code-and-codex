@@ -9,25 +9,44 @@ services:
       - .env
     environment:
       API_PORT: "8000"
-      HTTP_PROXY: ${HTTP_PROXY:-http://127.0.0.1:7890}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://127.0.0.1:7890}
-      ALL_PROXY: ${ALL_PROXY:-socks5://127.0.0.1:7890}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_STDOUT: ${LOG_STDOUT:-1}
+      LOG_FILE_ENABLED: ${LOG_FILE_ENABLED:-1}
+      LOG_FILE_SCOPE: ${LOG_FILE_SCOPE:-worker}
+      LOG_SEARCH_BACKEND: ${LOG_SEARCH_BACKEND:-file}
+      LOG_SEARCH_FALLBACK: ${LOG_SEARCH_FALLBACK:-file}
+      LOKI_BASE_URL: ${LOKI_BASE_URL:-http://127.0.0.1:3100}
+      LOKI_APP_LABEL: ${LOKI_APP_LABEL:-agent-studio}
       NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
-      http_proxy: ${HTTP_PROXY:-http://127.0.0.1:7890}
-      https_proxy: ${HTTPS_PROXY:-http://127.0.0.1:7890}
-      all_proxy: ${ALL_PROXY:-socks5://127.0.0.1:7890}
       no_proxy: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
+      # Proxy config: write generated config to /app/data (writable), read sources from /app (ro mounts)
+      MIHOMO_CONFIG_PATH: /app/data/config.yaml
+      MIHOMO_SUB_PATH: /app/sub_raw.yaml
+      MIHOMO_CUSTOM_NODES_PATH: /app/custom_nodes.yaml
+      MIHOMO_WORK_DIR: /app/data
     entrypoint:
       - /app/entrypoint.sh
     network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     restart: unless-stopped
     volumes:
+      - ./backend:/app/backend
       - ./data/logs:/app/data/logs
       - ./reports:/app/reports
       - ./dist/frontend:/app/dist/frontend:ro
       # Twitter/X cookies for authentication (optional - omit if not using X search)
       # The twikit library reads and writes to this file, so mount is read-write
       - ./twitter_cookies.json:/app/twitter_cookies.json
+      # Proxy config files for mihomo tools
+      - /usr/local/bin/mihomo:/usr/local/bin/mihomo:ro
+      - ./sub_raw.yaml:/app/sub_raw.yaml:ro
+      - ./custom_nodes.yaml:/app/custom_nodes.yaml:ro
+      - ./proxy-config.yaml:/app/proxy-config.yaml:ro
+      # GeoIP database to avoid mihomo downloading it at startup
+      - /etc/mihomo/geoip.metadb:/app/data/geoip.metadb:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/ready"]
       interval: 30s
@@ -44,13 +63,12 @@ services:
       - .env
     environment:
       API_PORT: "8000"
-      HTTP_PROXY: ${HTTP_PROXY:-http://127.0.0.1:7890}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://127.0.0.1:7890}
-      ALL_PROXY: ${ALL_PROXY:-socks5://127.0.0.1:7890}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_STDOUT: ${LOG_STDOUT:-1}
+      LOG_FILE_ENABLED: ${LOG_FILE_ENABLED:-1}
+      LOG_FILE_SCOPE: ${LOG_FILE_SCOPE:-worker}
+      LOKI_APP_LABEL: ${LOKI_APP_LABEL:-agent-studio}
       NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
-      http_proxy: ${HTTP_PROXY:-http://127.0.0.1:7890}
-      https_proxy: ${HTTPS_PROXY:-http://127.0.0.1:7890}
-      all_proxy: ${ALL_PROXY:-socks5://127.0.0.1:7890}
       no_proxy: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
     entrypoint: ["python", "-m", "backend.sub_worker"]
     command: []
@@ -59,6 +77,45 @@ services:
       - app
     restart: unless-stopped
     volumes:
+      - ./backend:/app/backend
       - ./data/logs:/app/data/logs
       - ./reports:/app/reports
       - ./twitter_cookies.json:/app/twitter_cookies.json
+      # Proxy config files for mihomo tools
+      - /usr/local/bin/mihomo:/usr/local/bin/mihomo:ro
+      - ./sub_raw.yaml:/app/sub_raw.yaml:ro
+      - ./config.yaml:/app/config.yaml:ro
+      - ./custom_nodes.yaml:/app/custom_nodes.yaml:ro
+      - ./proxy-config.yaml:/app/proxy-config.yaml:ro
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_studio}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-agent} -d $${POSTGRES_DB:-agent_studio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

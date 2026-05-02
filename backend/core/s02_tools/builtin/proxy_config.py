@@ -42,8 +42,11 @@ class ProxyConfigGenerator:
             self._config_path.parent.mkdir(parents=True, exist_ok=True)
             if self._backup and self._config_path.exists():
                 backup_path = Path(f"{self._config_path}.bak")
-                shutil.copy2(self._config_path, backup_path)
-                self._last_backup_path = str(backup_path)
+                try:
+                    shutil.copy2(self._config_path, backup_path)
+                    self._last_backup_path = str(backup_path)
+                except OSError:
+                    pass  # 无权限写备份时跳过，继续写入配置
             with open(self._config_path, "w", encoding="utf-8") as handle:
                 handle.write(_dump_yaml(config))
             self._verify_saved_config()
@@ -121,7 +124,26 @@ class ProxyConfigGenerator:
             ],
             "nameserver": ["https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"],
             "fallback": ["https://1.0.0.1/dns-query", "https://8.8.4.4/dns-query"],
-            "fallback-filter": {"geoip": True, "geoip-code": "CN"},
+            "fallback-filter": {"ipcidr": ["240.0.0.0/4"]},
+        }
+
+    @staticmethod
+    def default_tun_config() -> dict[str, Any]:
+        return {
+            "enable": True,
+            "stack": "system",
+            "device": "tun0",
+            "auto-route": True,
+            "auto-redirect": True,
+            "auto-detect-interface": True,
+            "dns-hijack": ["any:53", "tcp://any:53"],
+            "inet4-address": "198.19.0.1/16",
+            "route-exclude-address": [
+                "172.28.0.0/16",
+                "172.17.0.0/16",
+                "172.18.0.0/16",
+                "127.0.0.0/8",
+            ],
         }
 
     @staticmethod
@@ -136,6 +158,8 @@ class ProxyConfigGenerator:
             "unified-delay": True,
             "keep-alive-interval": 30,
             "find-process-mode": "strict",
+            "geo-auto-update": False,
+            "tun": ProxyConfigGenerator.default_tun_config(),
         }
 
     def _verify_saved_config(self) -> None:
