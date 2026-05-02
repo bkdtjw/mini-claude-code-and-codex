@@ -96,6 +96,18 @@ def serialize_session_for_client(session: Session, messages: list[Message]) -> d
     return payload
 
 
+def tool_result_payload(message_type: str, data: ToolResult) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "type": message_type,
+        "tool_call_id": data.tool_call_id,
+        "output": data.output,
+        "is_error": data.is_error,
+    }
+    if data.diffs:
+        payload["diffs"] = [diff.model_dump(mode="json") for diff in data.diffs]
+    return payload
+
+
 def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
     data = event.data
     if event.type == "status_change":
@@ -109,21 +121,9 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
     if event.type == "tool_call" and isinstance(data, ToolCall):
         return {"type": "tool_call", "id": data.id, "name": data.name, "arguments": data.arguments}
     if event.type == "tool_result" and isinstance(data, ToolResult):
-        return {
-            "type": "tool_result",
-            "tool_call_id": data.tool_call_id,
-            "output": data.output,
-            "is_error": data.is_error,
-            "diffs": [diff.model_dump(mode="json") for diff in data.diffs],
-        }
+        return tool_result_payload("tool_result", data)
     if event.type == "security_reject" and isinstance(data, ToolResult):
-        return {
-            "type": "security_reject",
-            "tool_call_id": data.tool_call_id,
-            "output": data.output,
-            "is_error": data.is_error,
-            "diffs": [diff.model_dump(mode="json") for diff in data.diffs],
-        }
+        return tool_result_payload("security_reject", data)
     if event.type == "sub_agent_spawned" and isinstance(data, dict):
         return {
             "type": "sub_agent_spawned",
@@ -184,4 +184,5 @@ __all__ = [
     "run_loop",
     "serialize_message_for_client",
     "serialize_session_for_client",
+    "tool_result_payload",
 ]
