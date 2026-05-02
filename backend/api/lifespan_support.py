@@ -8,6 +8,7 @@ from backend.common.logging import get_worker_id
 from backend.config import get_redis
 from backend.core import create_sub_agent_task_queue
 from backend.core.task_queue import TaskQueue
+from backend.storage import SubAgentTaskStore
 from backend.storage.database import engine
 
 
@@ -16,7 +17,7 @@ def init_task_queue(app: FastAPI) -> TaskQueue:
         redis = get_redis()
         if redis is None:
             raise AgentError("TASK_QUEUE_REDIS_MISSING", "Redis client is not initialized.")
-        queue = create_sub_agent_task_queue(redis)
+        queue = create_sub_agent_task_queue(redis, persistence=SubAgentTaskStore())
         app.state.task_queue = queue
         app.state.worker_id = get_worker_id()
         return queue

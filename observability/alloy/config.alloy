@@ -1,0 +1,72 @@
+discovery.docker "agent_studio" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "agent_studio" {
+  targets = discovery.docker.agent_studio.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/agent-studio-(app|sub-worker)"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "agent_studio" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.agent_studio.output
+  labels           = {app = "agent-studio"}
+  refresh_interval = "10s"
+  forward_to       = [loki.process.agent_studio.receiver]
+}
+
+loki.process "agent_studio" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.json {
+    expressions = {
+      level      = "level",
+      component  = "component",
+      event      = "event",
+      trace_id   = "trace_id",
+      session_id = "session_id",
+      worker_id  = "worker_id",
+      error_code = "error_code",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level     = "",
+      component = "",
+      event     = "",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      trace_id   = "",
+      session_id = "",
+      worker_id  = "",
+      error_code = "",
+    }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

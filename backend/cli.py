@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from typing import Sequence
+
+
+def _configure_cli_logging_env() -> None:
+    os.environ.setdefault("LOG_STDOUT", "0")
+    os.environ.setdefault("LOG_FILE_DIR", "/tmp/agent-studio-logs")
+
+
+_configure_cli_logging_env()
 
 from backend.cli_support import CliError, CliPrinter, create_session, parse_args, run_repl
 from backend.common.errors import AgentError, LLMError

@@ -14,6 +14,9 @@ from .log_file_support import build_file_handler
 
 _WORKER_ID = f"worker-{os.getpid()}-{uuid4().hex[:8]}"
 _LOGGING_CONFIGURED = False
+_FALSE_VALUES = {"0", "false", "no", "off"}
+_SENSITIVE_KEY_PARTS = ("api_key", "authorization", "cookie", "password", "secret", "token")
+_REDACTED = "[redacted]"
 
 
 class _StdoutProxy:
@@ -39,6 +42,7 @@ def setup_logging(log_level: str = "INFO") -> None:
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
+        redact_sensitive_fields,
     ]
     renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
     if os.getenv("LOG_FORMAT", "json").strip().lower() == "console":
@@ -63,15 +67,50 @@ def setup_logging(log_level: str = "INFO") -> None:
             renderer,
         ],
     )
-    stdout_handler = logging.StreamHandler(_StdoutProxy())
-    stdout_handler.setFormatter(formatter)
-    file_handler = build_file_handler(formatter)
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
-    root_logger.addHandler(stdout_handler)
-    root_logger.addHandler(file_handler)
+    if _stdout_logging_enabled():
+        stdout_handler = logging.StreamHandler(_StdoutProxy())
+        stdout_handler.setFormatter(formatter)
+        root_logger.addHandler(stdout_handler)
+    if _file_logging_enabled():
+        root_logger.addHandler(build_file_handler(formatter, get_worker_id()))
     root_logger.setLevel(getattr(logging, log_level.strip().upper(), logging.INFO))
     _LOGGING_CONFIGURED = True
+
+
+def _stdout_logging_enabled() -> bool:
+    return os.getenv("LOG_STDOUT", "1").strip().lower() not in _FALSE_VALUES
+
+
+def _file_logging_enabled() -> bool:
+    return os.getenv("LOG_FILE_ENABLED", "1").strip().lower() not in _FALSE_VALUES
+
+
+def redact_sensitive_fields(
+    _logger: Any,
+    _method_name: str,
+    event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    return {key: _redact_value(key, value) for key, value in event_dict.items()}
+
+
+def _redact_value(key: str, value: Any) -> Any:
+    if _is_sensitive_key(key):
+        return _REDACTED
+    if isinstance(value, dict):
+        return {
+            item_key: _redact_value(str(item_key), item_value)
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_value(key, item) for item in value]
+    return value
+
+
+def _is_sensitive_key(key: str) -> bool:
+    key_lower = key.lower()
+    return any(part in key_lower for part in _SENSITIVE_KEY_PARTS)
 
 
 def get_logger(**initial_values: Any) -> structlog.stdlib.BoundLogger:
@@ -102,5 +141,6 @@ __all__ = [
     "get_logger",
     "get_worker_id",
     "new_trace_id",
+    "redact_sensitive_fields",
     "setup_logging",
 ]

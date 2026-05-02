@@ -13,10 +13,19 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
 }
 
+export type DiffChangeType = "create" | "modify" | "delete";
+
+export interface FileDiff {
+  path: string;
+  unifiedDiff: string;
+  changeType: DiffChangeType;
+}
+
 export interface ToolResult {
   toolCallId: string;
   output: string;
   isError: boolean;
+  diffs?: FileDiff[];
 }
 
 export type AgentStatus = "idle" | "thinking" | "tool_calling" | "done" | "error";
@@ -91,6 +100,10 @@ export interface LogSearchParams {
   traceId?: string;
   sessionId?: string;
   level?: LogLevel | "";
+  event?: string;
+  component?: string;
+  workerId?: string;
+  errorCode?: string;
   limit?: number;
   minutes?: number;
 }
@@ -109,8 +122,8 @@ export type WsIncoming =
   | { type: "status"; status: AgentStatus }
   | { type: "message"; content: string; toolCalls?: ToolCall[] }
   | { type: "tool_call"; id: string; name: string; arguments: Record<string, unknown> }
-  | { type: "tool_result"; toolCallId: string; output: string; isError: boolean }
-  | { type: "security_reject"; toolCallId: string; output: string; isError: boolean }
+  | { type: "tool_result"; toolCallId: string; output: string; isError: boolean; diffs?: FileDiff[] }
+  | { type: "security_reject"; toolCallId: string; output: string; isError: boolean; diffs?: FileDiff[] }
   | { type: "text"; content: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };

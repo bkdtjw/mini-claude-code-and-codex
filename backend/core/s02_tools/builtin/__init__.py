@@ -17,6 +17,9 @@ from backend.core.s04_sub_agents import (
 from .bash import create_bash_tool
 from .dispatch_agent import create_dispatch_agent_tool
 from .feishu_notify import create_feishu_notify_tool
+from .file_edit import create_file_edit_tool, create_str_replace_tool
+from .file_glob import create_glob_tool
+from .file_grep import create_grep_tool
 from .file_read import create_read_tool
 from .file_write import create_write_tool
 
@@ -48,11 +51,18 @@ def register_builtin_tools(
     task_queue: TaskQueue | None = None,
     event_handler: AgentEventHandler | None = None,
     is_sub_agent: bool = False,
+    parent_task_id: str = "",
 ) -> None:
     """根据权限模式注册不同的工具集。"""
-    tools = [create_read_tool(workspace)] if workspace else []
+    tools = (
+        [create_read_tool(workspace), create_glob_tool(workspace), create_grep_tool(workspace)]
+        if workspace
+        else []
+    )
 
     if workspace and mode in ("auto", "full"):
+        tools.append(create_str_replace_tool(workspace))
+        tools.append(create_file_edit_tool(workspace))
         tools.append(create_write_tool(workspace))
         tools.append(create_bash_tool(workspace))
         if adapter is not None and not is_sub_agent:
@@ -131,6 +141,31 @@ def register_builtin_tools(
             )
         except ImportError:
             pass
+        try:
+            from .collect_and_process import (
+                CollectAndProcessConfig,
+                create_collect_and_process_tool,
+            )
+            from .x_client import XClientConfig
+
+            tools.append(
+                create_collect_and_process_tool(
+                    CollectAndProcessConfig(
+                        x_config=XClientConfig(
+                            username=resolved_twitter_username,
+                            email=resolved_twitter_email,
+                            password=resolved_twitter_password,
+                            proxy_url=twitter_proxy_url or os.environ.get("TWITTER_PROXY_URL", ""),
+                            cookies_file=twitter_cookies_file
+                            or os.environ.get("TWITTER_COOKIES_FILE", "twitter_cookies.json"),
+                        ),
+                        youtube_api_key=resolved_youtube_api_key,
+                        youtube_proxy_url=youtube_proxy_url or os.environ.get("YOUTUBE_PROXY_URL", ""),
+                    )
+                )
+            )
+        except ImportError:
+            pass
 
     feishu_url = feishu_webhook_url or os.environ.get("FEISHU_WEBHOOK_URL", "")
     resolved_feishu_secret = feishu_secret or os.environ.get("FEISHU_WEBHOOK_SECRET", "")
@@ -167,6 +202,7 @@ def register_builtin_tools(
                     spec_registry=spec_registry,
                     workspace=workspace or "",
                     event_handler=event_handler,
+                    parent_task_id=parent_task_id,
                 )
             )
         )
@@ -192,7 +228,11 @@ def register_builtin_tools(
         )
         if mihomo_config_path:
             config_dir = Path(mihomo_config_path).resolve().parent
-            custom_nodes_path = str(config_dir / "custom_nodes.yaml")
+            custom_nodes_path = (
+                app_settings.mihomo_custom_nodes_path
+                or os.environ.get("MIHOMO_CUSTOM_NODES_PATH", "")
+                or str(config_dir / "custom_nodes.yaml")
+            )
             sub_path = app_settings.mihomo_sub_path or os.environ.get(
                 "MIHOMO_SUB_PATH",
                 str(config_dir / "sub_raw.yaml"),
@@ -248,7 +288,7 @@ def register_builtin_tools(
                     or os.environ.get("MIHOMO_WORK_DIR", "")
                     or str(config_dir),
                     sub_path=sub_path,
-                    custom_nodes_path=str(config_dir / "custom_nodes.yaml"),
+                    custom_nodes_path=custom_nodes_path,
                     api_url=proxy_api_url,
                     secret=proxy_api_secret,
                 )

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from inspect import isawaitable
-from time import monotonic
 
 from pydantic import BaseModel, Field
 
@@ -33,6 +31,7 @@ class SpawnAgentDeps:
     spec_registry: SpecRegistry
     workspace: str
     event_handler: AgentEventHandler | None = None
+    parent_task_id: str = ""
 
 
 @dataclass
@@ -68,32 +67,11 @@ def prepare_tasks(tasks: list[SpawnAgentTask], deps: SpawnAgentDeps) -> list[Pre
                     "input": task.input,
                     "timeout_seconds": timeout_seconds,
                     "workspace": deps.workspace,
+                    "parent_task_id": deps.parent_task_id,
                 },
             )
         )
     return prepared
-
-
-async def wait_for_prepared_tasks(
-    prepared: list[PreparedTask],
-    deps: SpawnAgentDeps,
-) -> list[TaskPayload]:
-    task_ids = [item.task_id for item in prepared]
-    waiter = asyncio.create_task(deps.task_queue.wait_for_tasks(task_ids, poll_interval=0.5))
-    observed: set[str] = set()
-    deadline = monotonic() + (max(item.timeout_seconds for item in prepared) * 2.0) + 30.0
-    while True:
-        statuses = await _poll_progress(prepared, observed, deps)
-        if len(observed) == len(prepared) and waiter.done():
-            return statuses
-        if waiter.done():
-            statuses = await waiter
-            await _emit_missing_events(prepared, statuses, observed, deps)
-            return statuses
-        if monotonic() >= deadline:
-            waiter.cancel()
-            raise TimeoutError("wait_for_tasks timed out")
-        await asyncio.sleep(0.5)
 
 
 def format_result(prepared: list[PreparedTask], statuses: list[TaskPayload]) -> ToolResult:
@@ -203,5 +181,4 @@ __all__ = [
     "emit_event",
     "format_result",
     "prepare_tasks",
-    "wait_for_prepared_tasks",
 ]

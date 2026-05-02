@@ -10,12 +10,12 @@ import httpx
 
 from backend.config.http_client import load_http_client_config
 
+from .youtube_log_filter import install_httpx_api_key_redaction
 from .youtube_transcript_client import fetch_subtitle_sync
 
 SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
-
-
+install_httpx_api_key_redaction()
 class YouTubeClientError(Exception):
     """YouTube client error."""
 

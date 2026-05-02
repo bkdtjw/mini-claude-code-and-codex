@@ -14,7 +14,7 @@ from backend.core.s05_skills import AgentRuntime, AgentRuntimeDeps, SkillLoader,
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
 from backend.core.sub_agent_queue import create_sub_agent_task_queue
 from backend.core.system_prompt import build_system_prompt
-from backend.storage import init_db
+from backend.storage import SubAgentTaskStore, init_db
 
 from .models import CliArgs, CliError, CliSession, CliState, SessionUpdate
 
@@ -85,7 +85,11 @@ async def create_session(
             )
         )
         redis = get_redis()
-        task_queue = create_sub_agent_task_queue(redis) if redis is not None else None
+        task_queue = (
+            create_sub_agent_task_queue(redis, persistence=SubAgentTaskStore())
+            if redis is not None
+            else None
+        )
         registry = _build_registry(
             CliState(
                 provider_id=provider.id,

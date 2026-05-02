@@ -130,10 +130,38 @@ class ToolExecutor:
         gate: SecurityGate,
     ) -> list[ToolResult]:
         try:
-            results: list[ToolResult] = []
-            for signed_call in signed_calls:
-                results.append(await self.execute_signed(signed_call, gate))
-            return results
+            ordered: list[ToolResult | None] = [None] * len(signed_calls)
+            verified: list[tuple[int, SignedToolCall]] = []
+            for index, signed_call in sorted(
+                enumerate(signed_calls), key=lambda item: item[1].sequence
+            ):
+                if gate.verify(signed_call):
+                    verified.append((index, signed_call))
+                    continue
+                ordered[index] = self._finalize_result(
+                    signed_call.tool_call,
+                    ToolResult(
+                        tool_call_id=signed_call.tool_call.id,
+                        output="HMAC verification failed",
+                        is_error=True,
+                    ),
+                )
+            executed = await asyncio.gather(
+                *(self.execute(signed_call.tool_call) for _, signed_call in verified),
+                return_exceptions=True,
+            )
+            for (index, signed_call), result in zip(verified, executed, strict=True):
+                if isinstance(result, Exception):
+                    result = self._finalize_result(
+                        signed_call.tool_call,
+                        ToolResult(
+                            tool_call_id=signed_call.tool_call.id,
+                            output=str(result),
+                            is_error=True,
+                        ),
+                    )
+                ordered[index] = result
+            return [result for result in ordered if result is not None]
         except Exception as exc:  # noqa: BLE001
             return [
                 self._finalize_result(

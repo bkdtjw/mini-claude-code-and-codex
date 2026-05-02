@@ -19,6 +19,7 @@ from backend.config import settings as app_settings
 from backend.core import init_agent_runtime
 from backend.storage import SessionStore, init_db
 
+from .middleware.request_trace import RequestTraceMiddleware
 from .lifespan_support import check_readiness, init_task_queue
 
 logger = get_logger(component="api_app")
@@ -140,6 +141,7 @@ def create_app() -> FastAPI:
     from backend.api.routes.reports import router as reports_router
 
     app = FastAPI(title="Agent Studio", version="0.1.0", lifespan=_lifespan)
+    app.add_middleware(RequestTraceMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

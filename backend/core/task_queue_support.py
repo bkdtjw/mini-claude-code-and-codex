@@ -20,8 +20,10 @@ class TaskQueueStore(Protocol):
     _task_ttl_seconds: int
 
     async def get_status(self, task_id: str) -> TaskPayload | None: ...
-    async def fail(self, task_id: str, error: str) -> None: ...
+    async def fail(self, task_id: str, error: str, worker_id: str = "") -> bool: ...
+    async def has_checkpoint(self, task_id: str) -> bool: ...
     async def _save_payload(self, payload: TaskPayload) -> None: ...
+    async def _task_ids(self) -> list[str]: ...
 
 
 async def wait_for_task_payloads(
@@ -47,21 +49,22 @@ async def recover_stale_task_payloads(queue: TaskQueueStore) -> int:
     recovered = 0
     failed = 0
     now = time()
-    for raw_task_id in await queue._redis.smembers(queue._index_key):
-        task_id = str(raw_task_id)
+    for task_id in await queue._task_ids():
         payload = await queue.get_status(task_id)
         checked += 1
         if payload is None:
             await queue._redis.srem(queue._index_key, task_id)
             continue
-        if payload.status != TaskStatus.RUNNING or (now - payload.started_at) <= payload.timeout_seconds:
+        if payload.status != TaskStatus.RUNNING or not _lease_expired(payload, now):
             continue
         if payload.retry_count < payload.max_retries:
+            has_checkpoint = await queue.has_checkpoint(payload.task_id)
             pending = payload.model_copy(
                 update={
                     "status": TaskStatus.PENDING,
                     "worker_id": "",
                     "started_at": 0.0,
+                    "lease_expires_at": 0.0,
                     "result": None,
                     "error": "",
                     "retry_count": payload.retry_count + 1,
@@ -77,6 +80,7 @@ async def recover_stale_task_payloads(queue: TaskQueueStore) -> int:
                 task_id=payload.task_id,
                 retry_count=pending.retry_count,
                 worker_id=payload.worker_id,
+                has_checkpoint=has_checkpoint,
             )
             continue
         await _expire_stale_task(queue, payload)
@@ -89,14 +93,69 @@ async def recover_stale_task_payloads(queue: TaskQueueStore) -> int:
                 task_id=payload.task_id,
                 max_retries=payload.max_retries,
             )
-    logger.info(
-        "stale_task_scan",
-        namespace=queue.namespace,
-        checked=checked,
-        recovered=recovered,
-        failed=failed,
-    )
+    if failed:
+        logger.warning(
+            "stale_task_scan",
+            namespace=queue.namespace,
+            checked=checked,
+            recovered=recovered,
+            failed=failed,
+        )
+    elif recovered:
+        logger.info(
+            "stale_task_scan",
+            namespace=queue.namespace,
+            checked=checked,
+            recovered=recovered,
+            failed=failed,
+        )
+    else:
+        logger.debug(
+            "stale_task_scan",
+            namespace=queue.namespace,
+            checked=checked,
+            recovered=recovered,
+            failed=failed,
+        )
     return recovered
+
+
+async def update_terminal_payload_state(
+    queue: TaskQueueStore,
+    task_id: str,
+    status: TaskStatus,
+    result: dict[str, Any] | None,
+    error: str,
+    worker_id: str = "",
+) -> bool:
+    payload = await queue.get_status(task_id)
+    if payload is None:
+        raise RuntimeError(f"Task not found: {task_id}")
+    if payload.status != TaskStatus.RUNNING:
+        logger.warning(
+            "task_terminal_update_skipped",
+            namespace=queue.namespace,
+            task_id=task_id,
+            current_status=payload.status.value,
+            target_status=status.value,
+        )
+        return False
+    if worker_id and payload.worker_id != worker_id:
+        logger.warning(
+            "task_terminal_update_worker_mismatch",
+            namespace=queue.namespace,
+            task_id=task_id,
+            current_worker_id=payload.worker_id,
+            expected_worker_id=worker_id,
+        )
+        return False
+    await queue._save_payload(payload.model_copy(update={"status": status, "result": result, "error": error}))
+    return True
+
+
+def _lease_expired(payload: TaskPayload, now: float) -> bool:
+    expires_at = payload.lease_expires_at or (payload.started_at + payload.timeout_seconds)
+    return expires_at > 0 and now > expires_at
 
 
 async def _fail_stuck_tasks(

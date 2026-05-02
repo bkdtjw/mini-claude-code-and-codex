@@ -8,7 +8,7 @@ from .proxy_api import MihomoAPI
 from .proxy_models import ProxyConfig
 
 POLL_INTERVAL_SECONDS = 0.5
-START_TIMEOUT_SECONDS = 5.0
+START_TIMEOUT_SECONDS = 30.0
 STOP_TIMEOUT_SECONDS = 5.0
 
 

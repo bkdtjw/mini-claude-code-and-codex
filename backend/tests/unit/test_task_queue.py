@@ -4,11 +4,27 @@ import asyncio
 
 import pytest
 
+import backend.core.task_queue_support as task_queue_support
+from backend.common.logging import bound_log_context
 from backend.config import get_redis
 from backend.core.task_queue import TaskQueue
 from backend.core.task_queue_types import TaskStatus
 
 from .redis_test_support import use_fake_redis
+
+
+class FakeLogger:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, object]]] = []
+
+    def debug(self, event: str, **payload: object) -> None:
+        self.calls.append(("debug", event, payload))
+
+    def info(self, event: str, **payload: object) -> None:
+        self.calls.append(("info", event, payload))
+
+    def warning(self, event: str, **payload: object) -> None:
+        self.calls.append(("warning", event, payload))
 
 
 @pytest.fixture
@@ -36,6 +52,37 @@ async def test_submit_claim_complete_flow(queue: TaskQueue) -> None:
     assert status is not None
     assert status.status == TaskStatus.SUCCEEDED
     assert status.result == {"output": "done"}
+
+
+@pytest.mark.asyncio
+async def test_submit_inherits_trace_id(queue: TaskQueue) -> None:
+    with bound_log_context(trace_id="trace-queue"):
+        await queue.submit("task-trace", {"prompt": "hello"})
+
+    status = await queue.get_status("task-trace")
+
+    assert status is not None
+    assert status.input_data["trace_id"] == "trace-queue"
+
+
+@pytest.mark.asyncio
+async def test_empty_stale_scan_logs_at_debug(
+    queue: TaskQueue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_logger = FakeLogger()
+    monkeypatch.setattr(task_queue_support, "logger", fake_logger)
+
+    recovered = await queue.recover_stale_tasks()
+
+    assert recovered == 0
+    assert fake_logger.calls == [
+        (
+            "debug",
+            "stale_task_scan",
+            {"namespace": "sub_agent", "checked": 0, "recovered": 0, "failed": 0},
+        )
+    ]
 
 
 @pytest.mark.asyncio

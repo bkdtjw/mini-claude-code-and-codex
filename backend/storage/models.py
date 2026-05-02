@@ -23,7 +23,7 @@ class SessionRecord(Base):
     max_tokens: Mapped[int] = mapped_column(Integer, default=10000, nullable=False)
     temperature: Mapped[float] = mapped_column(Float, default=0.7, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    messages: Mapped[list["MessageRecord"]] = relationship(
+    messages: Mapped[list[MessageRecord]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -61,6 +61,9 @@ class ProviderRecord(Base):
     default_model: Mapped[str] = mapped_column(String(100), nullable=False)
     available_models_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     extra_headers_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    enable_prompt_cache: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    prompt_cache_retention: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    extra_body_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -76,6 +79,25 @@ class MCPServerRecord(Base):
     env_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     url: Mapped[str] = mapped_column(Text, default="", nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class SubAgentTaskRecord(Base):
+    __tablename__ = "sub_agent_tasks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    parent_task_id: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
+    input_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)
+    worker_id: Mapped[str] = mapped_column(String(100), default="", nullable=False, index=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    started_at: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    timeout_seconds: Mapped[float] = mapped_column(Float, default=60.0, nullable=False)
+    lease_expires_at: Mapped[float] = mapped_column(Float, default=0.0, nullable=False, index=True)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_retries: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
 class ScheduledTaskRecord(Base):
@@ -105,4 +127,5 @@ __all__ = [
     "ProviderRecord",
     "ScheduledTaskRecord",
     "SessionRecord",
+    "SubAgentTaskRecord",
 ]

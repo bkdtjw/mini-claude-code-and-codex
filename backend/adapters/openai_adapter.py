@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 
 import httpx
@@ -19,13 +18,12 @@ from .logging_support import (
     log_llm_request_retry,
     log_llm_request_start,
 )
+from .openai_streaming import stream_response
 from .openai_support import (
     build_headers,
     build_payload,
     error_message,
-    flush_tool_calls,
     parse_response,
-    parse_stream_line,
     to_openai_messages,
 )
 
@@ -41,13 +39,23 @@ class OpenAICompatAdapter(LLMAdapter):
         self._api_key = config.api_key
         self._default_model = config.default_model
         self._extra_headers = dict(config.extra_headers)
+        self._extra_body = dict(config.extra_body)
+        self._enable_prompt_cache = config.enable_prompt_cache
+        self._prompt_cache_retention = config.prompt_cache_retention
         self._max_retries = 3
+        self._logger = logger
 
     async def test_connection(self) -> bool:
         success = False
         try:
-            payload = {"model": self._default_model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
-            async with httpx.AsyncClient(timeout=15.0, trust_env=load_http_client_config().trust_env) as client:
+            payload = {
+                "model": self._default_model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }
+            async with httpx.AsyncClient(
+                timeout=15.0, trust_env=load_http_client_config().trust_env
+            ) as client:
                 response = await client.post(self._url, headers=self._headers(), json=payload)
             self._raise_for_status(response)
             success = response.is_success
@@ -59,11 +67,15 @@ class OpenAICompatAdapter(LLMAdapter):
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         model = request.model or self._default_model
-        payload = build_payload(request, self._default_model, stream=False)
-        started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="complete")
+        payload = self._build_payload(request, stream=False)
+        started_at = log_llm_request_start(
+            logger, model=model, provider=self._provider, request_type="complete"
+        )
         for attempt in range(1, self._max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=120.0, trust_env=load_http_client_config().trust_env) as client:
+                async with httpx.AsyncClient(
+                    timeout=120.0, trust_env=load_http_client_config().trust_env
+                ) as client:
                     response = await client.post(self._url, headers=self._headers(), json=payload)
                 if self._is_retryable_status(response.status_code) and attempt < self._max_retries:
                     log_llm_request_retry(
@@ -79,77 +91,61 @@ class OpenAICompatAdapter(LLMAdapter):
                 self._raise_for_status(response)
                 result = parse_response(response.json())
                 await incr_llm_success(result)
-                log_llm_request_end(logger, model=model, provider=self._provider, request_type="complete", started_at=started_at, response=result)
+                log_llm_request_end(
+                    logger,
+                    model=model,
+                    provider=self._provider,
+                    request_type="complete",
+                    started_at=started_at,
+                    response=result,
+                )
                 return result
             except LLMError as exc:
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(
+                    logger, model=model, provider=self._provider, request_type="complete", exc=exc
+                )
                 raise
             except httpx.RequestError as exc:
                 if self._is_retryable_request_error(exc) and attempt < self._max_retries:
-                    log_llm_request_retry(logger, attempt=attempt, provider=self._provider, request_type="complete", reason=type(exc).__name__)
+                    log_llm_request_retry(
+                        logger,
+                        attempt=attempt,
+                        provider=self._provider,
+                        request_type="complete",
+                        reason=type(exc).__name__,
+                    )
                     await self._backoff(attempt, type(exc).__name__)
                     continue
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(
+                    logger, model=model, provider=self._provider, request_type="complete", exc=exc
+                )
                 raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
             except Exception as exc:
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(
+                    logger, model=model, provider=self._provider, request_type="complete", exc=exc
+                )
                 raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
         raise LLMError("COMPLETE_ERROR", "Completion failed without response", self._provider, None)
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
-        model = request.model or self._default_model
-        payload = build_payload(request, self._default_model, stream=True)
-        started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="stream")
-        try:
-            for attempt in range(1, self._max_retries + 1):
-                async with httpx.AsyncClient(timeout=120.0, trust_env=load_http_client_config().trust_env) as client:
-                    async with client.stream("POST", self._url, headers=self._headers(), json=payload) as response:
-                        if response.status_code == 429 and attempt < self._max_retries:
-                            log_llm_request_retry(logger, attempt=attempt, provider=self._provider, request_type="stream", reason="HTTP 429", status_code=429)
-                            await asyncio.sleep(float(attempt))
-                            continue
-                        if response.status_code == 429:
-                            raise LLMError("RATE_LIMIT", "Provider rate limited", self._provider, 429)
-                        self._raise_for_status(response)
-                        tool_chunks: dict[int, dict[str, str]] = {}
-                        async for line in response.aiter_lines():
-                            if not line.startswith("data:"):
-                                continue
-                            raw = line.split(":", 1)[1].strip()
-                            if raw == "[DONE]":
-                                for chunk in flush_tool_calls(tool_chunks):
-                                    yield chunk
-                                await incr_llm_success()
-                                log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at)
-                                yield StreamChunk(type="done")
-                                return
-                            for chunk in parse_stream_line(raw, tool_chunks):
-                                yield chunk
-                        for chunk in flush_tool_calls(tool_chunks):
-                            yield chunk
-                        await incr_llm_success()
-                        log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at)
-                        yield StreamChunk(type="done")
-                        return
-            raise LLMError("RATE_LIMIT", "Provider rate limited", self._provider, 429)
-        except LLMError as exc:
-            await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
-            raise
-        except httpx.RequestError as exc:
-            await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
-            raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
-        except Exception as exc:
-            await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
-            raise LLMError("STREAM_ERROR", str(exc), self._provider, None) from exc
+        async for chunk in stream_response(self, request):
+            yield chunk
 
     def _headers(self) -> dict[str, str]:
         return build_headers(self._api_key, self._extra_headers)
+
+    def _build_payload(self, request: LLMRequest, *, stream: bool) -> dict[str, object]:
+        return build_payload(
+            request,
+            self._default_model,
+            stream=stream,
+            extra_body=self._extra_body,
+            enable_prompt_cache=self._enable_prompt_cache,
+            prompt_cache_retention=self._prompt_cache_retention,
+        )
 
     def _to_openai_messages(self, messages: list[Message]) -> list[dict[str, object]]:
         return to_openai_messages(messages)
@@ -159,10 +155,35 @@ class OpenAICompatAdapter(LLMAdapter):
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         if response.status_code == 429:
-            raise LLMError("RATE_LIMIT", "Provider rate limited", self._provider, 429)
+            raise self._rate_limit_error(response)
         if response.status_code == 401:
             raise LLMError("AUTH_ERROR", "Invalid API key", self._provider, 401)
         if 500 <= response.status_code < 600:
-            raise LLMError("SERVER_ERROR", "Provider server error", self._provider, response.status_code)
+            raise LLMError(
+                "SERVER_ERROR", "Provider server error", self._provider, response.status_code
+            )
         if response.status_code >= 400:
-            raise LLMError("API_ERROR", error_message(response), self._provider, response.status_code)
+            raise LLMError(
+                "API_ERROR", error_message(response), self._provider, response.status_code
+            )
+
+    def _rate_limit_error(self, response: httpx.Response) -> LLMError:
+        code = "RATE_LIMIT"
+        message = "Provider rate limited"
+        try:
+            data = response.json()
+            if isinstance(data, dict):
+                detail = data.get("error")
+                if isinstance(detail, dict):
+                    provider_code = detail.get("code")
+                    provider_message = detail.get("message")
+                else:
+                    provider_code = data.get("code")
+                    provider_message = data.get("message") or data.get("msg")
+                if provider_code:
+                    code = f"RATE_LIMIT_{provider_code}"
+                if provider_message:
+                    message = str(provider_message)
+        except Exception:
+            pass
+        return LLMError(code, message, self._provider, 429)

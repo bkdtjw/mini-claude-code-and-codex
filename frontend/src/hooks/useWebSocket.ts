@@ -106,6 +106,7 @@ export function useWebSocket(sessionId: string) {
         toolCallId: p.toolCallId || nextCall?.id || "",
         output: p.output,
         isError: p.isError,
+        ...(p.diffs?.length ? { diffs: p.diffs } : {}),
       });
 
       if (

@@ -10,9 +10,9 @@ import httpx
 
 from backend.common.logging import bound_log_context, get_logger, new_trace_id
 from backend.common.metrics import incr
-from backend.common.types import AgentConfig
+from backend.common.types import AgentConfig, Message
 from backend.config.settings import settings as app_settings
-from backend.core.s01_agent_loop import AgentLoop
+from backend.core.s01_agent_loop import AgentLoop, CheckpointFn
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPToolBridge
@@ -35,7 +35,9 @@ class TaskExecutor:
 
     async def execute(self, task: ScheduledTask) -> str:
         with bound_log_context(trace_id=new_trace_id(), session_id=f"scheduled-task:{task.id}"):
-            agent, adapter = await self._create_loop(task)
+            run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            checkpoint_session_id = f"task-{task.id}-{run_id}"
+            agent, adapter = await self._create_loop(task, checkpoint_session_id)
             started_at = datetime.now(_BEIJING)
             started_perf = monotonic()
             error_message = ""
@@ -86,7 +88,7 @@ class TaskExecutor:
             }
             report_path = await self._save_report(task, content, meta)
             logger.info("task_report_saved", task_id=task.id, path=str(report_path))
-            await self._persist_session(task, agent)
+            await self._persist_session(task, agent, checkpoint_session_id, run_id)
             if status == "success":
                 logger.info(
                     "task_execute_end",
@@ -120,30 +122,34 @@ class TaskExecutor:
                 raise TaskExecutionError(error_message or "Task execution failed", content)
             return content
 
-    async def _create_loop(self, task: ScheduledTask) -> tuple[AgentLoop, Any]:
+    async def _create_loop(self, task: ScheduledTask, checkpoint_session_id: str) -> tuple[AgentLoop, Any]:
         if task.spec_id:
-            return await self._create_spec_loop(task)
-        return await self._create_prompt_loop(task)
+            return await self._create_spec_loop(task, checkpoint_session_id)
+        return await self._create_prompt_loop(task, checkpoint_session_id)
 
-    async def _create_spec_loop(self, task: ScheduledTask) -> tuple[AgentLoop, Any]:
+    async def _create_spec_loop(self, task: ScheduledTask, checkpoint_session_id: str) -> tuple[AgentLoop, Any]:
         if self._deps.agent_runtime is None:
             raise RuntimeError("Task executor agent runtime is not configured")
+        store = SessionStore()
         loop = await self._deps.agent_runtime.create_loop_from_id(
             task.spec_id,
             workspace=os.getcwd(),
             session_id=f"scheduled-task:{task.id}",
             task_queue=self._deps.task_queue,
+            checkpoint_fn=self._task_checkpoint_fn(store, checkpoint_session_id),
         )
         adapter = await self._deps.provider_manager.get_adapter(loop._config.provider)  # noqa: SLF001
+        await self._ensure_task_session(store, task, checkpoint_session_id, loop)
         return loop, adapter
 
-    async def _create_prompt_loop(self, task: ScheduledTask) -> tuple[AgentLoop, Any]:
+    async def _create_prompt_loop(self, task: ScheduledTask, checkpoint_session_id: str) -> tuple[AgentLoop, Any]:
         provider_id, adapter = await self._get_adapter()
         registry = ToolRegistry()
         self._register_tools(registry, adapter)
         bridge = MCPToolBridge(self._deps.mcp_manager, registry)
         await bridge.sync_all()
         system_prompt = build_system_prompt(os.getcwd())
+        store = SessionStore()
         agent = AgentLoop(
             config=AgentConfig(
                 model=app_settings.default_model,
@@ -153,7 +159,9 @@ class TaskExecutor:
             ),
             adapter=adapter,
             tool_registry=registry,
+            checkpoint_fn=self._task_checkpoint_fn(store, checkpoint_session_id),
         )
+        await self._ensure_task_session(store, task, checkpoint_session_id, agent)
         return agent, adapter
 
     async def _get_adapter(self) -> tuple[str, Any]:
@@ -187,15 +195,24 @@ class TaskExecutor:
         runtime_deps = getattr(self._deps.agent_runtime, "_deps", None)
         return getattr(runtime_deps, "spec_registry", None)
 
-    async def _persist_session(self, task: ScheduledTask, agent: AgentLoop) -> None:
+    def _task_checkpoint_fn(self, store: SessionStore, session_id: str) -> CheckpointFn:
+        async def checkpoint(_sid: str, message: Message) -> None:
+            await store.add_messages(session_id, [message])
+
+        return checkpoint
+
+    async def _ensure_task_session(
+        self,
+        store: SessionStore,
+        task: ScheduledTask,
+        session_id: str,
+        agent: AgentLoop,
+    ) -> None:
         try:
-            run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-            session_id = f"task-{task.id}-{run_id}"
-            store = SessionStore()
             system_prompt = (
                 agent.messages[0].content
                 if agent.messages and agent.messages[0].role == "system"
-                else ""
+                else agent._config.system_prompt  # noqa: SLF001
             )
             await store.ensure_session(
                 session_id,
@@ -203,12 +220,25 @@ class TaskExecutor:
                 provider=agent._config.provider,  # noqa: SLF001
                 system_prompt=system_prompt,
                 max_tokens=16384,
-                title=f"{task.name} @ {run_id}",
+                title=f"{task.name} @ {session_id.removeprefix(f'task-{task.id}-')}",
                 workspace="scheduled_task",
             )
-            await store.add_messages(session_id, agent.messages)
         except Exception:
             logger.warning("task_persist_failed", task_id=task.id)
+
+    async def _persist_session(
+        self,
+        task: ScheduledTask,
+        agent: AgentLoop,
+        session_id: str,
+        run_id: str,
+    ) -> None:
+        try:
+            store = SessionStore()
+            await self._ensure_task_session(store, task, session_id, agent)
+            await store.save_messages(session_id, agent.messages)
+        except Exception:
+            logger.warning("task_persist_failed", task_id=task.id, run_id=run_id)
 
     async def _save_report(self, task: ScheduledTask, content: str, meta: dict[str, Any]) -> Any:
         return await save_report(task, content, meta)

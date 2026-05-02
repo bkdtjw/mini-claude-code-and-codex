@@ -10,8 +10,9 @@ from backend.common.types import ProviderConfig
 from backend.storage import ProviderStore
 
 from .base import LLMAdapter
-from .factory import AdapterFactory
-from .provider_seed_loader import DEFAULT_PROVIDER_SEED_PATH, load_provider_seed
+from .provider_manager_support import get_base_adapter, load_json_seed, normalize_defaults, normalize_provider_type, set_default_locked
+from .provider_routing import ProviderRoutingContext, get_resilient_adapter
+from .provider_seed_loader import DEFAULT_PROVIDER_SEED_PATH
 
 logger = get_logger(component="provider_manager")
 
@@ -20,29 +21,13 @@ class ProviderManager:
     def __init__(self, config_path: str | None = None, store: ProviderStore | None = None) -> None:
         self._seed_path = Path(config_path) if config_path else DEFAULT_PROVIDER_SEED_PATH
         self._store = store or ProviderStore()
-        self._aliases = {
-            "openai": "openai_compat",
-            "openai_compatible": "openai_compat",
-            "claude_compat": "anthropic",
-            "anthropic_compat": "anthropic",
-        }
+        self._aliases = {"openai": "openai_compat", "openai_compatible": "openai_compat", "claude_compat": "anthropic", "anthropic_compat": "anthropic"}
         self._providers: dict[str, ProviderConfig] = {}
         self._adapters: dict[str, LLMAdapter] = {}
+        self._routed_adapters: dict[str, LLMAdapter] = {}
         self._initialized = False
         self._init_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
-
-    def _normalize_provider_type(self, value: Any) -> Any:
-        return self._aliases.get(value, value) if isinstance(value, str) else value
-
-    def _normalize_defaults(self, data: dict[str, ProviderConfig]) -> dict[str, ProviderConfig]:
-        if data and not any(item.is_default for item in data.values()):
-            first_id = next(iter(data))
-            data[first_id] = data[first_id].model_copy(update={"is_default": True})
-        return data
-
-    def _try_load_json_seed(self) -> list[ProviderConfig]:
-        return load_provider_seed(self._seed_path, self._aliases)
 
     async def _ensure_initialized(self) -> None:
         try:
@@ -53,11 +38,11 @@ class ProviderManager:
                     return
                 configs = await self._store.list_all()
                 if not configs:
-                    seeds = self._try_load_json_seed()
+                    seeds = load_json_seed(self._seed_path, self._aliases)
                     if seeds:
                         await self._store.import_from_json(seeds)
                         configs = seeds
-                self._providers = self._normalize_defaults({item.id: item for item in configs})
+                self._providers = normalize_defaults({item.id: item for item in configs})
                 default = next((item for item in self._providers.values() if item.is_default), None)
                 if default is not None:
                     await self._store.set_default(default.id)
@@ -96,12 +81,16 @@ class ProviderManager:
                     raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
                 kwargs.pop("id", None)
                 if "provider_type" in kwargs:
-                    kwargs["provider_type"] = self._normalize_provider_type(kwargs["provider_type"])
+                    kwargs["provider_type"] = normalize_provider_type(
+                        kwargs["provider_type"],
+                        self._aliases,
+                    )
                 updated = await self._store.update(provider_id, **kwargs)
                 if updated is None:
                     raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
                 self._providers[provider_id] = updated
                 self._adapters.pop(provider_id, None)
+                self._routed_adapters.clear()
                 if updated.is_default or not any(item.is_default for item in self._providers.values()):
                     await self._set_default_locked(provider_id)
                 logger.info("provider_updated", provider_id=provider_id)
@@ -117,6 +106,7 @@ class ProviderManager:
             async with self._write_lock:
                 removed = self._providers.pop(provider_id, None)
                 self._adapters.pop(provider_id, None)
+                self._routed_adapters.clear()
                 if removed is None:
                     return False
                 await self._store.remove(provider_id)
@@ -173,10 +163,13 @@ class ProviderManager:
             config = self._providers.get(target_id)
             if config is None:
                 raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {target_id}", "provider_manager")
-            if target_id not in self._adapters:
-                self._adapters[target_id] = AdapterFactory.create(config)
-                logger.info("provider_adapter_created", provider_id=target_id, provider_type=config.provider_type.value)
-            return self._adapters[target_id]
+            base_adapter = lambda item: get_base_adapter(item, self._adapters)
+            routed = get_resilient_adapter(
+                ProviderRoutingContext(config, self._providers, base_adapter, self._routed_adapters)
+            )
+            if routed is not None:
+                return routed
+            return base_adapter(config)
         except LLMError:
             raise
         except Exception as exc:
@@ -184,14 +177,13 @@ class ProviderManager:
 
     async def _set_default_locked(self, provider_id: str) -> None:
         try:
-            if provider_id not in self._providers:
-                raise LLMError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}", "provider_manager")
-            await self._store.set_default(provider_id)
-            for item_id, config in list(self._providers.items()):
-                is_default = item_id == provider_id
-                if config.is_default != is_default:
-                    self._providers[item_id] = config.model_copy(update={"is_default": is_default})
-                    self._adapters.pop(item_id, None)
+            await set_default_locked(
+                provider_id,
+                self._store,
+                self._providers,
+                self._adapters,
+                self._routed_adapters,
+            )
             logger.info("provider_default_set", provider_id=provider_id)
         except LLMError:
             raise

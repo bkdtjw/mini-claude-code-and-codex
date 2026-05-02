@@ -9,7 +9,7 @@ from backend.common.types import ProviderConfig
 
 from .database import SessionFactory, get_db_session
 from .models import ProviderRecord
-from .serializers import to_provider_config, to_provider_record
+from .provider_serializers import to_provider_config, to_provider_record
 from .store_support import copy_fields
 
 _PROVIDER_FIELDS = (
@@ -20,6 +20,9 @@ _PROVIDER_FIELDS = (
     "default_model",
     "available_models_json",
     "extra_headers_json",
+    "enable_prompt_cache",
+    "prompt_cache_retention",
+    "extra_body_json",
     "is_default",
     "enabled",
 )
@@ -32,7 +35,11 @@ class ProviderStore:
     async def list_all(self) -> list[ProviderConfig]:
         try:
             async with get_db_session(self._session_factory) as db:
-                rows = (await db.execute(select(ProviderRecord).order_by(ProviderRecord.id))).scalars().all()
+                rows = (
+                    (await db.execute(select(ProviderRecord).order_by(ProviderRecord.id)))
+                    .scalars()
+                    .all()
+                )
                 return [to_provider_config(row) for row in rows]
         except Exception as exc:
             raise AgentError("PROVIDER_STORE_LIST_ERROR", str(exc)) from exc
@@ -74,7 +81,9 @@ class ProviderStore:
     async def remove(self, provider_id: str) -> bool:
         try:
             async with get_db_session(self._session_factory) as db:
-                result = await db.execute(delete(ProviderRecord).where(ProviderRecord.id == provider_id))
+                result = await db.execute(
+                    delete(ProviderRecord).where(ProviderRecord.id == provider_id)
+                )
                 await db.commit()
                 return bool(result.rowcount)
         except Exception as exc:
@@ -86,7 +95,11 @@ class ProviderStore:
                 if await db.get(ProviderRecord, provider_id) is None:
                     raise AgentError("PROVIDER_NOT_FOUND", f"Provider not found: {provider_id}")
                 await db.execute(update(ProviderRecord).values(is_default=False))
-                await db.execute(update(ProviderRecord).where(ProviderRecord.id == provider_id).values(is_default=True))
+                await db.execute(
+                    update(ProviderRecord)
+                    .where(ProviderRecord.id == provider_id)
+                    .values(is_default=True)
+                )
                 await db.commit()
         except AgentError:
             raise

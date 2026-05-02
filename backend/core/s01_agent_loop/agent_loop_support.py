@@ -1,70 +1,90 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+from dataclasses import dataclass
 from typing import Any
 
 from backend.common.logging import bound_log_context, get_log_context, get_logger, new_trace_id
-from backend.common.types import LLMResponse, Message, ToolCall, ToolResult
+from backend.common.types import (
+    AgentConfig,
+    LLMRequest,
+    LLMResponse,
+    Message,
+    ToolCall,
+    ToolDefinition,
+    ToolResult,
+)
 
 
-def summarize_tool_call(tool_call: ToolCall) -> str:
-    command = tool_call.arguments.get("command")
-    path = tool_call.arguments.get("path")
-    detail = command if isinstance(command, str) and command else path
-    if not isinstance(detail, str) or not detail:
-        detail = json.dumps(tool_call.arguments, ensure_ascii=False, default=str)
-    return f"{tool_call.name}({detail})"
+def _cache_key_part(value: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip())[:40]
+    return normalized or "default"
 
 
-def build_tool_failure_message(
-    max_failures: int,
-    failures: list[tuple[ToolCall, ToolResult]],
-) -> Message:
-    lines = [
-        f"工具调用已连续失败 {max_failures} 次，我先停止自动重试。",
-        "最近的失败如下：",
-    ]
-    for index, (tool_call, result) in enumerate(failures[-max_failures:], start=1):
-        output = result.output.strip() or "没有额外输出。"
-        lines.append(f"{index}. {summarize_tool_call(tool_call)}")
-        lines.append(f"   错误: {output}")
-    lines.append("请检查当前工作目录、权限或工具参数后再继续。")
-    return Message(role="assistant", content="\n".join(lines))
+@dataclass(frozen=True)
+class PromptCachePrefix:
+    provider: str
+    model: str
+    system_prompt: str
+    tools: list[ToolDefinition]
 
 
-def update_tool_failures(
-    max_failures: int,
-    failures: list[tuple[ToolCall, ToolResult]],
-    results: list[ToolResult],
-    call_map: dict[str, ToolCall],
-    consecutive_failures: int,
-) -> tuple[int, list[tuple[ToolCall, ToolResult]], Message | None]:
-    for result in results:
-        tool_call = call_map.get(result.tool_call_id)
-        if tool_call is None:
-            continue
-        if result.is_error:
-            consecutive_failures += 1
-            failures.append((tool_call, result))
-            continue
-        consecutive_failures = 0
-        failures.clear()
-    if consecutive_failures < max_failures:
-        return consecutive_failures, failures, None
-    return consecutive_failures, failures, build_tool_failure_message(max_failures, failures)
+def build_prompt_cache_key(prefix: PromptCachePrefix) -> str:
+    payload = {
+        "system_prompt": prefix.system_prompt,
+        "tools": [tool.model_dump(mode="json") for tool in prefix.tools],
+    }
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return (
+        f"agent-studio:{_cache_key_part(prefix.provider)}:{_cache_key_part(prefix.model)}:{digest}"
+    )
+
+
+def build_llm_request(
+    config: AgentConfig,
+    messages: list[Message],
+    tools: list[ToolDefinition],
+) -> LLMRequest:
+    return LLMRequest(
+        model=config.model,
+        messages=messages,
+        tools=tools or None,
+        prompt_cache_key=build_prompt_cache_key(
+            PromptCachePrefix(config.provider, config.model, config.system_prompt, tools)
+        ),
+    )
+
+
+def response_content(response: LLMResponse) -> str:
+    content = response.content or ""
+    if content.strip():
+        return content
+    return response.provider_metadata.get("reasoning_content", "") or ""
+
+
+def message_fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
 def build_run_logger(session_id: str) -> tuple[str, str, Any, Any]:
     context = get_log_context()
     trace_id = str(context.get("trace_id") or new_trace_id())
     effective_session_id = session_id or str(context.get("session_id") or "")
-    return trace_id, effective_session_id, get_logger(
-        component="agent_loop",
-        trace_id=trace_id,
-        session_id=effective_session_id,
-    ), bound_log_context(
-        trace_id=trace_id,
-        session_id=effective_session_id,
+    return (
+        trace_id,
+        effective_session_id,
+        get_logger(
+            component="agent_loop",
+            trace_id=trace_id,
+            session_id=effective_session_id,
+        ),
+        bound_log_context(
+            trace_id=trace_id,
+            session_id=effective_session_id,
+        ),
     )
 
 
@@ -73,6 +93,7 @@ def log_llm_call_end(logger: Any, response: LLMResponse) -> None:
         "llm_call_end",
         prompt_tokens=response.usage.prompt_tokens,
         completion_tokens=response.usage.completion_tokens,
+        cached_prompt_tokens=response.usage.cached_prompt_tokens,
         total_tokens=response.usage.prompt_tokens + response.usage.completion_tokens,
     )
 
@@ -108,12 +129,14 @@ def patch_orphan_tool_calls(messages: list[Message]) -> list[Message]:
 
 
 __all__ = [
+    "build_llm_request",
     "build_orphan_tool_results",
+    "build_prompt_cache_key",
     "build_run_logger",
-    "build_tool_failure_message",
     "log_llm_call_end",
     "log_tool_result",
+    "message_fingerprint",
     "patch_orphan_tool_calls",
-    "summarize_tool_call",
-    "update_tool_failures",
+    "PromptCachePrefix",
+    "response_content",
 ]

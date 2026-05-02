@@ -45,7 +45,7 @@ async def test_proxy_on_and_off_tool_execute(monkeypatch: pytest.MonkeyPatch) ->
         secret=config.api_secret,
     )
     off_def, off_execute = create_proxy_off_tool()
-    on_result = await on_execute({"force": False})
+    on_result = await on_execute({"force": False, "test": False})
     off_result = await off_execute({})
     assert on_def.name == "proxy_on"
     assert "mihomo" in on_def.description.lower()

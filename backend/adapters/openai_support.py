@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -16,7 +16,15 @@ from backend.common.types import (
 )
 
 
-def build_payload(request: LLMRequest, default_model: str, *, stream: bool) -> dict[str, Any]:
+def build_payload(
+    request: LLMRequest,
+    default_model: str,
+    *,
+    stream: bool,
+    extra_body: dict[str, Any] | None = None,
+    enable_prompt_cache: bool = False,
+    prompt_cache_retention: Literal["in_memory", "24h"] | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": request.model or default_model,
         "messages": to_openai_messages(request.messages),
@@ -27,6 +35,14 @@ def build_payload(request: LLMRequest, default_model: str, *, stream: bool) -> d
         payload["tools"] = to_openai_tools(request.tools)
     if stream:
         payload["stream"] = True
+    if extra_body:
+        payload.update(extra_body)
+    if enable_prompt_cache:
+        if request.prompt_cache_key:
+            payload["prompt_cache_key"] = request.prompt_cache_key
+        retention = request.prompt_cache_retention or prompt_cache_retention
+        if retention:
+            payload["prompt_cache_retention"] = retention
     return payload
 
 
@@ -38,7 +54,9 @@ def to_openai_messages(messages: list[Message]) -> list[dict[str, Any]]:
             continue
         if msg.role == "tool" and msg.tool_results:
             for res in msg.tool_results:
-                result.append({"role": "tool", "tool_call_id": res.tool_call_id, "content": res.output})
+                result.append(
+                    {"role": "tool", "tool_call_id": res.tool_call_id, "content": res.output}
+                )
             continue
         role = msg.role if msg.role in {"system", "user"} else "user"
         result.append({"role": role, "content": msg.content})
@@ -92,6 +110,8 @@ def parse_response(data: dict[str, Any]) -> LLMResponse:
     ]
     usage = data.get("usage", {})
     provider_metadata = _provider_metadata(message)
+    details = usage.get("prompt_tokens_details", {})
+    cached_tokens = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
     return LLMResponse(
         id=data.get("id", ""),
         content=message.get("content", "") or "",
@@ -99,6 +119,7 @@ def parse_response(data: dict[str, Any]) -> LLMResponse:
         usage=LLMUsage(
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
+            cached_prompt_tokens=cached_tokens,
         ),
         provider_metadata=provider_metadata,
     )

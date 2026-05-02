@@ -8,6 +8,7 @@ from datetime import datetime
 
 from backend.common.types import AgentEvent, Message, ToolCall, ToolResult
 
+from .diff_rendering import render_file_diffs
 from .formatting import (
     format_output,
     frame,
@@ -112,6 +113,13 @@ class CliPrinter:
         self._last_status = ""
         preview = "\n".join(format_output(result.output or ""))
         self._renderer.finish_tool(result.tool_call_id, result.is_error, preview, timestamp)
+        diff_text = render_file_diffs(result.diffs, self._paint)
+        if diff_text:
+            self._renderer.pause()
+            try:
+                print(diff_text)
+            finally:
+                self._renderer.resume()
 
     def _handle_security_reject(self, result: ToolResult) -> None:
         self._renderer.reject_tool(result.tool_call_id, result.output)

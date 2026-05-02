@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -531,7 +531,7 @@ class TestDedup:
     async def test_recover_missed_tasks_skips_up_to_date_tasks(self, tmp_path: Path) -> None:
         store = await _temp_store(tmp_path)
         now = datetime.now(timezone.utc)
-        task = _make_task(cron="0 * * * *", last_run_at=now - timedelta(minutes=5))
+        task = _make_task(cron="0 * * * *", last_run_at=now)
         await store.add_task(task)
         executor = MagicMock(spec=TaskExecutor)
         scheduler = TaskScheduler(store, executor, check_interval=30.0)
@@ -668,8 +668,9 @@ class TestTaskExecutor:
         assert result == "spec result"
         runtime.create_loop_from_id.assert_called_once_with(
             "daily-ai-news",
-            workspace="/agent-studio/agent-studio",
+            workspace=str(Path.cwd()),
             session_id=f"scheduled-task:{task.id}",
             task_queue=None,
+            checkpoint_fn=ANY,
         )
         mock_loop.run.assert_called_once_with("hello")

@@ -19,10 +19,17 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any]
 
 
+class FileDiff(BaseModel):
+    path: str
+    unified_diff: str
+    change_type: Literal["create", "modify", "delete"] = "modify"
+
+
 class ToolResult(BaseModel):
     tool_call_id: str = Field(default_factory=generate_id)
     output: str
     is_error: bool = False
+    diffs: list[FileDiff] = Field(default_factory=list)
 
 
 class Message(BaseModel):
@@ -42,6 +49,7 @@ class StreamChunk(BaseModel):
 
 __all__ = [
     "Role",
+    "FileDiff",
     "ToolCall",
     "ToolResult",
     "Message",

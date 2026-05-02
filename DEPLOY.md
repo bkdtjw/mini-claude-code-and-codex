@@ -9,7 +9,7 @@
 ## 环境配置
 - 复制 `.env.example` 为 `.env`
 - 必填项：`DATABASE_URL`、`REDIS_URL`、`AUTH_SECRET`
-- 可选项：`GUNICORN_WORKERS`、`LOG_LEVEL`、`LOG_FORMAT`、`API_PORT`
+- 可选项：`GUNICORN_WORKERS`、`LOG_LEVEL`、`LOG_FORMAT`、`LOG_STDOUT`、`LOG_FILE_ENABLED`、`LOG_FILE_SCOPE`、`LOG_SEARCH_BACKEND`、`LOKI_BASE_URL`、`API_PORT`
 
 ## Volume 映射
 docker-compose.yml 配置了以下 volume 映射：
@@ -40,11 +40,52 @@ mkdir -p data/logs reports
 docker compose up -d --build
 ```
 
+### 启动 Loki 日志检索（推荐生产链路）
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+```
+
+该模式会启动：
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| `loki` | `3100` | 日志存储与查询后端 |
+| `alloy` | `12345` | 从 Docker stdout 采集应用日志并写入 Loki |
+| `grafana` | `3000` | 已预置 Loki 数据源，默认账号 `admin/admin` |
+
+推荐生产环境使用 stdout 作为主采集链路：
+
+```env
+LOG_FORMAT=json
+LOG_STDOUT=1
+LOG_FILE_ENABLED=0
+LOG_SEARCH_BACKEND=loki
+LOG_SEARCH_FALLBACK=file
+LOKI_BASE_URL=http://127.0.0.1:3100
+```
+
+`docker-compose.observability.yml` 会默认应用以上关键项。`LOG_SEARCH_FALLBACK=file` 用于 Loki 短暂不可用时回退到本地文件；如果希望 Loki 故障直接暴露为 502，可设置 `LOG_SEARCH_FALLBACK=none`。
+
+镜像默认固定为 `grafana/loki:3.7.1`、`grafana/alloy:v1.15.1`、`grafana/grafana:13.0.1`，可通过 `LOKI_IMAGE`、`ALLOY_IMAGE`、`GRAFANA_IMAGE` 覆盖。
+
 ## 验证
 ```bash
 curl http://127.0.0.1:8000/health/live
 curl http://127.0.0.1:8000/health/ready
 docker compose ps
+```
+
+### Loki 验证
+```bash
+curl http://127.0.0.1:3100/ready
+curl -G http://127.0.0.1:3100/loki/api/v1/query_range --data-urlencode 'query={app="agent-studio"} | json' --data-urlencode limit=5
+```
+
+应用日志 API 会根据 `LOG_SEARCH_BACKEND` 选择后端：
+
+```bash
+curl -H "Authorization: Bearer $AUTH_SECRET" \
+  "http://127.0.0.1:8000/api/logs/search?event=http_request_end&component=http&minutes=60&limit=20"
 ```
 
 ### 容器内权限验证
@@ -68,6 +109,10 @@ docker compose exec app ls -la /app/twitter_cookies.json
 - WebSocket 通过 Redis pub/sub 跨 Worker 广播，channel 使用 `ws:session:{session_id}`
 - 任务队列通过 Redis List 跨 Worker 分发，任务 key 使用 `task:{namespace}:{task_id}`
 - 运行时结构化日志统一输出 JSON，包含 `trace_id`、`session_id`、`worker_id`
+- `LOG_FILE_SCOPE=worker` 时每个进程写独立日志文件，避免多 Worker 轮转同一个文件
+- Loki 链路使用 Docker stdout 采集，不依赖应用进程写共享日志文件
+- Loki 索引标签为 `app`、`level`、`component`、`event`；`trace_id`、`session_id`、`worker_id`、`error_code` 保持为 JSON 字段/结构化元数据，避免高基数索引膨胀
+- `/api/logs/search` 在 `LOG_SEARCH_BACKEND=file` 时扫描本地文件，在 `LOG_SEARCH_BACKEND=loki` 时查询 Loki
 
 ## Skills 目录
 - 默认从仓库根目录的 `skills/` 加载所有可用 spec

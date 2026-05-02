@@ -1,0 +1,71 @@
+services:
+  app:
+    environment:
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_STDOUT: ${LOG_STDOUT:-1}
+      LOG_FILE_ENABLED: ${LOG_FILE_ENABLED:-0}
+      LOG_SEARCH_BACKEND: ${LOG_SEARCH_BACKEND:-loki}
+      LOG_SEARCH_FALLBACK: ${LOG_SEARCH_FALLBACK:-file}
+      LOKI_BASE_URL: ${LOKI_BASE_URL:-http://127.0.0.1:3100}
+      LOKI_APP_LABEL: ${LOKI_APP_LABEL:-agent-studio}
+    depends_on:
+      - loki
+      - alloy
+
+  sub-worker:
+    environment:
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_STDOUT: ${LOG_STDOUT:-1}
+      LOG_FILE_ENABLED: ${LOG_FILE_ENABLED:-0}
+      LOKI_APP_LABEL: ${LOKI_APP_LABEL:-agent-studio}
+    depends_on:
+      - app
+      - loki
+      - alloy
+
+  loki:
+    image: ${LOKI_IMAGE:-grafana/loki:3.7.1}
+    container_name: agent-studio-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+
+  alloy:
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.15.1}
+    container_name: agent-studio-alloy
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    ports:
+      - "12345:12345"
+    depends_on:
+      - loki
+    restart: unless-stopped
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:13.0.1}
+    container_name: agent-studio-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: light
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+
+volumes:
+  loki_data:
+  grafana_data:

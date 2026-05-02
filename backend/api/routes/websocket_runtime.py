@@ -8,9 +8,9 @@ from pydantic import BaseModel, ConfigDict
 from backend.api.routes.mcp import mcp_server_manager
 from backend.api.routes.providers import provider_manager
 from backend.common.errors import AgentError
-from backend.common.types import AgentConfig, AgentEvent
+from backend.common.types import AgentConfig, AgentEvent, Message
 from backend.config.settings import settings as app_settings
-from backend.core.s01_agent_loop import AgentLoop
+from backend.core.s01_agent_loop import AgentLoop, CheckpointFn
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPToolBridge
@@ -54,6 +54,8 @@ async def create_loop(payload: CreateLoopInput) -> AgentLoop:
 
 async def _build_loop(payload: CreateLoopInput) -> AgentLoop:
     settings = payload.settings
+    checkpoint_fn = await _make_checkpoint_fn(payload.session_id, payload.store)
+
     async def forward_tool_event(event: AgentEvent) -> None:
         await payload.event_sender(event_to_ws_message(event))
 
@@ -68,6 +70,7 @@ async def _build_loop(payload: CreateLoopInput) -> AgentLoop:
             provider=settings.provider_id or "",
             task_queue=payload.task_queue,
             event_handler=forward_tool_event,
+            checkpoint_fn=checkpoint_fn,
         )
     system_prompt = build_system_prompt(settings.workspace)
     adapter = await provider_manager.get_adapter(settings.provider_id)
@@ -102,9 +105,23 @@ async def _build_loop(payload: CreateLoopInput) -> AgentLoop:
         ),
         adapter=adapter,
         tool_registry=registry,
+        checkpoint_fn=checkpoint_fn,
     )
     setattr(loop, "_bridge", bridge)  # noqa: B010, SLF001
     return loop
+
+
+async def _make_checkpoint_fn(
+    session_id: str,
+    store: SessionStore | None,
+) -> CheckpointFn | None:
+    if store is None:
+        return None
+
+    async def checkpoint(sid: str, message: Message) -> None:
+        await store.add_messages(sid or session_id, [message])
+
+    return checkpoint
 
 
 async def _load_messages(

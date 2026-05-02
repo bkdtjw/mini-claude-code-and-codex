@@ -44,6 +44,10 @@ class FakeQueue:
         self._statuses[task_id] = payload
         return payload
 
+    async def get_children(self, parent_task_id: str) -> list[TaskPayload]:
+        _ = parent_task_id
+        return []
+
     async def get_status(self, task_id: str) -> TaskPayload | None:
         return self._statuses.get(task_id)
 

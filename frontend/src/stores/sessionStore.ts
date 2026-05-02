@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { api } from "@/lib/api-client";
 import { deriveSessionTitle, mergeSessionMeta, mergeSessionsMeta, removeSessionMeta, saveSessionMeta, summarizeSessionTitle } from "@/lib/session-meta";
+import { mapFileDiffs } from "@/lib/tool-diffs";
 import { agentWs } from "@/lib/websocket";
 import { useAgentStore } from "@/stores/agentStore";
 import type { AgentStatus, Message, Session, ToolCall, ToolResult } from "@/types";
@@ -38,7 +39,13 @@ const mapToolCall = (value: unknown): ToolCall => {
 
 const mapToolResult = (value: unknown): ToolResult => {
   const item = asRecord(value);
-  return { toolCallId: String(item.toolCallId ?? item.tool_call_id ?? ""), output: String(item.output ?? ""), isError: Boolean(item.isError ?? item.is_error) };
+  const diffs = mapFileDiffs(item.diffs);
+  return {
+    toolCallId: String(item.toolCallId ?? item.tool_call_id ?? ""),
+    output: String(item.output ?? ""),
+    isError: Boolean(item.isError ?? item.is_error),
+    ...(diffs.length ? { diffs } : {}),
+  };
 };
 
 const mapMessage = (value: unknown): Message => {

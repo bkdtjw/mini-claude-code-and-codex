@@ -14,6 +14,7 @@ class FakeMetricsCollector:
     def __init__(self) -> None:
         self.values = {
             "llm_calls": {"2026-04-18": 3, "2026-04-19": 5},
+            "llm_cached_prompt_tokens": {"2026-04-18": 7, "2026-04-19": 11},
             "agent_runs": {"2026-04-18": 2, "2026-04-19": 4},
         }
 
@@ -56,6 +57,7 @@ async def test_metrics_summary_returns_totals(client: httpx.AsyncClient) -> None
     payload = response.json()
     assert payload["period_days"] == 7
     assert payload["metrics"]["llm_calls"]["total"] == 8
+    assert payload["metrics"]["llm_cached_prompt_tokens"]["total"] == 18
     assert payload["metrics"]["agent_runs"]["daily"]["2026-04-19"] == 4
 
 

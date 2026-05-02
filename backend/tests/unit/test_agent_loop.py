@@ -129,7 +129,7 @@ async def test_events_emitted_for_status_and_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_stops_after_three_consecutive_tool_failures() -> None:
+async def test_run_adds_recovery_context_after_three_tool_failures() -> None:
     async def failing_tool(_: dict[str, object]) -> ToolResult:
         return ToolResult(output="PermissionError [WinError 5] access denied", is_error=True)
 
@@ -140,16 +140,21 @@ async def test_run_stops_after_three_consecutive_tool_failures() -> None:
             LLMResponse(content="", tool_calls=[ToolCall(id="tc_1", name="bash", arguments={"command": "dir"})]),
             LLMResponse(content="", tool_calls=[ToolCall(id="tc_2", name="bash", arguments={"command": "dir /a"})]),
             LLMResponse(content="", tool_calls=[ToolCall(id="tc_3", name="bash", arguments={"command": "cd && dir"})]),
-            LLMResponse(content="should not be reached"),
+            LLMResponse(content="changed strategy"),
         ]
     )
     loop = AgentLoop(AgentConfig(model="test-model", max_consecutive_tool_failures=3), adapter, registry)
     result = await loop.run("check directory")
-    assert "3" in result.content
-    assert "PermissionError" in result.content
-    assert result.role == "assistant"
+    tool_outputs = [
+        result.output
+        for message in loop.messages
+        for result in (message.tool_results or [])
+    ]
+    assert result.content == "changed strategy"
+    assert any("[失败恢复提示]" in output for output in tool_outputs)
+    assert any("失败指纹" in output for output in tool_outputs)
     assert loop.status == "done"
-    assert len(adapter.requests) == 3
+    assert len(adapter.requests) == 4
 
 
 @pytest.mark.asyncio

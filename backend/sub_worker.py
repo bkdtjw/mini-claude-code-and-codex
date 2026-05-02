@@ -11,8 +11,8 @@ from backend.config import close_redis, get_redis, init_redis, settings
 from backend.core import create_sub_agent_task_queue, init_agent_runtime
 from backend.core.s02_tools.mcp import MCPServerManager
 from backend.core.task_queue import TaskQueue
-from backend.core.task_queue_consumer import SubAgentConsumerContext, consume_next_sub_agent_task
-from backend.storage import init_db
+from backend.api.task_queue_consumer import SubAgentConsumerContext, consume_next_sub_agent_task
+from backend.storage import SubAgentTaskStore, init_db
 
 logger = get_logger(component="sub_worker")
 TASK_QUEUE_RECOVERY_INTERVAL_SECONDS = 30
@@ -31,7 +31,7 @@ async def main() -> None:
         redis = get_redis()
         if redis is None:
             raise AgentError("TASK_QUEUE_REDIS_MISSING", "Redis client is not initialized.")
-        queue = create_sub_agent_task_queue(redis)
+        queue = create_sub_agent_task_queue(redis, persistence=SubAgentTaskStore())
         _install_signal_handlers(shutdown_event)
         background_tasks = _create_background_tasks(
             SubAgentConsumerContext(queue=queue, runtime=agent_runtime),

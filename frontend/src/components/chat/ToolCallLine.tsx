@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import DiffViewer from "@/components/diff/DiffViewer";
 import type { ToolCall, ToolResult } from "@/types";
 
 interface ToolCallLineProps {
@@ -78,10 +79,21 @@ export default function ToolCallLine({ call, result, pending = false }: ToolCall
             {summarizeOutput(result.output)}
           </div>
         ) : null}
-        {expanded ? (
+        {expanded && result.output ? (
           <pre className="mt-1 max-h-48 overflow-x-auto overflow-y-auto rounded bg-[#0a0a0a] p-2 text-xs text-[#888888]">
             {result.output}
           </pre>
+        ) : null}
+        {expanded && result.diffs?.length ? (
+          <div className="mt-2 max-h-96 space-y-2 overflow-y-auto">
+            {result.diffs.map((diff, index) => (
+              <DiffViewer
+                key={`${diff.path}-${index}`}
+                filename={diff.path}
+                unifiedDiff={diff.unifiedDiff}
+              />
+            ))}
+          </div>
         ) : null}
       </div>
     </div>

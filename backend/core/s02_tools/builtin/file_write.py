@@ -4,6 +4,8 @@ import os
 
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
+from .diff_support import build_unified_diff
+
 
 def _is_safe_path(path: str) -> bool:
     if not path or os.path.isabs(path):
@@ -15,7 +17,10 @@ def create_write_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
     """返回 (定义, 执行函数) 的 tuple，方便直接传给 registry.register()"""
     definition = ToolDefinition(
         name="Write",
-        description="写入内容到指定路径文件",
+        description=(
+            "写入完整文件内容。编辑已有文件时默认使用 str_replace；"
+            "str_replace 无法唯一匹配时使用 file_edit。"
+        ),
         category="file-ops",
         parameters=ToolParameterSchema(
             properties={
@@ -35,10 +40,20 @@ def create_write_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
             full_path = os.path.abspath(os.path.join(root, relative_path))
             if not full_path.startswith(root + os.sep) and full_path != root:
                 return ToolResult(output="Invalid path", is_error=True)
+            old_exists = os.path.exists(full_path)
+            old_content = ""
+            if old_exists:
+                try:
+                    with open(full_path, encoding="utf-8") as file:
+                        old_content = file.read()
+                except UnicodeDecodeError:
+                    old_content = ""
+            new_content = str(args.get("content", ""))
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, "w", encoding="utf-8") as file:
-                file.write(str(args.get("content", "")))
-            return ToolResult(output=f"Wrote file: {relative_path}")
+                file.write(new_content)
+            diff = build_unified_diff(relative_path, old_content, new_content, old_exists=old_exists)
+            return ToolResult(output=f"Wrote file: {relative_path}", diffs=[diff] if diff else [])
         except Exception as exc:  # noqa: BLE001
             return ToolResult(output=str(exc), is_error=True)
 

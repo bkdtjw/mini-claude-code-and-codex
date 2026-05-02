@@ -10,7 +10,7 @@ from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError
 from backend.common.types import AgentConfig, AgentEventHandler, ProviderConfig
 from backend.config.settings import Settings
-from backend.core.s01_agent_loop import AgentLoop
+from backend.core.s01_agent_loop import AgentLoop, CheckpointFn
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.builtin.bash import create_bash_tool
@@ -97,6 +97,7 @@ class AgentRuntime:
         task_queue: TaskQueue | None = None,
         event_handler: AgentEventHandler | None = None,
         is_sub_agent: bool = False,
+        checkpoint_fn: CheckpointFn | None = None,
     ) -> AgentLoop:
         try:
             resolved_provider = await self._resolve_provider(provider or spec.provider)
@@ -110,6 +111,7 @@ class AgentRuntime:
                 resolved_workspace,
                 adapter,
                 resolved_model,
+                session_id,
                 task_queue,
                 event_handler,
                 is_sub_agent,
@@ -135,6 +137,7 @@ class AgentRuntime:
                 ),
                 adapter=adapter,
                 tool_registry=registry,
+                checkpoint_fn=checkpoint_fn,
             )
             setattr(loop, "_bridge", bridge)  # noqa: B010, SLF001
             setattr(loop, "_agent_spec", spec)  # noqa: B010, SLF001
@@ -155,6 +158,7 @@ class AgentRuntime:
         task_queue: TaskQueue | None = None,
         event_handler: AgentEventHandler | None = None,
         is_sub_agent: bool = False,
+        checkpoint_fn: CheckpointFn | None = None,
     ) -> AgentLoop:
         try:
             spec = self._deps.spec_registry.get(spec_id)
@@ -171,6 +175,7 @@ class AgentRuntime:
                 task_queue=task_queue,
                 event_handler=event_handler,
                 is_sub_agent=is_sub_agent,
+                checkpoint_fn=checkpoint_fn,
             )
         except AgentError:
             raise
@@ -187,6 +192,8 @@ class AgentRuntime:
         task_queue: TaskQueue | None = None,
         event_handler: AgentEventHandler | None = None,
         is_sub_agent: bool = False,
+        session_id: str = "",
+        checkpoint_fn: CheckpointFn | None = None,
     ) -> AgentLoop:
         try:
             slug = re.sub(r"[^A-Za-z0-9_-]+", "-", role or "inline-agent")
@@ -204,9 +211,11 @@ class AgentRuntime:
             return await self.create_loop(
                 spec,
                 workspace=workspace,
+                session_id=session_id,
                 task_queue=task_queue,
                 event_handler=event_handler,
                 is_sub_agent=is_sub_agent,
+                checkpoint_fn=checkpoint_fn,
             )
         except AgentError:
             raise
@@ -220,6 +229,7 @@ class AgentRuntime:
         workspace: str,
         adapter: LLMAdapter,
         model: str,
+        session_id: str,
         task_queue: TaskQueue | None,
         event_handler: AgentEventHandler | None,
         is_sub_agent: bool,
@@ -235,6 +245,7 @@ class AgentRuntime:
             task_queue=task_queue,
             event_handler=event_handler,
             is_sub_agent=is_sub_agent,
+            parent_task_id=session_id,
         )
         filtered = ToolRegistry()
         for definition in base_registry.list_definitions():

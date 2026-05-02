@@ -184,6 +184,10 @@ export const api = {
     if (params.traceId) search.set("trace_id", params.traceId);
     if (params.sessionId) search.set("session_id", params.sessionId);
     if (params.level) search.set("level", params.level);
+    if (params.event) search.set("event", params.event);
+    if (params.component) search.set("component", params.component);
+    if (params.workerId) search.set("worker_id", params.workerId);
+    if (params.errorCode) search.set("error_code", params.errorCode);
     if (params.limit) search.set("limit", String(params.limit));
     if (params.minutes) search.set("minutes", String(params.minutes));
     const res = await request<LogSearchResponse>(`/api/logs/search?${search.toString()}`);

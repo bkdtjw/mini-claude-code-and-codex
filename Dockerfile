@@ -37,7 +37,7 @@ ENV VIRTUAL_ENV=/opt/venv \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl procps gosu \
+    && apt-get install -y --no-install-recommends curl procps gosu libcap2-bin \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 1000 --create-home --home-dir /home/appuser --shell /bin/bash appuser
 

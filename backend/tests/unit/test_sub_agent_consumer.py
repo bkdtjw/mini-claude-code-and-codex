@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
@@ -42,8 +42,13 @@ async def test_consume_next_sub_agent_task_completes_successfully() -> None:
         workspace="",
         session_id="sub-agent:task-1",
         is_sub_agent=True,
+        checkpoint_fn=ANY,
     )
-    queue.complete.assert_called_once_with("task-1", {"content": "done", "tool_call_count": 1})
+    queue.complete.assert_called_once_with(
+        "task-1",
+        {"content": "done", "tool_call_count": 1},
+        worker_id="",
+    )
     queue.fail.assert_not_called()
 
 
@@ -64,6 +69,7 @@ async def test_consume_next_sub_agent_task_reports_failure() -> None:
     queue.complete.assert_not_called()
     queue.fail.assert_called_once()
     assert "boom" in queue.fail.call_args.args[1]
+    assert queue.fail.call_args.kwargs["worker_id"] == ""
 
 
 @pytest.mark.asyncio
@@ -87,6 +93,7 @@ async def test_consume_next_sub_agent_task_reports_timeout() -> None:
     queue.complete.assert_not_called()
     queue.fail.assert_called_once()
     assert "超时" in queue.fail.call_args.args[1]
+    assert queue.fail.call_args.kwargs["worker_id"] == ""
 
 
 @pytest.mark.asyncio
@@ -106,3 +113,4 @@ async def test_consume_next_sub_agent_task_swallow_fail_errors() -> None:
     assert consumed is True
     queue.complete.assert_not_called()
     queue.fail.assert_called_once()
+    assert queue.fail.call_args.kwargs["worker_id"] == ""

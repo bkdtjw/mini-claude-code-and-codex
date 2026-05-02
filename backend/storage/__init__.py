@@ -8,9 +8,17 @@ from backend.storage.session_store import SessionStore
 if TYPE_CHECKING:
     from backend.storage.mcp_server_store import MCPServerStore
     from backend.storage.provider_store import ProviderStore
+    from backend.storage.sub_agent_task_store import SubAgentTaskStore
     from backend.storage.task_config_store import TaskConfigStore
 
-__all__ = ["MCPServerStore", "ProviderStore", "SessionStore", "TaskConfigStore", "init_db"]
+__all__ = [
+    "MCPServerStore",
+    "ProviderStore",
+    "SessionStore",
+    "SubAgentTaskStore",
+    "TaskConfigStore",
+    "init_db",
+]
 
 
 def __getattr__(name: str) -> Any:
@@ -26,4 +34,8 @@ def __getattr__(name: str) -> Any:
         from backend.storage.task_config_store import TaskConfigStore
 
         return TaskConfigStore
+    if name == "SubAgentTaskStore":
+        from backend.storage.sub_agent_task_store import SubAgentTaskStore
+
+        return SubAgentTaskStore
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

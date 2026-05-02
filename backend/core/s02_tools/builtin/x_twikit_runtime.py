@@ -44,7 +44,9 @@ SEARCH_FEATURE_DEFAULTS: dict[str, bool] = {
     "view_counts_everywhere_api_enabled": True,
 }
 _CHUNK_MAP_REGEX = re.compile(
-    r'g\.u=e=>\(\((\{.*?\})\[e\]\|\|e\)\+"\."\+(\{.*?\})\[e\]\+"a\.js"\)',
+    r'[A-Za-z_$][\w$]*\.u=e=>(?:""\+)?'
+    r'\(\((\{.*?\})\)?\[e\]\|\|e\)\+"\."\+\(?'
+    r'(\{.*?\})\)?\[e\]\+"a\.js"(?:\)|,)',
     re.DOTALL,
 )
 _FEATURE_NAME_REGEX = re.compile(r'"([^"]+)"')

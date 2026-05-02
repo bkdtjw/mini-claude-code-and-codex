@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     database_pool_timeout: int = 30
     database_pool_recycle: int = 1800
     metrics_ttl_days: int = 30
+    log_search_backend: str = "file"
+    log_search_fallback: str = "file"
+    log_search_trace_minutes: int = Field(default=7 * 24 * 60, ge=60)
+    loki_base_url: str = "http://127.0.0.1:3100"
+    loki_tenant_id: str = ""
+    loki_query_timeout_seconds: float = Field(default=10.0, ge=1.0)
+    loki_app_label: str = "agent-studio"
     sub_worker_concurrency: int = Field(default=2, ge=1)
     auth_secret: str = "change-me-in-production"
     server_base_url: str = ""
@@ -40,6 +47,7 @@ class Settings(BaseSettings):
     mihomo_config_path: str = ""
     mihomo_work_dir: str = ""
     mihomo_sub_path: str = ""
+    mihomo_custom_nodes_path: str = ""
     youtube_api_key: str = ""
     youtube_proxy_url: str = ""
     twitter_username: str = ""
@@ -47,6 +55,14 @@ class Settings(BaseSettings):
     twitter_password: str = ""
     twitter_proxy_url: str = ""
     twitter_cookies_file: str = "twitter_cookies.json"
+    notion_api_key: str = ""
+    llm_fallback_provider_ids: str = ""
+    llm_fallback_error_codes: str = (
+        "NETWORK_ERROR,RATE_LIMIT,RATE_LIMIT_1113,RATE_LIMIT_1305,RATE_LIMIT_1312,SERVER_ERROR"
+    )
+    llm_fallback_deadline_seconds: float = Field(default=180.0, ge=1.0)
+    llm_fallback_circuit_threshold: int = Field(default=3, ge=1)
+    llm_fallback_circuit_seconds: float = Field(default=300.0, ge=1.0)
 
     model_config = {
         "env_file": os.path.join(

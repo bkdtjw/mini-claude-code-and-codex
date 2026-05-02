@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import AliasChoices, BaseModel, Field
 
 
@@ -11,6 +13,9 @@ class AddProviderRequest(BaseModel):
     default_model: str
     available_models: list[str] = Field(default_factory=list)
     extra_headers: dict[str, str] = Field(default_factory=dict)
+    enable_prompt_cache: bool = False
+    prompt_cache_retention: Literal["in_memory", "24h"] | None = None
+    extra_body: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderResponse(BaseModel):
@@ -23,6 +28,9 @@ class ProviderResponse(BaseModel):
     api_key_preview: str = Field(validation_alias=AliasChoices("api_key_preview", "api_key"))
     default_model: str
     available_models: list[str] = Field(default_factory=list)
+    enable_prompt_cache: bool = False
+    prompt_cache_retention: Literal["in_memory", "24h"] | None = None
+    extra_body: dict[str, Any] = Field(default_factory=dict)
     is_default: bool = False
     enabled: bool = True
 
@@ -46,6 +54,9 @@ class ProviderUpdateRequest(BaseModel):
     available_models: list[str] | None = None
     is_default: bool | None = None
     extra_headers: dict[str, str] | None = None
+    enable_prompt_cache: bool | None = None
+    prompt_cache_retention: Literal["in_memory", "24h"] | None = None
+    extra_body: dict[str, Any] | None = None
     enabled: bool | None = None
 
 

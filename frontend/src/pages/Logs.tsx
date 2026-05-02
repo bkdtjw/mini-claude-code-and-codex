@@ -9,6 +9,10 @@ export default function Logs() {
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState<"trace" | "session">("trace");
   const [level, setLevel] = useState<LogLevel | "">("");
+  const [event, setEvent] = useState("");
+  const [component, setComponent] = useState("");
+  const [workerId, setWorkerId] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -16,8 +20,9 @@ export default function Logs() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   const runSearch = async () => {
-    if (!query.trim()) {
-      setError("请输入 trace_id 或 session_id。");
+    const hasMetadataFilter = Boolean(level || event.trim() || component.trim() || workerId.trim() || errorCode.trim());
+    if (!query.trim() && !hasMetadataFilter) {
+      setError("请输入至少一个日志筛选条件。");
       return;
     }
     try {
@@ -27,10 +32,18 @@ export default function Logs() {
         traceId: searchType === "trace" ? query.trim() : undefined,
         sessionId: searchType === "session" ? query.trim() : undefined,
         level,
+        event: event.trim() || undefined,
+        component: component.trim() || undefined,
+        workerId: workerId.trim() || undefined,
+        errorCode: errorCode.trim() || undefined,
         limit: 100,
         minutes,
       });
-      setTitle(`${searchType === "trace" ? "trace" : "session"} 检索结果`);
+      setTitle(
+        query.trim()
+          ? `${searchType === "trace" ? "trace" : "session"} 检索结果`
+          : "多字段检索结果",
+      );
       setLogs(result.logs);
     } catch (err) {
       setError((err as Error).message || "搜索失败");
@@ -72,11 +85,19 @@ export default function Logs() {
           query={query}
           searchType={searchType}
           level={level}
+          event={event}
+          component={component}
+          workerId={workerId}
+          errorCode={errorCode}
           minutes={minutes}
           loading={loading}
           onQueryChange={setQuery}
           onSearchTypeChange={setSearchType}
           onLevelChange={setLevel}
+          onEventChange={setEvent}
+          onComponentChange={setComponent}
+          onWorkerIdChange={setWorkerId}
+          onErrorCodeChange={setErrorCode}
           onMinutesChange={setMinutes}
           onSearch={() => void runSearch()}
           onLoadTrace={() => void loadTrace()}

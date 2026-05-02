@@ -124,6 +124,7 @@ def _register_builtin_tools(
     task_queue: object | None = None,
     event_handler: object | None = None,
     is_sub_agent: bool = False,
+    parent_task_id: str = "",
 ) -> None:
     _ = (
         workspace,
@@ -134,6 +135,7 @@ def _register_builtin_tools(
         spec_registry,
         task_queue,
         event_handler,
+        parent_task_id,
     )
     for name in ("Read", "Bash"):
         registry.register(_tool(name), _executor(name))

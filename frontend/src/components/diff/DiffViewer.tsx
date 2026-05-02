@@ -3,9 +3,10 @@ import { html as diff2html } from "diff2html";
 import "diff2html/bundles/css/diff2html.min.css";
 
 interface DiffViewerProps {
-  oldContent: string;
-  newContent: string;
   filename: string;
+  oldContent?: string;
+  newContent?: string;
+  unifiedDiff?: string;
 }
 
 type DiffMode = "side-by-side" | "line-by-line";
@@ -47,16 +48,16 @@ const toUnifiedDiff = (oldContent: string, newContent: string, filename: string)
   return [`diff --git a/${filename} b/${filename}`, `--- a/${filename}`, `+++ b/${filename}`, `@@ -${oldStart},${oldLines.length} +${newStart},${newLines.length} @@`, body].join("\n");
 };
 
-export default function DiffViewer({ oldContent, newContent, filename }: DiffViewerProps) {
+export default function DiffViewer({ oldContent = "", newContent = "", filename, unifiedDiff }: DiffViewerProps) {
   const [mode, setMode] = useState<DiffMode>("line-by-line");
   const rendered = useMemo(
     () =>
-      diff2html(toUnifiedDiff(oldContent, newContent, filename), {
+      diff2html(unifiedDiff || toUnifiedDiff(oldContent, newContent, filename), {
         drawFileList: false,
         outputFormat: mode,
         matching: "lines",
       }),
-    [oldContent, newContent, filename, mode],
+    [oldContent, newContent, filename, mode, unifiedDiff],
   );
 
   return (

@@ -2,9 +2,21 @@ from __future__ import annotations
 
 import json
 
-from backend.common.types import MCPServerConfig, Message, ProviderConfig, Session, SessionConfig, ToolCall, ToolResult
+from backend.common.types import (
+    MCPServerConfig,
+    Message,
+    Session,
+    SessionConfig,
+    ToolCall,
+    ToolResult,
+)
 from backend.core.s07_task_system.models import NotifyConfig, OutputConfig, ScheduledTask
-from backend.storage.models import MCPServerRecord, MessageRecord, ProviderRecord, ScheduledTaskRecord, SessionRecord
+from backend.storage.models import (
+    MCPServerRecord,
+    MessageRecord,
+    ScheduledTaskRecord,
+    SessionRecord,
+)
 
 
 def _dump_models(items: list[ToolCall] | list[ToolResult] | None) -> str | None:
@@ -92,36 +104,6 @@ def to_session(record: SessionRecord, messages: list[Message] | None = None) -> 
     )
 
 
-def to_provider_record(config: ProviderConfig) -> ProviderRecord:
-    return ProviderRecord(
-        id=config.id,
-        name=config.name,
-        provider_type=config.provider_type.value,
-        base_url=config.base_url,
-        api_key=config.api_key,
-        default_model=config.default_model,
-        available_models_json=_dump_json(config.available_models),
-        extra_headers_json=_dump_json(config.extra_headers),
-        is_default=config.is_default,
-        enabled=config.enabled,
-    )
-
-
-def to_provider_config(record: ProviderRecord) -> ProviderConfig:
-    return ProviderConfig(
-        id=record.id,
-        name=record.name,
-        provider_type=record.provider_type,
-        base_url=record.base_url,
-        api_key=record.api_key,
-        default_model=record.default_model,
-        available_models=[str(item) for item in _load_list(record.available_models_json)],
-        extra_headers={str(key): str(value) for key, value in _load_dict(record.extra_headers_json).items()},
-        is_default=record.is_default,
-        enabled=record.enabled,
-    )
-
-
 def to_mcp_server_record(config: MCPServerConfig) -> MCPServerRecord:
     return MCPServerRecord(
         id=config.id,
@@ -191,8 +173,6 @@ __all__ = [
     "to_mcp_server_record",
     "to_message",
     "to_message_record",
-    "to_provider_config",
-    "to_provider_record",
     "to_scheduled_task",
     "to_session",
     "to_task_record",

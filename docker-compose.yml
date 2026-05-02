@@ -41,7 +41,7 @@ services:
       # The twikit library reads and writes to this file, so mount is read-write
       - ./twitter_cookies.json:/app/twitter_cookies.json
       # Proxy config files for mihomo tools
-      - /usr/local/bin/mihomo:/usr/local/bin/mihomo:ro
+      - /usr/local/bin/mihomo:/usr/local/bin/mihomo
       - ./sub_raw.yaml:/app/sub_raw.yaml:ro
       - ./custom_nodes.yaml:/app/custom_nodes.yaml:ro
       - ./proxy-config.yaml:/app/proxy-config.yaml:ro
@@ -82,7 +82,7 @@ services:
       - ./reports:/app/reports
       - ./twitter_cookies.json:/app/twitter_cookies.json
       # Proxy config files for mihomo tools
-      - /usr/local/bin/mihomo:/usr/local/bin/mihomo:ro
+      - /usr/local/bin/mihomo:/usr/local/bin/mihomo
       - ./sub_raw.yaml:/app/sub_raw.yaml:ro
       - ./config.yaml:/app/config.yaml:ro
       - ./custom_nodes.yaml:/app/custom_nodes.yaml:ro

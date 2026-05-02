@@ -48,6 +48,7 @@ def log_llm_request_end(
     if response is not None:
         payload["prompt_tokens"] = response.usage.prompt_tokens
         payload["completion_tokens"] = response.usage.completion_tokens
+        payload["cached_prompt_tokens"] = response.usage.cached_prompt_tokens
     logger.info("llm_request_end", **payload)
 
 
@@ -94,6 +95,8 @@ async def incr_llm_success(response: LLMResponse | None = None) -> None:
         return
     await incr("llm_prompt_tokens", response.usage.prompt_tokens)
     await incr("llm_completion_tokens", response.usage.completion_tokens)
+    if response.usage.cached_prompt_tokens:
+        await incr("llm_cached_prompt_tokens", response.usage.cached_prompt_tokens)
 
 
 async def incr_llm_error() -> None:

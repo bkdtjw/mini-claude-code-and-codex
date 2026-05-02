@@ -102,23 +102,24 @@ async def test_lifecycle_start_full_flow(monkeypatch: pytest.MonkeyPatch) -> Non
             tracker.append("start")
             return "v1.19.22"
 
+    async def no_running_api(_self: object) -> str:
+        return ""
+
     monkeypatch.setattr(
         ProxyLifecycle, "_kill_process", staticmethod(lambda _exe: tracker.append("kill"))
     )
+    monkeypatch.setattr(ProxyLifecycle, "_check_systemd_service", lambda _self: False)
+    monkeypatch.setattr(proxy_lifecycle.MihomoAPI, "get_version", no_running_api)
     monkeypatch.setattr(
         proxy_lifecycle.ProxyConfigGenerator, "generate_from_subscription", fake_generate
     )
     monkeypatch.setattr(proxy_lifecycle.CustomNodesManager, "merge_into_config", fake_merge)
     monkeypatch.setattr(proxy_lifecycle.ProxyConfigGenerator, "save", fake_save)
     monkeypatch.setattr(proxy_lifecycle, "MihomoProcess", StubProcess)
-    monkeypatch.setattr(
-        ProxyLifecycle,
-        "set_system_proxy",
-        staticmethod(lambda _host, _port: tracker.append("proxy") or True),
-    )
     output = await ProxyLifecycle(config).start()
-    assert tracker == ["kill", "generate", "merge", "save", "start", "proxy"]
+    assert tracker == ["kill", "generate", "merge", "save", "start"]
     assert "mihomo: v1.19.22" in output
+    assert "System proxy: unchanged" in output
     assert "Node count: 2" in output
     assert f"Exit node: {EXIT_PREFIX}relay" in output
 
@@ -127,13 +128,11 @@ async def test_lifecycle_start_full_flow(monkeypatch: pytest.MonkeyPatch) -> Non
 async def test_lifecycle_stop(monkeypatch: pytest.MonkeyPatch) -> None:
     tracker: list[str] = []
     config = make_runtime_config()
-    monkeypatch.setattr(
-        ProxyLifecycle, "clear_system_proxy", staticmethod(lambda: tracker.append("clear") or True)
-    )
+    monkeypatch.setattr(ProxyLifecycle, "_check_systemd_service", lambda _self: False)
     monkeypatch.setattr(
         ProxyLifecycle, "_kill_process", staticmethod(lambda _exe: tracker.append("kill"))
     )
     output = await ProxyLifecycle(config).stop()
-    assert tracker == ["clear", "kill"]
+    assert tracker == ["kill"]
     assert "Proxy stopped" in output
-    assert "System proxy: cleared" in output
+    assert "System proxy: unchanged" in output

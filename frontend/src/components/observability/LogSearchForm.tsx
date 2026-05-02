@@ -4,11 +4,19 @@ interface LogSearchFormProps {
   query: string;
   searchType: "trace" | "session";
   level: LogLevel | "";
+  event: string;
+  component: string;
+  workerId: string;
+  errorCode: string;
   minutes: number;
   loading: boolean;
   onQueryChange: (value: string) => void;
   onSearchTypeChange: (value: "trace" | "session") => void;
   onLevelChange: (value: LogLevel | "") => void;
+  onEventChange: (value: string) => void;
+  onComponentChange: (value: string) => void;
+  onWorkerIdChange: (value: string) => void;
+  onErrorCodeChange: (value: string) => void;
   onMinutesChange: (value: number) => void;
   onSearch: () => void;
   onLoadTrace: () => void;
@@ -21,11 +29,19 @@ export default function LogSearchForm(props: LogSearchFormProps) {
     query,
     searchType,
     level,
+    event,
+    component,
+    workerId,
+    errorCode,
     minutes,
     loading,
     onQueryChange,
     onSearchTypeChange,
     onLevelChange,
+    onEventChange,
+    onComponentChange,
+    onWorkerIdChange,
+    onErrorCodeChange,
     onMinutesChange,
     onSearch,
     onLoadTrace,
@@ -82,6 +98,49 @@ export default function LogSearchForm(props: LogSearchFormProps) {
               </option>
             ))}
           </select>
+        </label>
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <label>
+          <span className="mb-2 block text-sm text-[#7d8590]">event</span>
+          <input
+            value={event}
+            onChange={(item) => onEventChange(item.target.value)}
+            onKeyDown={(item) => item.key === "Enter" && onSearch()}
+            className="w-full rounded-2xl border border-[#2c2c2c] bg-[#050505] px-4 py-3 text-sm text-[#f0f6fc] outline-none transition focus:border-[#58a6ff]"
+            placeholder="agent_run_error"
+          />
+        </label>
+        <label>
+          <span className="mb-2 block text-sm text-[#7d8590]">component</span>
+          <input
+            value={component}
+            onChange={(item) => onComponentChange(item.target.value)}
+            onKeyDown={(item) => item.key === "Enter" && onSearch()}
+            className="w-full rounded-2xl border border-[#2c2c2c] bg-[#050505] px-4 py-3 text-sm text-[#f0f6fc] outline-none transition focus:border-[#58a6ff]"
+            placeholder="agent_loop"
+          />
+        </label>
+        <label>
+          <span className="mb-2 block text-sm text-[#7d8590]">worker_id</span>
+          <input
+            value={workerId}
+            onChange={(item) => onWorkerIdChange(item.target.value)}
+            onKeyDown={(item) => item.key === "Enter" && onSearch()}
+            className="w-full rounded-2xl border border-[#2c2c2c] bg-[#050505] px-4 py-3 text-sm text-[#f0f6fc] outline-none transition focus:border-[#58a6ff]"
+            placeholder="worker-..."
+          />
+        </label>
+        <label>
+          <span className="mb-2 block text-sm text-[#7d8590]">error_code</span>
+          <input
+            value={errorCode}
+            onChange={(item) => onErrorCodeChange(item.target.value)}
+            onKeyDown={(item) => item.key === "Enter" && onSearch()}
+            className="w-full rounded-2xl border border-[#2c2c2c] bg-[#050505] px-4 py-3 text-sm text-[#f0f6fc] outline-none transition focus:border-[#58a6ff]"
+            placeholder="LLM_RATE_LIMIT"
+          />
         </label>
       </div>
 

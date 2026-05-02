@@ -121,7 +121,8 @@ async def test_create_session_uses_default_provider_model_and_tools() -> None:
     assert session.state.model == "test-model"
     assert session.state.provider_id == "provider-1"
     assert session.state.available_models == ["test-model", "new-model"]
-    assert tool_names[:5] == ["Read", "Write", "Bash", "dispatch_agent", "orchestrate_agents"]
+    assert tool_names[:8] == ["Read", "Glob", "Grep", "str_replace", "file_edit", "Write", "Bash", "dispatch_agent"]
+    assert "orchestrate_agents" in tool_names
     assert "query_specs" in tool_names
 
 

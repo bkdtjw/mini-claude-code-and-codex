@@ -39,11 +39,15 @@ class ProxyLifecycle:
 
     async def start(self, force: bool = True) -> str:
         try:
-            # 检查是否使用 systemd 服务管理
+            api = MihomoAPI(self._config.api_url, self._config.api_secret)
+            version = await api.get_version()
+            if version and not force:
+                # mihomo 已在运行且不要求强制重启，返回状态
+                return await self._status_via_api(version)
+            # force=True 或 mihomo 未运行：重新生成配置并启动
             use_systemd = self._check_systemd_service()
             if use_systemd:
                 return await self._start_via_systemd(force)
-            # 降级到进程管理模式
             return await self._start_via_process(force)
         except Exception as exc:  # noqa: BLE001
             raise ProxyLifecycleError(f"Failed to start proxy: {exc}") from exc
@@ -61,12 +65,11 @@ class ProxyLifecycle:
             if result.returncode not in (0, 3):  # 3 = service not found but acceptable
                 raise ProxyLifecycleError(f"Failed to stop service: {result.stderr}")
 
-        # 重新生成配置（如果 force=True 且订阅文件存在）
+        # 重新生成配置（force=True 时总是重新生成，确保 custom_nodes 被合并）
         config_reloaded = False
-        if force and Path(self._config.sub_path).exists():
+        if force:
             generator = ProxyConfigGenerator(self._config.config_path)
-            config = self._build_config(generator)
-            merged = CustomNodesManager(self._config.custom_nodes_path).merge_into_config(config)
+            merged = self._generate_merged_config(generator)
             generator.save(merged)
             config_reloaded = True
 
@@ -112,26 +115,21 @@ class ProxyLifecycle:
             f"Exit node: {first_exit}",
         ]
         if config_reloaded:
-            lines.append("Config: Reloaded from subscription")
-        elif force:
-            lines.append("Config: Using existing (subscription file not found)")
+            lines.append("Config: Reloaded with custom nodes")
         return "\n".join(lines)
 
     async def _start_via_process(self, force: bool) -> str:
         """通过进程管理启动 mihomo (降级方案)."""
         self._kill_process(Path(self._config.mihomo_path).name)
         generator = ProxyConfigGenerator(self._config.config_path)
-        config = (
-            generator.load()
-            if not force and Path(self._config.config_path).exists()
-            else self._build_config(generator)
-        )
-        merged = CustomNodesManager(self._config.custom_nodes_path).merge_into_config(config)
-        generator.save(merged)
+        if not force and Path(self._config.config_path).exists():
+            merged = generator.load()
+        else:
+            merged = self._generate_merged_config(generator)
+            generator.save(merged)
         version = await MihomoProcess(_process_config(self._config)).start()
         if not version.startswith("v"):
             raise ProxyLifecycleError(version)
-        proxy_set = self.set_system_proxy("127.0.0.1", self._config.proxy_port)
         exit_nodes = CustomNodesManager(self._config.custom_nodes_path).get_exit_nodes()
         chains = ChainProxyManager.list_chains(merged)
         first_exit = str(exit_nodes[0]["name"]) if exit_nodes else "None"
@@ -140,7 +138,7 @@ class ProxyLifecycle:
                 "Proxy started (process)",
                 f"mihomo: {version}",
                 f"Proxy port: 127.0.0.1:{self._config.proxy_port}",
-                f"System proxy: {'set' if proxy_set else 'failed to set'}",
+                "System proxy: unchanged",
                 f"Node count: {len(merged.get('proxies') or [])}",
                 f"Exit node: {first_exit}",
                 f"Chain nodes: {len(chains)}",
@@ -170,11 +168,8 @@ class ProxyLifecycle:
 
     async def _stop_via_process(self) -> str:
         """通过进程管理停止 mihomo."""
-        cleared = self.clear_system_proxy()
         self._kill_process(Path(self._config.mihomo_path).name)
-        return "\n".join(
-            ["Proxy stopped (process)", f"System proxy: {'cleared' if cleared else 'failed to clear'}"]
-        )
+        return "\n".join(["Proxy stopped (process)", "System proxy: unchanged"])
 
     async def status(self) -> str:
         try:
@@ -212,6 +207,17 @@ class ProxyLifecycle:
         ]
         return "\n".join(lines)
 
+    async def _status_via_api(self, version: str) -> str:
+        """通过 API 查询状态（TUN 模式，mihomo 在宿主机运行）."""
+        chain_config = CustomNodesManager(self._config.custom_nodes_path).get_chain_config()
+        lines = [
+            f"mihomo: {version}",
+            f"Mode: TUN (transparent proxy)",
+            f"Status: Running on host",
+            f"Chain exit: {chain_config.get('exit_node') or 'None'}",
+        ]
+        return "\n".join(lines)
+
     async def _status_via_process(self) -> str:
         """通过进程查询状态."""
         version = await MihomoAPI(self._config.api_url, self._config.api_secret).get_version()
@@ -229,13 +235,29 @@ class ProxyLifecycle:
         if IS_WINDOWS:
             return False
         try:
+            active = subprocess.run(
+                ["systemctl", "is-active", MIHOMO_SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if active.stdout.strip() == "active":
+                return True
+            enabled = subprocess.run(
+                ["systemctl", "is-enabled", MIHOMO_SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if enabled.stdout.strip() == "enabled":
+                return True
             result = subprocess.run(
                 ["systemctl", "list-unit-files", f"{MIHOMO_SERVICE_NAME}.service"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            return MIHOMO_SERVICE_NAME in result.stdout and result.returncode == 0
+            return f"{MIHOMO_SERVICE_NAME}.service enabled" in result.stdout and result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
@@ -322,6 +344,24 @@ class ProxyLifecycle:
             if result.returncode not in (0, 1):
                 output = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
                 raise ProxyLifecycleError(f"Failed to stop mihomo process: {output}")
+
+    def _generate_merged_config(self, generator: ProxyConfigGenerator) -> dict[str, object]:
+        """生成包含 custom_nodes 的合并配置。sub_path 不存在时生成最小配置后合并。"""
+        if Path(self._config.sub_path).exists():
+            config = self._build_config(generator)
+        else:
+            # sub_path 不存在：生成最小配置（仅含空节点）后合并 custom_nodes
+            config = generator.generate_from_subscription(
+                {
+                    "proxies": [
+                        {"name": "空节点-无代理", "type": "http", "server": "127.0.0.1", "port": 65535},
+                    ],
+                },
+                smux_config=None,
+                dns_config=ProxyConfigGenerator.default_dns_config(),
+                global_opts=ProxyConfigGenerator.default_global_opts(),
+            )
+        return CustomNodesManager(self._config.custom_nodes_path).merge_into_config(config)
 
     def _build_config(self, generator: ProxyConfigGenerator) -> dict[str, object]:
         with open(self._config.sub_path, encoding="utf-8") as handle:

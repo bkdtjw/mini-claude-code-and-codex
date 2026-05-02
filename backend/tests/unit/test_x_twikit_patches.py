@@ -23,6 +23,24 @@ def test_build_ondemand_chunk_url_supports_new_chunk_map() -> None:
     assert url == "https://abs.twimg.com/responsive-web/client-web/ondemand.s.02cffcea.js"
 
 
+def test_build_ondemand_chunk_url_supports_prefixed_chunk_map() -> None:
+    html = (
+        'u.u=e=>""+(({20113:"ondemand.s",1:"bundle.A"}[e]||e)+"."+'
+        '{20113:"f79c56a",1:"1234567"}[e]+"a.js")'
+    )
+    url = _build_ondemand_chunk_url(html)
+    assert url == "https://abs.twimg.com/responsive-web/client-web/ondemand.s.f79c56aa.js"
+
+
+def test_build_ondemand_chunk_url_supports_wrapped_chunk_maps() -> None:
+    html = (
+        'u.u=e=>""+(({20113:"ondemand.s",1:"bundle.A"})[e]||e)+"."+'
+        '({20113:"f79c56a",1:"1234567"})[e]+"a.js",'
+    )
+    url = _build_ondemand_chunk_url(html)
+    assert url == "https://abs.twimg.com/responsive-web/client-web/ondemand.s.f79c56aa.js"
+
+
 def test_extract_main_bundle_path_reads_current_homepage_markup() -> None:
     html = '<script src="https://abs.twimg.com/responsive-web/client-web/main.9eef478a.js"></script>'
     assert _extract_main_bundle_path(html) == "responsive-web/client-web/main.9eef478a.js"

@@ -12,6 +12,7 @@ METRIC_NAMES = (
     "llm_errors",
     "llm_prompt_tokens",
     "llm_completion_tokens",
+    "llm_cached_prompt_tokens",
     "tool_calls",
     "tool_errors",
     "task_triggers",

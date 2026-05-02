@@ -1,6 +1,3 @@
 allowed_tools:
+  - collect_and_process
   - Read
-  - Bash
-  - x_search
-  - youtube_search
-  - spawn_agent

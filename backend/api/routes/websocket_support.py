@@ -114,6 +114,7 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
             "tool_call_id": data.tool_call_id,
             "output": data.output,
             "is_error": data.is_error,
+            "diffs": [diff.model_dump(mode="json") for diff in data.diffs],
         }
     if event.type == "security_reject" and isinstance(data, ToolResult):
         return {
@@ -121,6 +122,7 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
             "tool_call_id": data.tool_call_id,
             "output": data.output,
             "is_error": data.is_error,
+            "diffs": [diff.model_dump(mode="json") for diff in data.diffs],
         }
     if event.type == "sub_agent_spawned" and isinstance(data, dict):
         return {
@@ -162,7 +164,9 @@ async def run_loop(payload: RunLoopInput) -> None:
         except Exception:
             return
     finally:
-        if payload.store is not None:
+        has_checkpoint = getattr(payload.loop, "_checkpoint_fn", None) is not None
+        checkpoint_failed = bool(getattr(payload.loop, "_checkpoint_failed", False))
+        if payload.store is not None and (not has_checkpoint or checkpoint_failed):
             try:
                 await payload.store.save_messages(payload.session_id, payload.loop.messages)
             except Exception:

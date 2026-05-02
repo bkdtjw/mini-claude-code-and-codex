@@ -56,5 +56,15 @@ else
     cd /app
 fi
 
+# Grant mihomo CAP_NET_ADMIN so appuser can create/manage TUN devices.
+# The binary is volume-mounted, so we set the file capability at container startup.
+MIHOMO_BIN="/usr/local/bin/mihomo"
+if [ -f "$MIHOMO_BIN" ] && command -v setcap >/dev/null 2>&1; then
+    if ! getcap "$MIHOMO_BIN" | grep -q "cap_net_admin"; then
+        echo "Setting CAP_NET_ADMIN on mihomo binary..."
+        setcap cap_net_admin,cap_net_bind_service=eip "$MIHOMO_BIN" 2>/dev/null || true
+    fi
+fi
+
 # Run as appuser
 exec gosu appuser gunicorn backend.main:app -c backend/gunicorn_conf.py
