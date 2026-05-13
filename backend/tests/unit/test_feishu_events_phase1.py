@@ -55,3 +55,33 @@ async def test_feishu_events_decrypts_and_routes(
 
     assert response.status_code == 200
     assert response.json() == {"handled": "cipher"}
+
+
+@pytest.mark.asyncio
+async def test_feishu_events_uses_only_real_lark_signature_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
+
+    def capture_verify(*args: Any) -> bool:
+        captured["timestamp"] = str(args[1])
+        captured["nonce"] = str(args[2])
+        captured["signature"] = str(args[3])
+        return True
+
+    monkeypatch.setattr(feishu_events_module, "verify_signature", capture_verify)
+    app = FastAPI()
+    app.include_router(router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/feishu/events",
+            json={"header": {"event_type": "morning.test"}},
+            headers={
+                "X-Lark-Signature-Timestamp": "old-ts",
+                "X-Lark-Signature-Signature": "old-sig",
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured == {"timestamp": "", "nonce": "", "signature": ""}

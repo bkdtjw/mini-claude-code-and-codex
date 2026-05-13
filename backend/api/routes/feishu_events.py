@@ -86,22 +86,16 @@ def _decode_json(body: bytes) -> dict[str, Any]:
 
 
 def _signature_ok(request: Request, body: bytes) -> bool:
-    timestamp = request.headers.get("X-Lark-Request-Timestamp") or request.headers.get(
-        "X-Lark-Signature-Timestamp",
-        "",
-    )
+    timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
     nonce = request.headers.get("X-Lark-Request-Nonce", "")
-    signature = request.headers.get("X-Lark-Signature") or request.headers.get(
-        "X-Lark-Signature-Signature",
-        "",
-    )
+    signature = request.headers.get("X-Lark-Signature", "")
     return verify_signature(
         body,
         timestamp,
         nonce,
         signature,
-        settings.feishu_verification_token,
-        settings.feishu_encrypt_key,
+        _feishu_verification_token(),
+        _feishu_encrypt_key(),
     )
 
 
@@ -109,7 +103,15 @@ def _decrypt_if_needed(payload: dict[str, Any]) -> dict[str, Any]:
     encrypt = payload.get("encrypt")
     if not isinstance(encrypt, str) or not encrypt:
         return payload
-    return decrypt_payload(encrypt, settings.feishu_encrypt_key)
+    return decrypt_payload(encrypt, _feishu_encrypt_key())
+
+
+def _feishu_verification_token() -> str:
+    return str(getattr(settings, "feishu_verification_token", "") or "")
+
+
+def _feishu_encrypt_key() -> str:
+    return str(getattr(settings, "feishu_encrypt_key", "") or "")
 
 
 def _event_type(payload: dict[str, Any]) -> str:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger
@@ -30,8 +31,24 @@ def load_site_config(domain: str, config_dir: Path | None = None) -> SiteConfig:
 
 
 def _matches_domain(domain: str, data: dict[str, Any]) -> bool:
-    configured = str(data.get("domain", "")).lower()
-    return bool(configured and domain.lower().endswith(configured))
+    host = _host_from_value(domain)
+    configured = _host_from_value(str(data.get("domain", "")))
+    if not host or not configured:
+        return False
+    host_parts = host.split(".")
+    configured_parts = configured.split(".")
+    if len(host_parts) < len(configured_parts):
+        return False
+    return host_parts[-len(configured_parts) :] == configured_parts
+
+
+def _host_from_value(value: str) -> str:
+    candidate = value.strip().lower()
+    if not candidate:
+        return ""
+    parsed = urlparse(candidate if "://" in candidate else f"//{candidate}")
+    host = parsed.hostname or candidate.split("/", 1)[0]
+    return host.strip(".")
 
 
 __all__ = ["load_site_config"]

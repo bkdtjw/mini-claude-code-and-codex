@@ -4,6 +4,7 @@ import pytest
 
 from backend.core.s02_tools.builtin.article_extractor import ImageRef, extract_article
 from backend.core.s02_tools.builtin.article_extractor import extractor
+from backend.core.s02_tools.builtin.article_extractor.site_registry import _matches_domain
 from backend.core.s02_tools.builtin.browser import SiteConfig
 from backend.core.s02_tools.builtin.image_filter import filter_images
 
@@ -48,3 +49,10 @@ async def test_extract_article_fallback_and_filter_images(
         config,
     )
     assert [image.url for image in images] == ["https://example.com/hero.png"]
+
+
+def test_site_registry_matches_host_boundary() -> None:
+    rule = {"domain": "example.com"}
+    assert _matches_domain("https://news.example.com/post", rule) is True
+    assert _matches_domain("example.com", rule) is True
+    assert _matches_domain("badexample.com", rule) is False
