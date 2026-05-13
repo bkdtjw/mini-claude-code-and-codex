@@ -131,6 +131,8 @@ def create_app() -> FastAPI:
     setup_logging(os.getenv("LOG_LEVEL", "INFO"))
     from backend.api.routes import (
         chat_completions,
+        cookie_sync,
+        feishu_events,
         logs,
         mcp,
         metrics,
@@ -156,6 +158,8 @@ def create_app() -> FastAPI:
     app.include_router(mcp.router)
     app.include_router(metrics.router)
     app.include_router(logs.router)
+    app.include_router(cookie_sync.router)
+    app.include_router(feishu_events.router)
     app.include_router(reports_router)
 
     if app_settings.feishu_app_id and app_settings.feishu_app_secret:
