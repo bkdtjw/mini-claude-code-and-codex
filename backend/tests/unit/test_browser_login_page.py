@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.core.s02_tools.builtin.browser_agent.login_page import request_sms_code
+from backend.core.s02_tools.builtin.browser_agent.login_session_models import LoginAssistResult
 
 
 class _Locator:
@@ -36,6 +37,28 @@ class _Page:
         return _Locator(self.body)
 
 
+class _Vision:
+    def __init__(self) -> None:
+        self.clicked_questions: list[str] = []
+        self.typed_values: list[str] = []
+
+    async def click_target(self, page: _Page, query: object) -> LoginAssistResult:
+        self.clicked_questions.append(getattr(query, "question", ""))
+        return LoginAssistResult(status="clicked", detail="视觉定位点击")
+
+    async def type_into_target(
+        self,
+        page: _Page,
+        query: object,
+        value: str,
+    ) -> LoginAssistResult:
+        self.typed_values.append(value)
+        return LoginAssistResult(status="typed", detail="视觉定位输入")
+
+    async def observe_page(self, page: _Page, question: str) -> object:
+        raise AssertionError("body confirmation should avoid extra vision call")
+
+
 @pytest.mark.asyncio
 async def test_request_sms_code_requires_send_confirmation() -> None:
     page = _Page(
@@ -61,3 +84,19 @@ async def test_request_sms_code_reports_missing_button() -> None:
     result = await request_sms_code(page, "13800000000")
 
     assert result.status == "sms_button_missing"
+
+
+@pytest.mark.asyncio
+async def test_request_sms_code_uses_vision_for_dynamic_login_ui() -> None:
+    page = _Page(
+        body="短信验证码已发送，60秒后重新获取",
+        click_ok={"text=短信登录"},
+        fill_ok=set(),
+    )
+    vision = _Vision()
+
+    result = await request_sms_code(page, "13800000000", vision)
+
+    assert result.status == "sent"
+    assert vision.typed_values == ["13800000000"]
+    assert any("验证码" in question for question in vision.clicked_questions)

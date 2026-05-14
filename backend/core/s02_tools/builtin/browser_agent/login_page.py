@@ -5,10 +5,23 @@ import time
 from backend.core.s02_tools.builtin.browser import SmartPage
 
 from .login_session_models import LoginAssistResult
+from .login_vision import LoginVisionHelper, TargetQuery
 
 
-async def request_sms_code(page: SmartPage, phone: str) -> LoginAssistResult:
-    await try_click(page, ["text=短信登录", "text=手机短信登录", "text=短信验证码登录"])
+async def request_sms_code(
+    page: SmartPage,
+    phone: str,
+    vision: LoginVisionHelper | None = None,
+) -> LoginAssistResult:
+    clicked_sms = await try_click(page, ["text=短信登录", "text=手机短信登录", "text=短信验证码登录"])
+    if not clicked_sms and vision is not None:
+        await vision.click_target(
+            page,
+            TargetQuery(
+                question="找到短信登录、手机短信登录或验证码登录入口，并返回它的 bbox。",
+                keywords=("短信", "验证码", "手机"),
+            ),
+        )
     phone_filled = await try_fill(
         page,
         [
@@ -21,9 +34,32 @@ async def request_sms_code(page: SmartPage, phone: str) -> LoginAssistResult:
         ],
         phone,
     )
+    if not phone_filled and vision is not None:
+        typed = await vision.type_into_target(
+            page,
+            TargetQuery(
+                question="找到手机号或手机号码输入框，并返回输入框 bbox。",
+                keywords=("手机号", "手机", "号码", "输入框", "账号"),
+            ),
+            phone,
+        )
+        phone_filled = typed.status == "typed"
+        if not phone_filled:
+            return typed
     if not phone_filled:
         return LoginAssistResult(status="phone_input_missing", detail="未找到手机号输入框")
     button_clicked = await try_click(page, ["text=获取验证码", "text=发送验证码", "text=获取短信验证码"])
+    if not button_clicked and vision is not None:
+        clicked = await vision.click_target(
+            page,
+            TargetQuery(
+                question="找到获取验证码、发送验证码或获取短信验证码按钮，并返回按钮 bbox。",
+                keywords=("验证码", "获取", "发送"),
+            ),
+        )
+        button_clicked = clicked.status == "clicked"
+        if not button_clicked:
+            return clicked
     if not button_clicked:
         return LoginAssistResult(status="sms_button_missing", detail="未找到发送验证码按钮")
     await page.wait_for_timeout(1500)
@@ -32,6 +68,17 @@ async def request_sms_code(page: SmartPage, phone: str) -> LoginAssistResult:
         return LoginAssistResult(status="blocked", detail=summarize(text))
     if sms_send_confirmed(text):
         return LoginAssistResult(status="sent", detail="短信验证码已请求")
+    if vision is not None:
+        observation = await vision.observe_page(
+            page,
+            "判断短信验证码是否已经发送成功，或者是否出现滑块、安全验证、错误提示。",
+        )
+        visual_text = _vision_text(observation)
+        if has_blocked(visual_text):
+            return LoginAssistResult(status="blocked", detail=summarize(visual_text))
+        if sms_send_confirmed(visual_text):
+            return LoginAssistResult(status="sent", detail="短信验证码已请求")
+        return LoginAssistResult(status="unconfirmed", detail=summarize(visual_text))
     return LoginAssistResult(status="unconfirmed", detail=summarize(text) or "未确认短信验证码已发送")
 
 
@@ -124,6 +171,15 @@ def sms_send_confirmed(text: str) -> bool:
 
 def summarize(text: str) -> str:
     return text[:160].replace("\n", " | ")
+
+
+def _vision_text(observation: object) -> str:
+    page_summary = getattr(observation, "page_summary", "")
+    next_action = getattr(observation, "suggested_next_action", "")
+    reason = getattr(observation, "screenshot_reason", "")
+    target = getattr(observation, "target_element", None)
+    target_text = getattr(target, "description", "") if target is not None else ""
+    return " | ".join(str(part) for part in (page_summary, next_action, reason, target_text) if part)
 
 
 __all__ = ["request_sms_code", "submit_password", "submit_sms_code", "wait_login_result"]

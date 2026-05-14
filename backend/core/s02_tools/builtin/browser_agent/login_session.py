@@ -15,6 +15,7 @@ from backend.core.s02_tools.builtin.feishu_cards import (
 
 from .login_page import request_sms_code, submit_password, submit_sms_code, wait_login_result
 from .login_session_models import LoginAssistResult, LoginCardInput
+from .login_vision import LoginVisionHelper
 
 logger = get_logger(component="browser_login_session")
 
@@ -50,6 +51,7 @@ class BrowserLoginSessionManager:
         site: str,
         reason: str = "",
         timeout_seconds: float = 180.0,
+        vision_helper: LoginVisionHelper | None = None,
     ) -> LoginAssistResult:
         if self._client is None or not chat_id:
             return LoginAssistResult(status="unavailable", detail="飞书登录卡片未配置")
@@ -58,7 +60,9 @@ class BrowserLoginSessionManager:
         self._sessions[session_id] = queue
         try:
             await self._send_card(chat_id, build_sms_phone_card(site, session_id, reason), session_id)
-            return await self._event_loop(page, chat_id, site, session_id, queue, timeout_seconds)
+            return await self._event_loop(
+                page, chat_id, site, session_id, queue, timeout_seconds, vision_helper
+            )
         finally:
             self._sessions.pop(session_id, None)
             self._message_sessions = {
@@ -78,6 +82,7 @@ class BrowserLoginSessionManager:
         session_id: str,
         queue: asyncio.Queue[LoginCardInput],
         timeout_seconds: float,
+        vision_helper: LoginVisionHelper | None,
     ) -> LoginAssistResult:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
@@ -102,7 +107,7 @@ class BrowserLoginSessionManager:
                         session_id,
                     )
                     continue
-                sms_result = await request_sms_code(page, phone)
+                sms_result = await request_sms_code(page, phone, vision_helper)
                 logger.info(
                     "browser_login_sms_request_result",
                     status=sms_result.status,
@@ -145,8 +150,14 @@ class BrowserLoginAssistant:
         self._manager = manager
         self._chat_id = chat_id
 
-    async def assist(self, page: SmartPage, site: str, reason: str = "") -> LoginAssistResult:
-        return await self._manager.assist(page, self._chat_id, site, reason)
+    async def assist(
+        self,
+        page: SmartPage,
+        site: str,
+        reason: str = "",
+        vision_helper: LoginVisionHelper | None = None,
+    ) -> LoginAssistResult:
+        return await self._manager.assist(page, self._chat_id, site, reason, vision_helper=vision_helper)
 
 
 def _mask_phone(phone: str) -> str:

@@ -13,6 +13,7 @@ from .decision import SYSTEM_PROMPT_MAIN, main_agent_decide
 from .evidence import save_evidence_screenshot
 from .human_gate import human_intervention_content, needs_human_intervention
 from .login_detection import should_assist_login, site_label
+from .login_vision import LoginVisionHelper
 from .models import (
     ActionKind,
     BrowserAction,
@@ -76,6 +77,11 @@ async def run_browser_agent(
                         page,
                         site_label(config),
                         observation.screenshot_reason or observation.page_summary,
+                        vision_helper=LoginVisionHelper(
+                            role_router,
+                            config.vision_subagent_provider_id,
+                            config.viewport,
+                        ),
                     )
                     if assist_result.status == "success":
                         continue
