@@ -73,8 +73,7 @@ async def smart_browse(
     try:
         if domain:
             store = storage_state_store or StorageStateStore()
-            candidate = store.load_state_path(user_id, domain)
-            storage_state_path = candidate if candidate.exists() else None
+            storage_state_path = store.load_state_path(user_id, domain)
     except Exception as exc:  # noqa: BLE001
         logger.error(
             "smart_browse_storage_state_lookup_failed",

@@ -41,8 +41,13 @@ class BrowserSession:
             raise AgentError("BROWSER_SESSION_START_ERROR", str(exc)) from exc
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        storage_error: AgentError | None = None
         try:
             if self._context is not None:
+                try:
+                    await self._persist_storage_state()
+                except AgentError as persist_exc:
+                    storage_error = persist_exc
                 await self._context.close()
             if self._browser is not None:
                 await self._browser.close()
@@ -56,6 +61,23 @@ class BrowserSession:
             )
             if exc_type is None:
                 raise AgentError("BROWSER_SESSION_CLOSE_ERROR", str(close_exc)) from close_exc
+        if exc_type is None and storage_error is not None:
+            raise storage_error
+
+    async def _persist_storage_state(self) -> None:
+        if self.storage_state_path is None or self._context is None:
+            return
+        try:
+            self.storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+            await self._context.storage_state(path=str(self.storage_state_path))
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "browser_storage_state_save_failed",
+                user_id=self.user_id,
+                path=str(self.storage_state_path),
+                error=str(exc),
+            )
+            raise AgentError("BROWSER_STORAGE_STATE_SAVE_ERROR", str(exc)) from exc
 
     async def new_page(self) -> Any:
         try:

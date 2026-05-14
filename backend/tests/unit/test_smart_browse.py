@@ -83,7 +83,9 @@ async def test_smart_browse_loads_storage_state_when_domain_set(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_smart_browse_skips_storage_state_when_file_missing(tmp_path: Path) -> None:
+async def test_smart_browse_keeps_missing_storage_state_path_for_persist(
+    tmp_path: Path,
+) -> None:
     missing_path = tmp_path / "missing.json"
     store = FakeStore(missing_path)
 
@@ -91,7 +93,7 @@ async def test_smart_browse_skips_storage_state_when_file_missing(tmp_path: Path
         pass
 
     session = FakeBrowserSession.instances[-1]
-    assert session.storage_state_path is None
+    assert session.storage_state_path == missing_path
 
 
 @pytest.mark.asyncio
