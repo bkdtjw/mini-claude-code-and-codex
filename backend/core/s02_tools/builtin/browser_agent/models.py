@@ -4,7 +4,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ActionKind(StrEnum):
@@ -23,6 +23,8 @@ class ActionKind(StrEnum):
 
 
 class BrowserAction(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     kind: ActionKind
     selector: str = ""
     x: int = 0

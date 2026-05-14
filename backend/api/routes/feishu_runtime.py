@@ -23,6 +23,16 @@ logger = get_logger(component="feishu_runtime")
 
 _FEISHU_EVENT_TTL = 86400
 _FEISHU_REDIS_RETRIES = 3
+BROWSE_WEB_HINT = """
+
+你可以调用 browse_web 工具来自动完成多步骤的网页任务。适合场景：
+- 用户要求"打开/查看/查找/抓取"某个网页内容
+- 需要登录后才能拿到的信息（前提：已配置 storage_state）
+- 多步交互（搜索 → 点结果 → 翻页 → 提取）
+
+调用方式：browse_web(task="自然语言描述任务", domain="可选，用于加载登录态")。
+工具返回文字结果。任务可能耗时 30 秒到几分钟，期间无中间反馈。
+"""
 
 
 async def build_agent_loop(
@@ -59,6 +69,8 @@ async def build_agent_loop(
     )
     bridge = MCPToolBridge(MCPServerManager(), registry)
     await bridge.sync_all()
+    if registry.has("browse_web"):
+        resolved_system_prompt += BROWSE_WEB_HINT
     return AgentLoop(
         config=AgentConfig(
             model=resolved_model,

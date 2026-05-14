@@ -35,6 +35,17 @@ class RoleRouter:
             raise AgentError("ROLE_PROVIDER_RESOLVE_ERROR", str(exc)) from exc
 
     async def set_role_default(self, role: str, provider_id: str) -> None:
+        """Assign a role to a single provider, exclusively.
+
+        Behavior:
+          - Adds `role` to the target provider's roles set.
+          - Removes `role` from all other enabled providers' roles set.
+
+        This implements the convention that one role has exactly one default
+        provider at any time. To allow multiple providers to share a role,
+        edit ProviderRecord.roles directly via provider store APIs and rely on
+        resolve_provider's "first enabled match" behavior.
+        """
         try:
             clean_role = _normalize_role(role)
             target_id = provider_id.strip()

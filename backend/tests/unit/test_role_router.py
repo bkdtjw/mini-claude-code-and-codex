@@ -80,6 +80,22 @@ async def test_role_router_uses_override_id() -> None:
     assert provider.id == "vision-b"
 
 
+@pytest.mark.asyncio
+async def test_set_role_default_is_exclusive() -> None:
+    manager = FakeProviderManager()
+    router = RoleRouter(manager, FakeSettings())
+
+    await router.set_role_default("vision", "vision-a")
+    await router.set_role_default("vision", "vision-b")
+
+    roles = {
+        provider.id: provider.roles.split(",") if provider.roles else []
+        for provider in manager.providers
+    }
+    assert "vision" not in roles["vision-a"]
+    assert "vision" in roles["vision-b"]
+
+
 def test_provider_role_patch_sets_db_default(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = FakeProviderManager()
     app = FastAPI()

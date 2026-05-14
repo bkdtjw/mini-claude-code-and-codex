@@ -22,6 +22,21 @@ def test_browser_action_round_trip_json() -> None:
     assert loaded.kind == ActionKind.CLICK_COORDS
 
 
+def test_browser_action_ignores_extra_fields() -> None:
+    action = BrowserAction.model_validate(
+        {
+            "kind": "click_selector",
+            "selector": ".btn",
+            "thinking": "I should click this",
+            "extra": "stuff",
+        }
+    )
+
+    assert action.kind == ActionKind.CLICK_SELECTOR
+    assert action.selector == ".btn"
+    assert "thinking" not in action.model_dump()
+
+
 def test_vision_observation_round_trip_json() -> None:
     observation = VisionObservation(
         page_summary="Search page",
