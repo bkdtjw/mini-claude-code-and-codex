@@ -18,6 +18,9 @@ SYSTEM_PROMPT_VISION = """你是浏览器视觉感知 subagent。你只看一张
     每个含 description + selector_hint + bbox
   - target_element: 与提问最相关的元素（若问题涉及）
   - suggested_next_action: 自然语言建议（仅作主 agent 参考）
+  - screenshot_importance: 0.0 - 1.0，当前截图是否值得作为证据保留/发送
+  - task_relevance: 0.0 - 1.0，当前截图与用户目标的直接相关度
+  - screenshot_reason: 若重要，说明原因；登录、验证码、阻塞页即使相关度低也可能重要
   - confidence: 0.0 - 1.0
   - need_human: 看不懂或风险高 → true
 
@@ -107,6 +110,9 @@ def _report_observation_tool() -> ToolDefinition:
                 "visible_elements": {"type": "array", "items": element_schema},
                 "target_element": {"anyOf": [element_schema, {"type": "null"}]},
                 "suggested_next_action": {"type": "string"},
+                "screenshot_importance": {"type": "number"},
+                "task_relevance": {"type": "number"},
+                "screenshot_reason": {"type": "string"},
                 "confidence": {"type": "number"},
                 "need_human": {"type": "boolean"},
             },

@@ -50,6 +50,9 @@ def test_vision_observation_round_trip_json() -> None:
         ],
         target_element=ElementHint(description="Submit button", confidence=0.7),
         suggested_next_action="Fill the search box",
+        screenshot_importance=0.8,
+        task_relevance=0.4,
+        screenshot_reason="login required",
         confidence=0.8,
         raw_text="raw",
     )
@@ -58,3 +61,6 @@ def test_vision_observation_round_trip_json() -> None:
 
     assert loaded == observation
     assert loaded.visible_elements[0].bbox == (1, 2, 3, 4)
+    assert loaded.screenshot_importance == 0.8
+    assert loaded.task_relevance == 0.4
+    assert loaded.screenshot_reason == "login required"

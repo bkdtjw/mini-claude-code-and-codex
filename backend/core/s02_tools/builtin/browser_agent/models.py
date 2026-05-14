@@ -56,6 +56,9 @@ class VisionObservation(BaseModel):
     visible_elements: list[ElementHint] = Field(default_factory=list)
     target_element: ElementHint | None = None
     suggested_next_action: str = ""
+    screenshot_importance: float = 0.0
+    task_relevance: float = 0.0
+    screenshot_reason: str = ""
     confidence: float = 0.0
     need_human: bool = False
     raw_text: str = ""

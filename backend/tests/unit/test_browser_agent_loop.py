@@ -115,6 +115,42 @@ async def test_run_browser_agent_stops_at_max_steps(monkeypatch: pytest.MonkeyPa
     assert result.steps_taken == 2
 
 
+async def test_run_browser_agent_saves_agent_marked_screenshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    actions = iter(
+        [
+            BrowserAction(kind=ActionKind.SCREENSHOT, reason="price visible"),
+            BrowserAction(kind=ActionKind.DONE, value="done"),
+        ]
+    )
+
+    class FakeAssetStore:
+        async def save_screenshot(self, task_id: str, url: str, png_bytes: bytes):
+            path = tmp_path / f"{task_id}.png"
+            path.write_bytes(png_bytes)
+            return path
+
+    async def decide(*_args, **_kwargs) -> BrowserAction:
+        return next(actions)
+
+    monkeypatch.setattr(main_agent_loop, "smart_browse", fake_smart_browse)
+    monkeypatch.setattr(main_agent_loop, "BrowserController", FakeController)
+    monkeypatch.setattr(main_agent_loop, "observe", fake_observe)
+    monkeypatch.setattr(main_agent_loop, "main_agent_decide", decide)
+
+    result = await main_agent_loop.run_browser_agent(
+        BrowserAgentConfig(task="capture evidence"),
+        object(),
+        FakeAssetStore(),
+    )
+
+    assert result.success is True
+    assert len(result.screenshots) == 1
+    assert result.screenshots[0].read_bytes() == b"same"
+
+
 async def test_main_agent_decide_parses_tool_call() -> None:
     class FakeAdapter:
         async def complete(self, request):

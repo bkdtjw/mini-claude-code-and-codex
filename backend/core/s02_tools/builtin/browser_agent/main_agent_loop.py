@@ -11,6 +11,7 @@ from backend.core.s02_tools.builtin.browser import smart_browse
 
 from .action_tools import BROWSER_ACTION_TOOLS, tool_call_to_action
 from .controller import BrowserController
+from .evidence import save_evidence_screenshot
 from .models import (
     ActionKind,
     BrowserAction,
@@ -38,6 +39,7 @@ fill, scroll, wait, wait_for_selector, goto, key, extract_text, screenshot, done
 
 完成任务时调 done(content="..."); 无法完成时调 fail(reason="...")。
 不要在 selector 里猜测——优先用 vision 的 selector_hint；没有时用坐标 click_coords。
+当截图值得作为证据发送时调用 screenshot(reason="...")，例如目标结果页、价格/库存/登录/验证码/阻塞页；普通中间页不要截图。
 """
 
 
@@ -63,13 +65,6 @@ async def run_browser_agent(
                 screenshot = await controller.take_screenshot()
                 current_url = str(getattr(page, "url", ""))
                 current_title = await page.title()
-                if asset_store is not None:
-                    path = await asset_store.save_screenshot(
-                        "browser_agent",
-                        current_url,
-                        screenshot,
-                    )
-                    screenshots.append(path)
                 last_kind = _last_action_kind(history)
                 if detector.is_stuck(current_url, screenshot, last_kind):
                     return _result(False, "stuck", step, history, screenshots)
@@ -98,7 +93,11 @@ async def run_browser_agent(
                     return _result(True, "done", step + 1, history, screenshots, action.value)
                 if action.kind == ActionKind.FAIL:
                     return _result(False, action.reason or "fail", step + 1, history, screenshots)
-                exec_result = await controller.execute(action)
+                exec_result = (
+                    await save_evidence_screenshot(asset_store, screenshots, current_url, screenshot)
+                    if action.kind == ActionKind.SCREENSHOT
+                    else await controller.execute(action)
+                )
                 history.append(
                     {
                         "step": step,

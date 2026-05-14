@@ -42,7 +42,7 @@ BROWSER_ACTION_TOOLS = [
     _tool("goto", {"url": {"type": "string"}}, ["url"]),
     _tool("key", {"value": {"type": "string"}}, ["value"]),
     _tool("extract_text", {"selector": {"type": "string"}}, []),
-    _tool("screenshot", {}, []),
+    _tool("screenshot", {"reason": {"type": "string"}}, []),
     _tool("done", {"content": {"type": "string"}}, ["content"]),
     _tool("fail", {"reason": {"type": "string"}}, ["reason"]),
 ]
