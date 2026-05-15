@@ -16,6 +16,7 @@ from backend.core.s02_tools.builtin.jd_union_client import (
     JdUnionSearchRequest,
     search_goods,
 )
+from backend.core.s02_tools.builtin.jd_union_parse import extract_error
 
 
 class FakeResponse:
@@ -61,6 +62,17 @@ def _goods_payload() -> dict[str, Any]:
             "queryResult": json.dumps(query_result, ensure_ascii=False),
         }
     }
+
+
+def test_extracts_inner_jd_union_business_error() -> None:
+    payload = {
+        "jd_union_open_goods_query_responce": {
+            "code": "0",
+            "queryResult": json.dumps({"code": 431, "message": "未完成实名"}, ensure_ascii=False),
+        }
+    }
+
+    assert "未完成实名" in extract_error(payload)
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field, field_validator
 from backend.config.http_client import load_http_client_config
 from backend.core.s02_tools.builtin.youtube_log_filter import install_httpx_api_key_redaction
 
+from .jd_union_parse import extract_error, extract_items
+
 JD_UNION_URL = "https://api.jd.com/routerjson"
 JD_TIMEZONE = ZoneInfo("Asia/Shanghai")
 install_httpx_api_key_redaction()
@@ -67,7 +69,7 @@ async def search_goods(
                 trust_env=load_http_client_config().trust_env,
             ) as http_client:
                 payload = await _request_json(http_client, params)
-        return [_to_goods(item) for item in _extract_items(payload)][: request.page_size]
+        return [_to_goods(item) for item in extract_items(payload)][: request.page_size]
     except JdUnionClientError:
         raise
     except httpx.HTTPError as exc:
@@ -113,54 +115,10 @@ async def _request_json(client: httpx.AsyncClient, params: dict[str, str]) -> di
     payload = response.json()
     if not isinstance(payload, dict):
         raise JdUnionClientError("京东联盟 API 返回不是 JSON object")
-    error = _extract_error(payload)
+    error = extract_error(payload)
     if error:
         raise JdUnionClientError(error)
     return payload
-
-
-def _extract_error(payload: dict[str, Any]) -> str:
-    error = payload.get("error_response")
-    if not isinstance(error, dict):
-        return ""
-    code = str(error.get("code", "")).strip()
-    desc = str(error.get("zh_desc") or error.get("en_desc") or error.get("msg") or "").strip()
-    return f"京东联盟 API 错误 {code}: {desc}".strip()
-
-
-def _extract_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    parsed = _parse_json_strings(payload)
-    lists = _find_product_lists(parsed)
-    return lists[0] if lists else []
-
-def _parse_json_strings(value: Any) -> Any:
-    if isinstance(value, str) and value.strip()[:1] in {"{", "["}:
-        try:
-            return _parse_json_strings(json.loads(value))
-        except ValueError:
-            return value
-    if isinstance(value, dict):
-        return {str(key): _parse_json_strings(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_parse_json_strings(item) for item in value]
-    return value
-
-
-def _find_product_lists(value: Any) -> list[list[dict[str, Any]]]:
-    if isinstance(value, list):
-        dict_items = [item for item in value if isinstance(item, dict)]
-        if dict_items and any(_looks_like_product(item) for item in dict_items):
-            return [dict_items]
-        return [found for item in value for found in _find_product_lists(item)]
-    if isinstance(value, dict):
-        return [found for item in value.values() for found in _find_product_lists(item)]
-    return []
-
-
-def _looks_like_product(item: dict[str, Any]) -> bool:
-    return bool(
-        {"skuId", "skuName", "goodsName", "materialUrl", "priceInfo", "commissionInfo"} & item.keys()
-    )
 
 
 def _to_goods(item: dict[str, Any]) -> JdUnionGoods:
