@@ -181,9 +181,9 @@ def register_builtin_tools(
 
         tools.append(
             create_jd_union_search_tool(
-                app_key=os.environ.get("JD_UNION_APP_KEY", ""),
-                app_secret=os.environ.get("JD_UNION_APP_SECRET", ""),
-                access_token=os.environ.get("JD_UNION_ACCESS_TOKEN", ""),
+                app_key=app_settings.jd_union_app_key,
+                app_secret=app_settings.jd_union_app_secret,
+                access_token=app_settings.jd_union_access_token,
             )
         )
     except ImportError:

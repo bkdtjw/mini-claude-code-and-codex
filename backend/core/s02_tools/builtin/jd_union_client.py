@@ -4,13 +4,17 @@ import hashlib
 import json
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import BaseModel, Field, field_validator
 
 from backend.config.http_client import load_http_client_config
+from backend.core.s02_tools.builtin.youtube_log_filter import install_httpx_api_key_redaction
 
 JD_UNION_URL = "https://api.jd.com/routerjson"
+JD_TIMEZONE = ZoneInfo("Asia/Shanghai")
+install_httpx_api_key_redaction()
 
 
 class JdUnionClientError(Exception):
@@ -87,7 +91,7 @@ def _build_params(
         "method": request.method,
         "app_key": credentials.app_key.strip(),
         "access_token": credentials.access_token.strip(),
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": datetime.now(JD_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
         "format": "json",
         "v": "1.0",
         "sign_method": "md5",
@@ -190,10 +194,4 @@ def _image_url(item: dict[str, Any]) -> str:
     return str(first.get("url") or "") if isinstance(first, dict) else ""
 
 
-__all__ = [
-    "JdUnionClientError",
-    "JdUnionCredentials",
-    "JdUnionGoods",
-    "JdUnionSearchRequest",
-    "search_goods",
-]
+__all__ = ["JdUnionClientError", "JdUnionCredentials", "JdUnionGoods", "JdUnionSearchRequest", "search_goods"]
