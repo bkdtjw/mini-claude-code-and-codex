@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from backend.core.s02_tools.builtin.browser_agent import login_page
 from backend.core.s02_tools.builtin.browser_agent.login_page import request_sms_code
 from backend.core.s02_tools.builtin.browser_agent.login_session_models import LoginAssistResult
 from backend.core.s02_tools.builtin.browser_agent.login_session import BrowserLoginSessionManager
@@ -62,6 +63,12 @@ class _Vision:
         raise AssertionError("body confirmation should avoid extra vision call")
 
 
+class _MissingSmsEntryVision(_Vision):
+    async def click_target(self, page: _Page, query: object) -> LoginAssistResult:
+        self.clicked_questions.append(getattr(query, "question", ""))
+        return LoginAssistResult(status="vision_target_missing", detail="未找到短信登录入口")
+
+
 @pytest.mark.asyncio
 async def test_request_sms_code_requires_send_confirmation() -> None:
     page = _Page(
@@ -103,6 +110,46 @@ async def test_request_sms_code_uses_vision_for_dynamic_login_ui() -> None:
     assert result.status == "sent"
     assert vision.typed_values == ["13800000000"]
     assert any("验证码" in question for question in vision.clicked_questions)
+
+
+@pytest.mark.asyncio
+async def test_request_sms_code_stops_when_sms_entry_is_not_visible() -> None:
+    page = _Page(body="当前页面异常", click_ok=set(), fill_ok={"input[type='tel']"})
+    vision = _MissingSmsEntryVision()
+
+    result = await request_sms_code(page, "13800000000", vision)
+
+    assert result.status == "vision_target_missing"
+    assert vision.typed_values == []
+    assert page.filled == []
+
+
+@pytest.mark.asyncio
+async def test_request_sms_code_emits_non_secret_step_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = _Page(
+        body="短信验证码已发送，60秒后重新获取",
+        click_ok={"text=短信登录", "text=获取验证码"},
+        fill_ok={"input[type='tel']"},
+    )
+    events: list[tuple[str, str, str, str, str]] = []
+
+    def capture(step: str, status: str, method: str = "", selector: str = "", detail: str = "") -> None:
+        events.append((step, status, method, selector, detail))
+
+    monkeypatch.setattr(login_page, "_log_sms_step", capture)
+
+    result = await request_sms_code(page, "13800000000")
+
+    assert result.status == "sent"
+    assert [event[0] for event in events] == [
+        "open_sms_login",
+        "fill_phone",
+        "click_send_sms",
+        "confirm_sms",
+    ]
+    assert "13800000000" not in repr(events)
 
 
 @pytest.mark.asyncio

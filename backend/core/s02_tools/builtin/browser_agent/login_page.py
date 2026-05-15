@@ -2,10 +2,24 @@ from __future__ import annotations
 
 import time
 
+from backend.common.logging import get_logger
 from backend.core.s02_tools.builtin.browser import SmartPage
 
 from .login_session_models import LoginAssistResult
 from .login_vision import LoginVisionHelper, TargetQuery
+
+logger = get_logger(component="browser_login_page")
+
+SMS_LOGIN_SELECTORS = ("text=短信登录", "text=手机短信登录", "text=短信验证码登录")
+PHONE_INPUT_SELECTORS = (
+    "input[type='tel']", "input[name='phone']", "input[name='mobile']",
+    "input[placeholder*='手机号']", "#loginname", "input[name='loginname']",
+)
+SMS_BUTTON_SELECTORS = ("text=获取验证码", "text=发送验证码", "text=获取短信验证码")
+SMS_CODE_SELECTORS = ("input[name='authcode']", "input[name='code']", "input[placeholder*='验证码']", "input[type='number']")
+PASSWORD_ACCOUNT_SELECTORS = ("#loginname", "input[name='loginname']", "input[type='text']")
+PASSWORD_SELECTORS = ("#nloginpwd", "input[type='password']", "input[name='password']")
+LOGIN_SUBMIT_SELECTORS = ("#loginsubmit", "text=登录", "button:has-text('登录')")
 
 
 async def request_sms_code(
@@ -13,27 +27,21 @@ async def request_sms_code(
     phone: str,
     vision: LoginVisionHelper | None = None,
 ) -> LoginAssistResult:
-    clicked_sms = await try_click(page, ["text=短信登录", "text=手机短信登录", "text=短信验证码登录"])
+    clicked_sms, sms_selector = await try_click(page, SMS_LOGIN_SELECTORS)
+    _log_sms_step("open_sms_login", "clicked" if clicked_sms else "missing", "selector", sms_selector)
     if not clicked_sms and vision is not None:
-        await vision.click_target(
+        clicked = await vision.click_target(
             page,
             TargetQuery(
                 question="找到短信登录、手机短信登录或验证码登录入口，并返回它的 bbox。",
                 keywords=("短信", "验证码", "手机"),
             ),
         )
-    phone_filled = await try_fill(
-        page,
-        [
-            "input[type='tel']",
-            "input[name='phone']",
-            "input[name='mobile']",
-            "input[placeholder*='手机号']",
-            "#loginname",
-            "input[name='loginname']",
-        ],
-        phone,
-    )
+        _log_sms_step("open_sms_login", clicked.status, "vision", detail=clicked.detail)
+        if clicked.status != "clicked":
+            return clicked
+    phone_filled, phone_selector = await try_fill(page, PHONE_INPUT_SELECTORS, phone)
+    _log_sms_step("fill_phone", "filled" if phone_filled else "missing", "selector", phone_selector)
     if not phone_filled and vision is not None:
         typed = await vision.type_into_target(
             page,
@@ -44,11 +52,18 @@ async def request_sms_code(
             phone,
         )
         phone_filled = typed.status == "typed"
+        _log_sms_step("fill_phone", typed.status, "vision", detail=typed.detail)
         if not phone_filled:
             return typed
     if not phone_filled:
         return LoginAssistResult(status="phone_input_missing", detail="未找到手机号输入框")
-    button_clicked = await try_click(page, ["text=获取验证码", "text=发送验证码", "text=获取短信验证码"])
+    button_clicked, button_selector = await try_click(page, SMS_BUTTON_SELECTORS)
+    _log_sms_step(
+        "click_send_sms",
+        "clicked" if button_clicked else "missing",
+        "selector",
+        button_selector,
+    )
     if not button_clicked and vision is not None:
         clicked = await vision.click_target(
             page,
@@ -58,6 +73,7 @@ async def request_sms_code(
             ),
         )
         button_clicked = clicked.status == "clicked"
+        _log_sms_step("click_send_sms", clicked.status, "vision", detail=clicked.detail)
         if not button_clicked:
             return clicked
     if not button_clicked:
@@ -65,8 +81,10 @@ async def request_sms_code(
     await page.wait_for_timeout(1500)
     text = await body_text(page)
     if has_blocked(text):
+        _log_sms_step("confirm_sms", "blocked", detail=summarize(text))
         return LoginAssistResult(status="blocked", detail=summarize(text))
     if sms_send_confirmed(text):
+        _log_sms_step("confirm_sms", "sent")
         return LoginAssistResult(status="sent", detail="短信验证码已请求")
     if vision is not None:
         observation = await vision.observe_page(
@@ -75,32 +93,27 @@ async def request_sms_code(
         )
         visual_text = _vision_text(observation)
         if has_blocked(visual_text):
+            _log_sms_step("confirm_sms", "blocked", "vision", detail=summarize(visual_text))
             return LoginAssistResult(status="blocked", detail=summarize(visual_text))
         if sms_send_confirmed(visual_text):
+            _log_sms_step("confirm_sms", "sent", "vision")
             return LoginAssistResult(status="sent", detail="短信验证码已请求")
+        _log_sms_step("confirm_sms", "unconfirmed", "vision", detail=summarize(visual_text))
         return LoginAssistResult(status="unconfirmed", detail=summarize(visual_text))
+    _log_sms_step("confirm_sms", "unconfirmed", detail=summarize(text))
     return LoginAssistResult(status="unconfirmed", detail=summarize(text) or "未确认短信验证码已发送")
 
 
 async def submit_sms_code(page: SmartPage, code: str) -> None:
-    await try_fill(
-        page,
-        [
-            "input[name='authcode']",
-            "input[name='code']",
-            "input[placeholder*='验证码']",
-            "input[type='number']",
-        ],
-        code,
-    )
-    await try_click(page, ["#loginsubmit", "text=登录", "button:has-text('登录')"])
+    await try_fill(page, SMS_CODE_SELECTORS, code)
+    await try_click(page, LOGIN_SUBMIT_SELECTORS)
 
 
 async def submit_password(page: SmartPage, account: str, password: str) -> None:
-    await try_click(page, ["text=密码登录", "text=账户登录"])
-    await try_fill(page, ["#loginname", "input[name='loginname']", "input[type='text']"], account)
-    await try_fill(page, ["#nloginpwd", "input[type='password']", "input[name='password']"], password)
-    await try_click(page, ["#loginsubmit", "text=登录", "button:has-text('登录')"])
+    await try_click(page, ("text=密码登录", "text=账户登录"))
+    await try_fill(page, PASSWORD_ACCOUNT_SELECTORS, account)
+    await try_fill(page, PASSWORD_SELECTORS, password)
+    await try_click(page, LOGIN_SUBMIT_SELECTORS)
 
 
 async def wait_login_result(page: SmartPage, timeout_seconds: float = 30.0) -> LoginAssistResult:
@@ -115,24 +128,24 @@ async def wait_login_result(page: SmartPage, timeout_seconds: float = 30.0) -> L
     return LoginAssistResult(status="submitted", detail="已提交登录信息，等待页面确认超时")
 
 
-async def try_click(page: SmartPage, selectors: list[str]) -> bool:
+async def try_click(page: SmartPage, selectors: tuple[str, ...]) -> tuple[bool, str]:
     for selector in selectors:
         try:
             await page.click(selector, timeout=3000)
-            return True
+            return True, selector
         except Exception:  # noqa: BLE001
             continue
-    return False
+    return False, ""
 
 
-async def try_fill(page: SmartPage, selectors: list[str], value: str) -> bool:
+async def try_fill(page: SmartPage, selectors: tuple[str, ...], value: str) -> tuple[bool, str]:
     for selector in selectors:
         try:
             await page.fill(selector, value, timeout=3000)
-            return True
+            return True, selector
         except Exception:  # noqa: BLE001
             continue
-    return False
+    return False, ""
 
 
 async def body_text(page: SmartPage) -> str:
@@ -147,26 +160,12 @@ def has_login_success(text: str) -> bool:
 
 
 def has_blocked(text: str) -> bool:
-    return any(
-        marker in text
-        for marker in (
-            "安全验证",
-            "访问受限",
-            "风控",
-            "当前页面异常",
-            "扫码存在风险",
-            "拖动滑块",
-            "图形验证码",
-            "验证身份",
-        )
-    )
+    markers = ("安全验证", "访问受限", "风控", "当前页面异常", "扫码存在风险", "拖动滑块", "图形验证码", "验证身份")
+    return any(marker in text for marker in markers)
 
 
 def sms_send_confirmed(text: str) -> bool:
-    return any(
-        marker in text
-        for marker in ("验证码已发送", "发送成功", "重新获取", "重新发送", "秒后", "s后")
-    )
+    return any(marker in text for marker in ("验证码已发送", "发送成功", "重新获取", "重新发送", "秒后", "s后"))
 
 
 def summarize(text: str) -> str:
@@ -180,6 +179,17 @@ def _vision_text(observation: object) -> str:
     target = getattr(observation, "target_element", None)
     target_text = getattr(target, "description", "") if target is not None else ""
     return " | ".join(str(part) for part in (page_summary, next_action, reason, target_text) if part)
+
+
+def _log_sms_step(step: str, status: str, method: str = "", selector: str = "", detail: str = "") -> None:
+    logger.info(
+        "browser_login_sms_step",
+        step=step,
+        status=status,
+        method=method,
+        selector=selector,
+        detail=detail,
+    )
 
 
 __all__ = ["request_sms_code", "submit_password", "submit_sms_code", "wait_login_result"]
