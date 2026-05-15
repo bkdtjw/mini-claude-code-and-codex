@@ -9,6 +9,7 @@ from backend.adapters.provider_manager import ProviderManager
 from backend.api.routes.feishu_handler_support import (
     build_feishu_log_context,
     extract_text,
+    is_provider_rejection_error,
     resolve_error_reply,
     parse_slash_command,
     resolve_reply_text,
@@ -226,7 +227,9 @@ class FeishuMessageHandler:
                         duration_ms=int((monotonic() - started_at) * 1000),
                     )
                 except Exception as exc:
-                    if should_persist and loop is not None:
+                    if is_provider_rejection_error(exc):
+                        await self._clear_chat_history_after_provider_rejection(chat_id, loop)
+                    elif should_persist and loop is not None:
                         try:
                             await self._persist_turn(chat_id, loop)
                         except Exception:
@@ -368,6 +371,20 @@ class FeishuMessageHandler:
             await self._store.save_messages(chat_id, loop.messages)
         except Exception:
             logger.warning("feishu_message_persist_failed", chat_id=chat_id)
+
+    async def _clear_chat_history_after_provider_rejection(
+        self,
+        chat_id: str,
+        loop: AgentLoop | None,
+    ) -> None:
+        if loop is not None:
+            loop.reset()
+        self._sessions.pop(chat_id, None)
+        try:
+            await self._store.save_messages(chat_id, [])
+            logger.info("feishu_session_cleared_after_provider_rejection", chat_id=chat_id)
+        except Exception:
+            logger.warning("feishu_session_clear_after_provider_rejection_failed", chat_id=chat_id)
 
     def _chat_lock(self, chat_id: str) -> asyncio.Lock:
         lock = self._chat_locks.get(chat_id)
