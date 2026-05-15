@@ -121,12 +121,10 @@ class BrowserLoginSessionManager:
                         session_id,
                     )
                     continue
-                await self._send_card(
-                    chat_id,
-                    build_sms_phone_card(site, session_id, sms_result.detail),
-                    session_id,
+                return LoginAssistResult(
+                    status=sms_result.status,
+                    detail=sms_result.detail or "未能在当前页面触发短信验证码",
                 )
-                continue
             if item.action_type == "browser_login_sms_submit":
                 await submit_sms_code(page, item.values.get("code", "").strip())
                 return await wait_login_result(page)

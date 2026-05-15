@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from backend.core.s02_tools.builtin.browser_agent.login_page import request_sms_code
 from backend.core.s02_tools.builtin.browser_agent.login_session_models import LoginAssistResult
+from backend.core.s02_tools.builtin.browser_agent.login_session import BrowserLoginSessionManager
 
 
 class _Locator:
@@ -100,3 +103,33 @@ async def test_request_sms_code_uses_vision_for_dynamic_login_ui() -> None:
     assert result.status == "sent"
     assert vision.typed_values == ["13800000000"]
     assert any("验证码" in question for question in vision.clicked_questions)
+
+
+@pytest.mark.asyncio
+async def test_login_session_stops_when_sms_request_cannot_reach_login_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = BrowserLoginSessionManager()
+    manager.configure(object())
+    sent_cards: list[dict] = []
+
+    async def send_card(_chat_id: str, card: dict, _session_id: str) -> None:
+        sent_cards.append(card)
+
+    async def no_login_form(*_args: object, **_kwargs: object) -> LoginAssistResult:
+        return LoginAssistResult(status="vision_target_missing", detail="当前页面异常")
+
+    monkeypatch.setattr(manager, "_send_card", send_card)
+    monkeypatch.setattr(
+        "backend.core.s02_tools.builtin.browser_agent.login_session.request_sms_code",
+        no_login_form,
+    )
+
+    task = asyncio.create_task(manager.assist(_Page("", set(), set()), "chat", "京东"))
+    await asyncio.sleep(0)
+    session_id = next(iter(manager._sessions))
+    await manager.submit("browser_login_sms_request", session_id, {"phone": "13800000000"})
+    result = await task
+
+    assert result.status == "vision_target_missing"
+    assert len(sent_cards) == 1
