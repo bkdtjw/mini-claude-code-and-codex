@@ -83,8 +83,8 @@ def create_browse_web_tool(
                     else None
                 ),
             )
-            needs_human = result.reason == "need_human"
-            output = result.content if result.success or needs_human else f"Browse failed: {result.reason}"
+            nonfatal = result.reason in {"need_human", "provider_rejected"}
+            output = result.content if result.success or nonfatal else f"Browse failed: {result.reason}"
             artifacts = _core_screenshot_artifacts(result.screenshots, result.success, result.reason)
             _delete_non_core_screenshots(result.screenshots, artifacts)
             _cleanup_unused_temp_root(temp_root, artifacts)
@@ -101,7 +101,7 @@ def create_browse_web_tool(
             )
             return ToolResult(
                 output=output,
-                is_error=not result.success and not needs_human,
+                is_error=not result.success and not nonfatal,
                 diffs=[],
                 artifacts=artifacts,
             )
@@ -143,6 +143,8 @@ def _core_screenshot_artifacts(
 def _artifact_label(success: bool, reason: str) -> str:
     if reason == "need_human":
         return "browse_web_human_required"
+    if reason == "provider_rejected":
+        return "browse_web_provider_rejected"
     return "browse_web_result" if success else "browse_web_error"
 
 

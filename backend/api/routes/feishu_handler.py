@@ -9,6 +9,7 @@ from backend.adapters.provider_manager import ProviderManager
 from backend.api.routes.feishu_handler_support import (
     build_feishu_log_context,
     extract_text,
+    resolve_error_reply,
     parse_slash_command,
     resolve_reply_text,
     resolve_session_model,
@@ -224,7 +225,7 @@ class FeishuMessageHandler:
                         chat_id=chat_id,
                         duration_ms=int((monotonic() - started_at) * 1000),
                     )
-                except Exception:
+                except Exception as exc:
                     if should_persist and loop is not None:
                         try:
                             await self._persist_turn(chat_id, loop)
@@ -241,12 +242,15 @@ class FeishuMessageHandler:
                     try:
                         await self._reply(
                             message_id,
-                            json.dumps(
-                                {"text": "处理消息时出错，请稍后重试。详情请查看服务端日志。"}
-                            ),
+                            json.dumps({"text": resolve_error_reply(exc)}),
                         )
                     except Exception:
                         pass
+                    if loop is not None:
+                        try:
+                            await send_browse_web_artifacts(self, chat_id, loop)
+                        except Exception:
+                            logger.warning("feishu_send_artifacts_after_error_failed")
 
     async def _try_reply_card(
         self,

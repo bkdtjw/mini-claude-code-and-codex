@@ -14,13 +14,14 @@ from .evidence import save_evidence_screenshot
 from .human_gate import human_intervention_content, needs_human_intervention
 from .login_detection import should_assist_login, site_label
 from .login_vision import LoginVisionHelper
+from .main_agent_support import append_history, last_action_kind, result, task_hint
 from .models import (
     ActionKind,
     BrowserAction,
     BrowserAgentConfig,
     BrowserAgentResult,
-    VisionObservation,
 )
+from .provider_errors import is_provider_rejection, provider_rejection_content
 from .stuck_detector import StuckDetector
 from .vision_subagent import VisionRequest, observe
 
@@ -38,6 +39,8 @@ async def run_browser_agent(
 ) -> BrowserAgentResult:
     history: list[dict[str, Any]] = []
     screenshots = []
+    last_screenshot = b""
+    last_url = ""
     started = time.monotonic()
     try:
         async with smart_browse(
@@ -51,20 +54,21 @@ async def run_browser_agent(
                 await controller.goto(config.initial_url)
             for step in range(config.max_steps):
                 if time.monotonic() - started > config.timeout_seconds:
-                    return _result(False, "timeout", step, history, screenshots)
+                    return result(False, "timeout", step, history, screenshots)
                 screenshot = await controller.take_screenshot()
                 current_url = str(getattr(page, "url", ""))
+                last_screenshot, last_url = screenshot, current_url
                 current_title = await page.title()
-                last_kind = _last_action_kind(history)
+                last_kind = last_action_kind(history)
                 if detector.is_stuck(current_url, screenshot, last_kind):
-                    return _result(False, "stuck", step, history, screenshots)
+                    return result(False, "stuck", step, history, screenshots)
                 observation = await observe(
                     VisionRequest(
                         screenshot=screenshot,
                         url=current_url,
                         title=current_title,
                         viewport=config.viewport,
-                        task_hint=_task_hint(config),
+                        task_hint=task_hint(config),
                         last_action_kind=last_kind,
                     ),
                     role_router,
@@ -91,8 +95,8 @@ async def run_browser_agent(
                     exec_result = await save_evidence_screenshot(
                         asset_store, screenshots, current_url, screenshot
                     )
-                    _append_history(history, step, current_url, observation, action, exec_result)
-                    return _result(
+                    append_history(history, step, current_url, observation, action, exec_result)
+                    return result(
                         False,
                         "need_human",
                         step + 1,
@@ -108,8 +112,8 @@ async def run_browser_agent(
                     exec_result = await save_evidence_screenshot(
                         asset_store, screenshots, current_url, screenshot
                     )
-                    _append_history(history, step, current_url, observation, action, exec_result)
-                    return _result(
+                    append_history(history, step, current_url, observation, action, exec_result)
+                    return result(
                         False,
                         "need_human",
                         step + 1,
@@ -128,69 +132,31 @@ async def run_browser_agent(
                     config.site_guide,
                 )
                 if action.kind == ActionKind.DONE:
-                    return _result(True, "done", step + 1, history, screenshots, action.value)
+                    return result(True, "done", step + 1, history, screenshots, action.value)
                 if action.kind == ActionKind.FAIL:
-                    return _result(False, action.reason or "fail", step + 1, history, screenshots)
+                    return result(False, action.reason or "fail", step + 1, history, screenshots)
                 exec_result = (
                     await save_evidence_screenshot(asset_store, screenshots, current_url, screenshot)
                     if action.kind == ActionKind.SCREENSHOT
                     else await controller.execute(action)
                 )
-                _append_history(history, step, current_url, observation, action, exec_result)
-            return _result(False, "max_steps", config.max_steps, history, screenshots)
+                append_history(history, step, current_url, observation, action, exec_result)
+            return result(False, "max_steps", config.max_steps, history, screenshots)
     except Exception as exc:  # noqa: BLE001
+        if is_provider_rejection(exc):
+            if last_screenshot:
+                await save_evidence_screenshot(asset_store, screenshots, last_url, last_screenshot)
+            logger.warning("browser_agent_provider_rejected", error=str(exc))
+            return result(
+                False,
+                "provider_rejected",
+                len(history),
+                history,
+                screenshots,
+                provider_rejection_content(exc),
+            )
         logger.warning("browser_agent_loop_failed", error=str(exc))
-        return _result(False, "error", len(history), history, screenshots, str(exc))
-
-
-def _last_action_kind(history: list[dict[str, Any]]) -> str:
-    if not history:
-        return ""
-    action = history[-1].get("action", {})
-    return str(action.get("kind", "")) if isinstance(action, dict) else ""
-
-
-def _task_hint(config: BrowserAgentConfig) -> str:
-    if not config.site_guide:
-        return config.task
-    return f"{config.task}\n\n站点说明书：\n{config.site_guide}"
-
-
-def _append_history(
-    history: list[dict[str, Any]],
-    step: int,
-    current_url: str,
-    observation: VisionObservation,
-    action: BrowserAction,
-    exec_result: Any,
-) -> None:
-    history.append(
-        {
-            "step": step,
-            "url_before": current_url,
-            "observation_summary": observation.page_summary,
-            "action": action.model_dump(mode="json"),
-            "result": exec_result.model_dump(mode="json"),
-        }
-    )
-
-
-def _result(
-    success: bool,
-    reason: str,
-    steps: int,
-    history: list[dict[str, Any]],
-    screenshots: list[Any],
-    content: str = "",
-) -> BrowserAgentResult:
-    return BrowserAgentResult(
-        success=success,
-        reason=reason,
-        content=content,
-        steps_taken=steps,
-        history=history,
-        screenshots=screenshots,
-    )
+        return result(False, "error", len(history), history, screenshots, str(exc))
 
 
 __all__ = ["BROWSER_ACTION_TOOLS", "SYSTEM_PROMPT_MAIN", "main_agent_decide", "run_browser_agent"]

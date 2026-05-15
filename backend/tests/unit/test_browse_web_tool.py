@@ -101,6 +101,30 @@ async def test_browse_web_tool_returns_human_gate_as_non_error(
     assert result.artifacts[0].path == str(shot)
 
 
+async def test_browse_web_tool_returns_provider_rejected_as_non_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    shot = tmp_path / "page.png"
+    shot.write_bytes(b"shot")
+    run_mock = AsyncMock(
+        return_value=BrowserAgentResult(
+            success=False,
+            reason="provider_rejected",
+            content="模型服务拒绝分析当前页面内容。",
+            screenshots=[shot],
+        )
+    )
+    monkeypatch.setattr(browse_tool, "run_browser_agent", run_mock)
+    _, execute = browse_tool.create_browse_web_tool(object())
+
+    result = await execute({"task": "capture news photo"})
+
+    assert result.is_error is False
+    assert "模型服务拒绝" in result.output
+    assert result.artifacts[0].label == "browse_web_provider_rejected"
+
+
 def test_builtin_tools_registers_browse_web() -> None:
     registry = ToolRegistry()
 
