@@ -190,6 +190,13 @@ def register_builtin_tools(
         pass
 
     try:
+        from .zhetaoke import create_zhetaoke_product_detail_tool
+
+        tools.append(create_zhetaoke_product_detail_tool(appkey=app_settings.zhetaoke_app_key))
+    except ImportError:
+        pass
+
+    try:
         from backend.adapters.role_router import RoleRouter
 
         from .browser_agent import create_browse_web_tool

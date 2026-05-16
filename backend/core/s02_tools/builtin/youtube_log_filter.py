@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 
-_KEY_RE = re.compile(r"([?&](?:key|app_key|access_token|sign|360buy_param_json)=)[^&\s]+")
+_KEY_RE = re.compile(r"([?&](?:key|app_key|appkey|access_token|sign|360buy_param_json)=)[^&\s]+")
 
 
 class ApiKeyRedactionFilter(logging.Filter):
@@ -27,7 +27,7 @@ def install_httpx_api_key_redaction() -> None:
 
 def _redact_value(value: object) -> object:
     text = str(value)
-    if not any(marker in text for marker in ("key=", "app_key=", "access_token=", "sign=")):
+    if not any(marker in text for marker in ("key=", "app_key=", "appkey=", "access_token=", "sign=")):
         return value
     return _KEY_RE.sub(r"\1<redacted>", text)
 
