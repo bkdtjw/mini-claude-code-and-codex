@@ -52,6 +52,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         owner_id: str = "unknown",
         user_config_store: UserConfigStore | None = None,
         tool_review_context: ToolReviewContext | None = None,
+        skill_loader: Any | None = None,
     ) -> None:
         self._config = config
         self._adapter = adapter
@@ -60,6 +61,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         self._owner_id = owner_id or "unknown"
         self._user_config_store = user_config_store or UserConfigStore()
         self._tool_review_context = tool_review_context or ToolReviewContext()
+        self._skill_loader = skill_loader
         self._executor = ToolExecutor(tool_registry)
         self._security_gate = SecurityGate(
             policy=security_policy or SecurityPolicy(allowed_tools=[], dangerous_tools=[]),

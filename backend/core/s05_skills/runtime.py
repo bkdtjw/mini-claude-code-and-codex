@@ -19,6 +19,7 @@ from backend.core.task_queue import TaskQueue
 
 from .mcp_requirements import extract_required_mcp_servers
 from .models import AgentCategory, AgentSpec, ToolConfig
+from .on_demand_loader import OnDemandSkillLoader
 from .registry import SpecRegistry
 from .runtime_plan import create_runtime_runner
 from .runtime_support import FilteredBridge, build_runtime_registry
@@ -54,6 +55,7 @@ class AgentRuntime:
             resolved_model = resolved_model or self._deps.settings.default_model
             resolved_workspace = os.path.abspath(workspace or os.getcwd())
             adapter = await self._deps.provider_manager.get_adapter(resolved_provider.id)
+            skill_loader = OnDemandSkillLoader(self._deps.spec_registry)
             registry = self._build_registry(
                 spec.tools,
                 spec.sub_agents.max_depth,
@@ -64,6 +66,7 @@ class AgentRuntime:
                 task_queue,
                 event_handler,
                 is_sub_agent,
+                skill_loader,
             )
             bridge = FilteredBridge(
                 MCPToolBridge(self._deps.mcp_manager, registry),
@@ -82,14 +85,16 @@ class AgentRuntime:
                     session_id=session_id,
                     tools=sorted(tool.name for tool in registry.list_definitions()),
                     max_iterations=spec.max_iterations,
+                    timeout_seconds=spec.timeout_seconds,
                 ),
                 adapter=adapter,
                 tool_registry=registry,
                 checkpoint_fn=checkpoint_fn,
+                bridge=bridge,
+                agent_spec=spec,
+                owner_id=session_id,
+                skill_loader=skill_loader,
             )
-            setattr(loop, "_bridge", bridge)  # noqa: B010, SLF001
-            setattr(loop, "_agent_spec", spec)  # noqa: B010, SLF001
-            setattr(loop, "_timeout_seconds", spec.timeout_seconds)  # noqa: B010, SLF001
             return loop
         except AgentError:
             raise
@@ -184,6 +189,7 @@ class AgentRuntime:
         renderer: PlanRenderer | None = None,
         is_sub_agent: bool = False,
         checkpoint_fn: CheckpointFn | None = None,
+        owner_id: str = "unknown",
     ) -> AgentLoop | PlanExecuteRunner:
         return await create_runtime_runner(
             self,
@@ -199,6 +205,7 @@ class AgentRuntime:
             renderer,
             is_sub_agent,
             checkpoint_fn,
+            owner_id,
             MCPToolBridge,
         )
 
@@ -213,6 +220,7 @@ class AgentRuntime:
         task_queue: TaskQueue | None,
         event_handler: AgentEventHandler | None,
         is_sub_agent: bool,
+        skill_loader: OnDemandSkillLoader | None = None,
     ) -> ToolRegistry:
         return build_runtime_registry(
             register_builtin_tools,
@@ -227,6 +235,7 @@ class AgentRuntime:
             self,
             self._deps.spec_registry,
             is_sub_agent,
+            skill_loader,
         )
 
     async def _resolve_provider(self, requested: str) -> ProviderConfig:

@@ -22,7 +22,9 @@ from .file_glob import create_glob_tool
 from .file_grep import create_grep_tool
 from .file_read import create_read_tool
 from .file_write import create_write_tool
+from .load_skill import create_load_skill_tool
 from .read_history import create_read_history_tool
+from backend.core.s05_skills.on_demand_loader import OnDemandSkillLoader
 
 if TYPE_CHECKING:
     from backend.core.s05_skills import AgentRuntime, SpecRegistry
@@ -49,6 +51,7 @@ def register_builtin_tools(
     twitter_cookies_file: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     spec_registry: SpecRegistry | None = None,
+    skill_loader: OnDemandSkillLoader | None = None,
     task_queue: TaskQueue | None = None,
     event_handler: AgentEventHandler | None = None,
     is_sub_agent: bool = False,
@@ -205,6 +208,7 @@ def register_builtin_tools(
         from .query_specs import create_query_specs_tool
 
         tools.append(create_query_specs_tool(spec_registry))
+        tools.append(create_load_skill_tool(skill_loader or OnDemandSkillLoader(spec_registry)))
     if not is_sub_agent and task_queue is not None and spec_registry is not None:
         from .spawn_agent import create_spawn_agent_tool
         from .spawn_agent_support import SpawnAgentDeps

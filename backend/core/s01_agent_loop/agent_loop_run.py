@@ -56,7 +56,12 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                     loop._set_status("thinking")
                 logger.info("llm_call_start", iteration=iteration_count)
                 response = await loop._adapter.complete(
-                    build_llm_request(loop._config, loop._history.raw_messages, tool_definitions)
+                    build_llm_request(
+                        loop._config,
+                        loop._history.raw_messages,
+                        tool_definitions,
+                        skill_loader=loop._skill_loader,
+                    )
                 )
                 log_llm_call_end(logger, response)
                 assistant = Message(
