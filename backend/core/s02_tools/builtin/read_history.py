@@ -40,6 +40,7 @@ def create_read_history_tool() -> tuple[ToolDefinition, ToolExecuteFn]:
             sandboxed=True,
             allowed_paths=list(ALLOWED_ROOTS),
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:
