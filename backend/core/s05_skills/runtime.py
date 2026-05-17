@@ -14,8 +14,10 @@ from backend.core.s01_agent_loop import AgentLoop, CheckpointFn, PlanExecuteRunn
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
+from backend.core.s06_context_compression import MemoryIndex
 from backend.core.system_prompt import build_system_prompt
 from backend.core.task_queue import TaskQueue
+from backend.storage.memory_store import MemoryStore
 
 from .mcp_requirements import extract_required_mcp_servers
 from .models import AgentCategory, AgentSpec, ToolConfig
@@ -56,6 +58,7 @@ class AgentRuntime:
             resolved_workspace = os.path.abspath(workspace or os.getcwd())
             adapter = await self._deps.provider_manager.get_adapter(resolved_provider.id)
             skill_loader = OnDemandSkillLoader(self._deps.spec_registry)
+            memory_index = self._build_memory_index()
             registry = self._build_registry(
                 spec.tools,
                 spec.sub_agents.max_depth,
@@ -94,6 +97,7 @@ class AgentRuntime:
                 agent_spec=spec,
                 owner_id=session_id,
                 skill_loader=skill_loader,
+                memory_index=memory_index,
             )
             return loop
         except AgentError:
@@ -255,6 +259,10 @@ class AgentRuntime:
         return "\n\n".join(
             part for part in [build_system_prompt(workspace), spec_prompt.strip()] if part
         )
+
+    @staticmethod
+    def _build_memory_index() -> MemoryIndex:
+        return MemoryIndex(MemoryStore().load())
 
 
 __all__ = ["AgentRuntime", "AgentRuntimeDeps"]
