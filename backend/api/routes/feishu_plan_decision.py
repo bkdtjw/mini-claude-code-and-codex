@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from backend.core.s01_agent_loop import (
+    TERMINAL_PHASES,
     PlanCheckpointStore,
     PlanControlStore,
     PlanPhase,
-    TERMINAL_PHASES,
 )
 
 
@@ -65,12 +65,16 @@ def _request_checkpoint_decision(
     if action == "approve":
         if state.phase in {PlanPhase.EXECUTING, PlanPhase.PAUSED}:
             return True
-        if state.phase not in {PlanPhase.PLAN_READY, PlanPhase.AWAITING_APPROVAL}:
+        if state.phase not in {
+            PlanPhase.PLAN_READY,
+            PlanPhase.CONFIRMING,
+            PlanPhase.AWAITING_APPROVAL,
+        }:
             return False
         store.request_approve(state.session_id)
         return True
     if action == "reject":
-        if state.phase in {PlanPhase.PLAN_READY, PlanPhase.AWAITING_APPROVAL}:
+        if state.phase in {PlanPhase.PLAN_READY, PlanPhase.CONFIRMING, PlanPhase.AWAITING_APPROVAL}:
             store.request_reject(state.session_id, "Plan rejected from Feishu")
         else:
             store.request_stop(state.session_id)

@@ -96,7 +96,10 @@ async def approve_when_awaiting(
 
     attempts = max(int(timeout / 0.01), 1)
     for _ in range(attempts):
-        if getattr(runner, "phase", None) == PlanPhase.AWAITING_APPROVAL:
+        if getattr(runner, "phase", None) in {
+            PlanPhase.CONFIRMING,
+            PlanPhase.AWAITING_APPROVAL,
+        }:
             runner.approve()
             return
         if task is not None and task.done():

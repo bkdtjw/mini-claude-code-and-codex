@@ -133,7 +133,7 @@ def test_user_config_store_roundtrip_and_default(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_runner_writes_completed_checkpoint(tmp_path) -> None:
-    adapter = MockAdapter(["侦察报告", plan_json(step_count=3), "done1", "done2", "done3"])
+    adapter = MockAdapter([plan_json(step_count=3), "done1", "done2", "done3"])
     runner = _runner(tmp_path, adapter)
 
     await run_with_approval(runner, "test")
@@ -151,7 +151,7 @@ async def test_runner_writes_completed_checkpoint(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_runner_checkpoint_during_step_and_cancel(tmp_path) -> None:
-    adapter = MockAdapter(["侦察报告", plan_json(step_count=3), "done1", "done2"])
+    adapter = MockAdapter([plan_json(step_count=3), "done1", "done2"])
     runner = _runner(tmp_path, adapter)
     original_execute = runner._execute_step
     captured: list[PlanState] = []

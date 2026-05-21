@@ -7,7 +7,6 @@ import pytest
 from backend.core.s01_agent_loop import (
     ExecutionPlan,
     PlanExecuteRunner,
-    PlanParseError,
     PlanPhase,
     PlanStep,
     PlanStore,
@@ -15,7 +14,7 @@ from backend.core.s01_agent_loop import (
     generate_plan_name,
 )
 from backend.core.s02_tools import ToolRegistry
-from backend.tests.unit.plan_execute_test_support import VALID_PLAN_JSON, MockAdapter, run_with_approval
+from backend.tests.unit.plan_execute_test_support import MockAdapter, run_with_approval
 
 
 def _plan() -> ExecutionPlan:
@@ -175,32 +174,3 @@ def test_plan_name_format() -> None:
         assert re.match(r"^[a-z]+-[a-z]+-[a-z]+$", name)
         assert len(name) < 60
 
-
-@pytest.mark.asyncio
-async def test_runner_planning_retry_on_parse_failure(tmp_path) -> None:
-    adapter = MockAdapter(["侦察报告", "不是JSON", VALID_PLAN_JSON])
-    runner = _runner(tmp_path, adapter)
-    result = await run_with_approval(runner, "test")
-    assert result.role == "assistant"
-    planning_requests = [
-        request
-        for request in adapter.requests
-        if "Plan & Execute 规划者" in request.messages[0].content
-    ]
-    assert len(planning_requests) == 2
-    assert runner.plan_name
-
-
-@pytest.mark.asyncio
-async def test_runner_planning_fail_after_retry(tmp_path) -> None:
-    runner = _runner(tmp_path, MockAdapter(["侦察报告", "垃圾", "仍然垃圾"]))
-    with pytest.raises(PlanParseError):
-        await run_with_approval(runner, "test")
-
-
-@pytest.mark.asyncio
-async def test_runner_plan_file_from_llm(tmp_path) -> None:
-    runner = _runner(tmp_path, MockAdapter(["侦察报告", VALID_PLAN_JSON]))
-    await run_with_approval(runner, "test")
-    plan_content = (tmp_path / "plans" / f"{runner.plan_name}.md").read_text(encoding="utf-8")
-    assert "LLM生成的目标" in plan_content

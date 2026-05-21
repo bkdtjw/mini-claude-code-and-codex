@@ -44,6 +44,7 @@ def test_terminal_phases_have_no_outgoing_transitions() -> None:
     [
         PlanPhase.RECON,
         PlanPhase.PLANNING,
+        PlanPhase.CONFIRMING,
         PlanPhase.AWAITING_APPROVAL,
         PlanPhase.EXECUTING,
         PlanPhase.PAUSED,

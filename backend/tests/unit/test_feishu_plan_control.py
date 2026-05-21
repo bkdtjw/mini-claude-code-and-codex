@@ -160,7 +160,7 @@ def test_remote_plan_approval_uses_shared_control(
         plan_name="p1",
         session_id="feishu-oc_1",
         owner_id="ou_test",
-        phase=PlanPhase.AWAITING_APPROVAL,
+        phase=PlanPhase.CONFIRMING,
     )
     monkeypatch.setattr(
         "backend.api.routes.feishu_plan_decision.PlanCheckpointStore",

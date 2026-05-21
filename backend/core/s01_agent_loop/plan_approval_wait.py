@@ -15,8 +15,8 @@ async def await_plan_approval(runner: Any) -> bool:
     if runner._plan is None:
         raise PlanExecuteError("PLAN_APPROVAL_PLAN_MISSING", "Missing plan")
     runner._approval_event.clear()
-    if runner._state.phase != PlanPhase.AWAITING_APPROVAL:
-        runner._set_phase(PlanPhase.AWAITING_APPROVAL)
+    if runner._state.phase not in {PlanPhase.CONFIRMING, PlanPhase.AWAITING_APPROVAL}:
+        runner._set_phase(PlanPhase.CONFIRMING)
     await runner._notify_renderer("on_plan_created", runner._plan, runner._plan_name)
     try:
         await _wait_for_approval_or_signal(runner)

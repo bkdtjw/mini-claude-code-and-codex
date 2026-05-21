@@ -7,8 +7,9 @@ from backend.common.types import Message
 
 from .plan_approval_wait import await_plan_approval
 from .plan_execute_errors import PlanExecuteError
+from .plan_execution_plan import build_todo_state_from_plan
 from .plan_finish import execution_finish_status
-from .plan_models import PlanPhase, PlanState, TodoState, TodoStep
+from .plan_models import PlanPhase, PlanState
 from .plan_recon_parse import recon_plan_preview
 from .plan_state_machine import TERMINAL_PHASES
 
@@ -84,7 +85,11 @@ class PlanResumeMixin:
             if self._state.phase in {PlanPhase.RECON, PlanPhase.PLANNING}:
                 if not await self._run_from_recon(_resume_goal(self._state)):
                     return self.build_exit_summary()
-            elif self._state.phase in {PlanPhase.PLAN_READY, PlanPhase.AWAITING_APPROVAL}:
+            elif self._state.phase in {
+                PlanPhase.PLAN_READY,
+                PlanPhase.CONFIRMING,
+                PlanPhase.AWAITING_APPROVAL,
+            }:
                 if not await self._await_plan_approval():
                     return self.build_exit_summary()
                 await self._execute_existing_plan()
@@ -112,14 +117,12 @@ class PlanResumeMixin:
         self._persist_state()
         await self._notify_renderer("on_recon_done", recon_report[:200])
         self._set_phase(PlanPhase.PLANNING)
-        self._plan = await self._generate_plan(user_message, recon_report)
+        self._plan = recon_plan
         if self._cancelled:
             return False
         self._persist_state(persist_plan=True)
-        self._todo_state = TodoState(
-            plan_name=self._plan_name,
-            session_id=self._session_id,
-            steps=[TodoStep(id=step.step_id, title=step.title) for step in self._plan.steps],
+        self._todo_state = build_todo_state_from_plan(
+            self._plan_name, self._session_id, self._plan
         )
         self._persist_state()
         self._set_phase(PlanPhase.PLAN_READY)

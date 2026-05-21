@@ -21,7 +21,6 @@ def _runner(tmp_path, adapter: MockAdapter) -> PlanExecuteRunner:
 async def test_plan_runner_passes_previous_result_key_data_to_next_step(tmp_path) -> None:
     adapter = MockAdapter(
         [
-            "recon",
             plan_json(step_count=2),
             'step1 done\n```json\n{"item_id": "X"}\n```',
             "step2 done",
@@ -31,5 +30,5 @@ async def test_plan_runner_passes_previous_result_key_data_to_next_step(tmp_path
 
     await run_with_approval(runner, "test")
 
-    second_prompt = "\n".join(message.content for message in adapter.requests[3].messages)
+    second_prompt = "\n".join(message.content for message in adapter.requests[2].messages)
     assert "item_id: 'X'" in second_prompt

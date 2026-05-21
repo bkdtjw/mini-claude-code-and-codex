@@ -12,7 +12,11 @@ from backend.core.s01_agent_loop import (
     TodoStore,
 )
 from backend.core.s02_tools import ToolRegistry
-from backend.tests.unit.plan_execute_test_support import MockAdapter, approve_when_awaiting, plan_json
+from backend.tests.unit.plan_execute_test_support import (
+    MockAdapter,
+    approve_when_awaiting,
+    plan_json,
+)
 
 
 def _runner(tmp_path, adapter: MockAdapter) -> PlanExecuteRunner:
@@ -28,7 +32,7 @@ def _runner(tmp_path, adapter: MockAdapter) -> PlanExecuteRunner:
 @pytest.mark.asyncio
 async def test_pause_waits_before_next_step_and_applies_instruction(tmp_path) -> None:
     async def scenario() -> PlanExecuteRunner:
-        adapter = MockAdapter(["侦察报告", plan_json(step_count=2), "step1", "step2"])
+        adapter = MockAdapter([plan_json(step_count=2), "step1", "step2"])
         runner = _runner(tmp_path, adapter)
         original_execute = runner._execute_step
 
@@ -48,7 +52,7 @@ async def test_pause_waits_before_next_step_and_applies_instruction(tmp_path) ->
         assert runner._todo_state.steps[1].status == "pending"
         runner.resume("后续步骤增加验证")
         await task
-        prompt = "\n".join(message.content for message in adapter.requests[3].messages)
+        prompt = "\n".join(message.content for message in adapter.requests[2].messages)
         assert "后续步骤增加验证" in prompt
         return runner
 
@@ -61,7 +65,7 @@ async def test_shared_pause_signal_waits_before_next_step(tmp_path, monkeypatch)
     monkeypatch.setenv("PLAN_CONTROL_DIR", str(tmp_path / "controls"))
 
     async def scenario() -> PlanExecuteRunner:
-        adapter = MockAdapter(["侦察报告", plan_json(step_count=2), "step1", "step2"])
+        adapter = MockAdapter([plan_json(step_count=2), "step1", "step2"])
         runner = _runner(tmp_path, adapter)
         original_execute = runner._execute_step
 
@@ -80,7 +84,7 @@ async def test_shared_pause_signal_waits_before_next_step(tmp_path, monkeypatch)
         assert runner.status == PlanPhase.PAUSED
         PlanControlStore().request_resume("test-session", "共享补充")
         await task
-        prompt = "\n".join(message.content for message in adapter.requests[3].messages)
+        prompt = "\n".join(message.content for message in adapter.requests[2].messages)
         assert "共享补充" in prompt
         return runner
 
@@ -91,15 +95,15 @@ async def test_shared_pause_signal_waits_before_next_step(tmp_path, monkeypatch)
 @pytest.mark.asyncio
 async def test_shared_approval_signal_releases_plan_wait(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("PLAN_CONTROL_DIR", str(tmp_path / "controls"))
-    adapter = MockAdapter(["侦察报告", plan_json(step_count=1), "step1"])
+    adapter = MockAdapter([plan_json(step_count=1), "step1"])
     runner = _runner(tmp_path, adapter)
     task = asyncio.create_task(runner.run("test"))
     for _ in range(200):
-        if runner.status == PlanPhase.AWAITING_APPROVAL:
+        if runner.status == PlanPhase.CONFIRMING:
             break
         await asyncio.sleep(0.01)
 
-    assert runner.status == PlanPhase.AWAITING_APPROVAL
+    assert runner.status == PlanPhase.CONFIRMING
     PlanControlStore().request_approve("test-session")
     await task
 

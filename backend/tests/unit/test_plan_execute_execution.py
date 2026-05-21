@@ -61,7 +61,7 @@ def _tool_call_response(path: str = "backend/core/demo.py") -> LLMResponse:
 
 @pytest.mark.asyncio
 async def test_runner_executes_steps_with_agent_loop(tmp_path) -> None:
-    adapter = MockAdapter(["侦察报告", plan_json(step_count=2), "步骤1完成", "步骤2完成"])
+    adapter = MockAdapter([plan_json(step_count=2), "步骤1完成", "步骤2完成"])
     runner = _runner(tmp_path, adapter)
     await run_with_approval(runner, "test")
     assert runner.status == PlanPhase.COMPLETED
@@ -73,7 +73,7 @@ async def test_runner_executes_steps_with_agent_loop(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_extract_context_from_step(tmp_path) -> None:
     adapter = MockAdapter(
-        ["侦察报告", plan_json(step_count=1), _tool_call_response(), "最终摘要" * 1200]
+        [plan_json(step_count=1), _tool_call_response(), "最终摘要" * 1200]
     )
     runner = _runner(tmp_path, adapter, _registry_with_reader())
     await run_with_approval(runner, "test")
@@ -86,17 +86,17 @@ async def test_extract_context_from_step(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_step_context_passed_to_next_step(tmp_path) -> None:
-    adapter = MockAdapter(["侦察报告", plan_json(step_count=2), "FIRST_SUMMARY", "SECOND_SUMMARY"])
+    adapter = MockAdapter([plan_json(step_count=2), "FIRST_SUMMARY", "SECOND_SUMMARY"])
     runner = _runner(tmp_path, adapter)
     await run_with_approval(runner, "test")
-    second_step_prompt = "\n".join(message.content for message in adapter.requests[3].messages)
+    second_step_prompt = "\n".join(message.content for message in adapter.requests[2].messages)
     assert "FIRST_SUMMARY" in second_step_prompt
 
 
 @pytest.mark.asyncio
 async def test_runner_step_failure_continues(tmp_path) -> None:
     adapter = MockAdapter(
-        ["侦察报告", plan_json(step_count=3), "done1", AgentError("STEP_FAILED", "boom"), "done3"]
+        [plan_json(step_count=3), "done1", AgentError("STEP_FAILED", "boom"), "done3"]
     )
     runner = _runner(tmp_path, adapter)
     await run_with_approval(runner, "test")
@@ -116,10 +116,8 @@ async def test_runner_step_timeout(tmp_path, monkeypatch) -> None:
         async def complete(self, request):
             self.requests.append(request)
             if len(self.requests) == 1:
-                return LLMResponse(content="侦察报告")
-            if len(self.requests) == 2:
                 return LLMResponse(content=plan_json(step_count=2))
-            if len(self.requests) == 3:
+            if len(self.requests) == 2:
                 await asyncio.sleep(0.1)
             return LLMResponse(content="done")
 
@@ -144,7 +142,7 @@ async def test_sync_rereads_plan_from_checkpoint_state(tmp_path) -> None:
         },
         ensure_ascii=False,
     )
-    adapter = MockAdapter(["侦察报告", plan, "done1", "done2"])
+    adapter = MockAdapter([plan, "done1", "done2"])
     runner = _runner(tmp_path, adapter)
     original_execute = runner._execute_step
 
@@ -158,7 +156,7 @@ async def test_sync_rereads_plan_from_checkpoint_state(tmp_path) -> None:
 
     runner._execute_step = edit_plan_after_first
     await run_with_approval(runner, "test")
-    second_prompt = "\n".join(message.content for message in adapter.requests[3].messages)
+    second_prompt = "\n".join(message.content for message in adapter.requests[2].messages)
     assert "手动修改后的描述" in second_prompt
 
 
@@ -166,7 +164,6 @@ async def test_sync_rereads_plan_from_checkpoint_state(tmp_path) -> None:
 async def test_cancel_preserves_completed_context(tmp_path) -> None:
     adapter = MockAdapter(
         [
-            "侦察报告",
             plan_json(step_count=3),
             _tool_call_response(),
             "step1 done",

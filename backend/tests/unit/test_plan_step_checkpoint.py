@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 
 import pytest
@@ -35,7 +34,7 @@ def _runner(tmp_path, adapter: MockAdapter, session_id: str = "test-session") ->
 
 @pytest.mark.asyncio
 async def test_plan_steps_checkpoint_messages_and_todo_json(tmp_path) -> None:
-    adapter = MockAdapter(["侦察报告", plan_json(step_count=3), "done1", "done2", "done3"])
+    adapter = MockAdapter([plan_json(step_count=3), "done1", "done2", "done3"])
     runner = _runner(tmp_path, adapter)
 
     await run_with_approval(runner, "test")
@@ -55,7 +54,7 @@ async def test_plan_steps_checkpoint_messages_and_todo_json(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_plan_step_checkpoint_session_id_is_shortened_for_long_owner(tmp_path) -> None:
     long_session_id = "feishu-oc_" + ("9" * 48)
-    adapter = MockAdapter(["侦察报告", plan_json(step_count=1), "done1"])
+    adapter = MockAdapter([plan_json(step_count=1), "done1"])
     runner = _runner(tmp_path, adapter, session_id=long_session_id)
 
     await run_with_approval(runner, "test")
@@ -84,10 +83,8 @@ async def test_plan_step_checkpoint_survives_simulated_crash(tmp_path) -> None:
         async def complete(self, request: LLMRequest) -> LLMResponse:
             self.requests.append(request)
             if len(self.requests) == 1:
-                return LLMResponse(content="侦察报告")
-            if len(self.requests) == 2:
                 return LLMResponse(content=plan_json(step_count=3))
-            if len(self.requests) == 3:
+            if len(self.requests) == 2:
                 return LLMResponse(content="done1")
             raise SimulatedCrash("crash during step 2")
 
@@ -124,13 +121,16 @@ async def test_execute_step_restores_existing_checkpoint_messages(tmp_path, monk
     import backend.core.s01_agent_loop.plan_step_checkpoint as checkpoint_module
 
     monkeypatch.setattr(checkpoint_module, "logger", FakeLogger())
-    crash_adapter = MockAdapter(["侦察报告", plan_json(step_count=3), "done1"])
+    crash_adapter = MockAdapter([plan_json(step_count=3), "done1"])
     runner = _runner(tmp_path, crash_adapter)
     await run_with_approval(runner, "test")
     runner._adapter = RestoreAdapter()
     step2 = runner._todo_state.steps[1]
     store = SessionStore()
-    await store.add_messages(step2.checkpoint_session_id, [Message(role="assistant", content="partial")])
+    await store.add_messages(
+        step2.checkpoint_session_id,
+        [Message(role="assistant", content="partial")],
+    )
 
     await runner._execute_step(step2)
 

@@ -69,10 +69,10 @@ async def _wait_event(renderer: SpyRenderer, event: str) -> None:
 @pytest.mark.asyncio
 async def test_runner_waits_for_approval_before_executing_steps(tmp_path) -> None:
     renderer = SpyRenderer()
-    runner = _runner(tmp_path, MockAdapter(["侦察报告", plan_json(step_count=1), "done"]), renderer)
+    runner = _runner(tmp_path, MockAdapter([plan_json(step_count=1), "done"]), renderer)
 
     task = asyncio.create_task(runner.run("test"))
-    await _wait_phase(runner, PlanPhase.AWAITING_APPROVAL)
+    await _wait_phase(runner, PlanPhase.CONFIRMING)
     await _wait_event(renderer, "created")
 
     assert renderer.events == ["created"]
@@ -90,10 +90,10 @@ async def test_runner_waits_for_approval_before_executing_steps(tmp_path) -> Non
 @pytest.mark.asyncio
 async def test_runner_reject_cancels_without_executing_steps(tmp_path) -> None:
     renderer = SpyRenderer()
-    runner = _runner(tmp_path, MockAdapter(["侦察报告", plan_json(step_count=1), "done"]), renderer)
+    runner = _runner(tmp_path, MockAdapter([plan_json(step_count=1), "done"]), renderer)
 
     task = asyncio.create_task(runner.run("test"))
-    await _wait_phase(runner, PlanPhase.AWAITING_APPROVAL)
+    await _wait_phase(runner, PlanPhase.CONFIRMING)
     await _wait_event(renderer, "created")
     runner.reject("no")
     await task
@@ -108,7 +108,7 @@ async def test_runner_reject_cancels_without_executing_steps(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_runner_approval_timeout_cancels_plan(tmp_path) -> None:
     renderer = SpyRenderer()
-    runner = _runner(tmp_path, MockAdapter(["侦察报告", plan_json(step_count=1), "done"]), renderer)
+    runner = _runner(tmp_path, MockAdapter([plan_json(step_count=1), "done"]), renderer)
     runner._approval_timeout_seconds = 0.05
 
     await runner.run("test")

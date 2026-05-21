@@ -50,7 +50,7 @@ def _runner(
     tmp_path, renderer: PlanRenderer, adapter: MockAdapter | None = None
 ) -> PlanExecuteRunner:
     return PlanExecuteRunner(
-        adapter=adapter or MockAdapter(["侦察报告", plan_json(step_count=1), "done"]),
+        adapter=adapter or MockAdapter([plan_json(step_count=1), "done"]),
         tool_registry=ToolRegistry(),
         plan_store=PlanStore(str(tmp_path / "plans")),
         todo_store=TodoStore(str(tmp_path / "todos")),
@@ -166,7 +166,7 @@ async def test_cancel_triggers_renderer(tmp_path) -> None:
     runner = _runner(
         tmp_path,
         SpyRenderer(),
-        MockAdapter(["侦察报告", plan_json(step_count=2), "step1 done", "step2 done"]),
+        MockAdapter([plan_json(step_count=2), "step1 done", "step2 done"]),
     )
     original_execute = runner._execute_step
 

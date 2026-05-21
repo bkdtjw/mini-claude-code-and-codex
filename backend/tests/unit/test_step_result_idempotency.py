@@ -33,12 +33,10 @@ async def test_step_result_resume_skips_completed_steps(tmp_path) -> None:
         async def complete(self, request: LLMRequest) -> LLMResponse:
             self.requests.append(request)
             if len(self.requests) == 1:
-                return LLMResponse(content="recon")
-            if len(self.requests) == 2:
                 return LLMResponse(content=plan_json(step_count=3))
-            if len(self.requests) == 3:
+            if len(self.requests) == 2:
                 return LLMResponse(content="done1")
-            if len(self.requests) == 4:
+            if len(self.requests) == 3:
                 return LLMResponse(content="done2")
             raise SimulatedCrash("crash during step 3")
 

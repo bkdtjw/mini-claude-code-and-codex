@@ -14,7 +14,7 @@ from backend.core.s01_agent_loop.plan_recon import (
 )
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
-from backend.tests.unit.plan_execute_test_support import MockAdapter, plan_json, run_with_approval
+from backend.tests.unit.plan_execute_test_support import MockAdapter, run_with_approval
 
 
 def _runner(
@@ -31,22 +31,23 @@ def _runner(
 
 @pytest.mark.asyncio
 async def test_recon_runs_before_planning(tmp_path) -> None:
-    adapter = MockAdapter([_recon_plan_json(), plan_json(step_count=1), "done"])
+    adapter = MockAdapter([_recon_plan_json(), "done"])
     runner = _runner(tmp_path, adapter)
     await run_with_approval(runner, "重构 runner")
     assert "软件架构师和规划专家" in adapter.requests[0].messages[0].content
     assert '"steps"' in adapter.requests[0].messages[0].content
-    assert "Plan & Execute 规划者" in adapter.requests[1].messages[0].content
-    assert "runner 实际结构" in adapter.requests[1].messages[1].content
+    assert not any("Plan & Execute 规划者" in req.messages[0].content for req in adapter.requests)
+    assert runner._plan is not None
+    assert runner._plan.overall_summary == "runner 实际结构"
 
 
 @pytest.mark.asyncio
 async def test_recon_failure_degrades_gracefully(tmp_path) -> None:
-    adapter = MockAdapter([RuntimeError("recon down"), plan_json(step_count=1), "done"])
+    adapter = MockAdapter([RuntimeError("recon down"), "done"])
     runner = _runner(tmp_path, adapter)
     await run_with_approval(runner, "重构 runner")
     assert runner.status == PlanPhase.COMPLETED
-    assert "侦察失败: recon down" in adapter.requests[1].messages[1].content
+    assert "侦察失败: recon down" in runner._state.recon_report
 
 
 @pytest.mark.asyncio

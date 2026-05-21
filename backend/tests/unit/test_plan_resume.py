@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from backend.common.types import LLMRequest, LLMResponse, ToolCall, ToolDefinition, ToolParameterSchema, ToolResult
+from backend.common.types import (
+    LLMRequest,
+    LLMResponse,
+    ToolCall,
+    ToolDefinition,
+    ToolParameterSchema,
+    ToolResult,
+)
 from backend.core.s01_agent_loop import (
-    ExecutionPlan,
     PlanCheckpointStore,
     PlanExecuteRunner,
     PlanPhase,
     PlanState,
-    PlanStep,
     PlanStore,
     TodoState,
     TodoStep,
@@ -29,7 +34,11 @@ class SimulatedCrash(BaseException):
     pass
 
 
-def _runner(tmp_path, adapter: MockAdapter, registry: ToolRegistry | None = None) -> PlanExecuteRunner:
+def _runner(
+    tmp_path,
+    adapter: MockAdapter,
+    registry: ToolRegistry | None = None,
+) -> PlanExecuteRunner:
     return PlanExecuteRunner(
         adapter=adapter,
         tool_registry=registry or ToolRegistry(),
@@ -57,7 +66,10 @@ def _registry_with_reader() -> ToolRegistry:
 
 
 def _tool_call(path: str) -> LLMResponse:
-    return LLMResponse(content="", tool_calls=[ToolCall(id=f"tc-{path}", name="read_path", arguments={"path": path})])
+    return LLMResponse(
+        content="",
+        tool_calls=[ToolCall(id=f"tc-{path}", name="read_path", arguments={"path": path})],
+    )
 
 
 def test_reset_interrupted_steps_only_resets_running(tmp_path) -> None:
@@ -89,7 +101,12 @@ def test_reset_interrupted_steps_only_resets_running(tmp_path) -> None:
     )
 
     assert runner is not None
-    assert [step.status for step in runner._todo_state.steps] == ["done", "pending", "failed", "skipped"]
+    assert [step.status for step in runner._todo_state.steps] == [
+        "done",
+        "pending",
+        "failed",
+        "skipped",
+    ]
 
 
 @pytest.mark.asyncio
@@ -98,16 +115,14 @@ async def test_resume_run_skips_done_steps_and_restores_step_checkpoint(tmp_path
         async def complete(self, request: LLMRequest) -> LLMResponse:
             self.requests.append(request)
             if len(self.requests) == 1:
-                return LLMResponse(content="侦察报告")
-            if len(self.requests) == 2:
                 return LLMResponse(content=plan_json(step_count=5))
-            if len(self.requests) == 3:
+            if len(self.requests) == 2:
                 return _tool_call("a.py")
-            if len(self.requests) == 4:
+            if len(self.requests) == 3:
                 return LLMResponse(content="done1")
-            if len(self.requests) == 5:
+            if len(self.requests) == 4:
                 return _tool_call("b.py")
-            if len(self.requests) == 6:
+            if len(self.requests) == 5:
                 return LLMResponse(content="done2")
             raise SimulatedCrash("crash during step 3")
 
@@ -132,12 +147,24 @@ async def test_resume_run_skips_done_steps_and_restores_step_checkpoint(tmp_path
     assert resumed is not None
     await resume_with_approval(resumed)
 
-    assert [step.status for step in resumed._todo_state.steps] == ["done", "done", "done", "done", "done"]
+    assert [step.status for step in resumed._todo_state.steps] == [
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+    ]
     assert len(resume_adapter.requests) == 3
-    first_resume_prompt = "\n".join(message.content for message in resume_adapter.requests[0].messages)
+    first_resume_prompt = "\n".join(
+        message.content for message in resume_adapter.requests[0].messages
+    )
     assert "a.py" in first_resume_prompt
     assert "b.py" in first_resume_prompt
-    assert [message.role for message in resume_adapter.requests[0].messages[:3]] == ["system", "user", "user"]
+    assert [message.role for message in resume_adapter.requests[0].messages[:3]] == [
+        "system",
+        "user",
+        "user",
+    ]
     after_messages = await SessionStore().get_messages(step3_session)
     assert len(after_messages) > len(before_messages)
 
@@ -150,7 +177,7 @@ async def test_resume_recon_phase_replans_without_error(tmp_path) -> None:
     runner = PlanExecuteRunner.resume_from_checkpoint(
         checkpoint_store,
         "test-session",
-        MockAdapter(["侦察报告", plan_json(step_count=1), "done"]),
+        MockAdapter([plan_json(step_count=1), "done"]),
         ToolRegistry(),
         PlanStore(str(tmp_path / "plans")),
         TodoStore(str(tmp_path / "todos")),

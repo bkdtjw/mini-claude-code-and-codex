@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from backend.common.types import (
     LLMResponse,
     ToolCall,
@@ -63,7 +64,6 @@ def _tool_call_response(path: str) -> LLMResponse:
 async def test_completed_steps_context_injected_into_later_step_prompts(tmp_path) -> None:
     adapter = MockAdapter(
         [
-            "侦察报告",
             plan_json(step_count=4),
             _tool_call_response("backend/core/first.py"),
             "步骤1完成",
@@ -75,9 +75,9 @@ async def test_completed_steps_context_injected_into_later_step_prompts(tmp_path
     )
     runner = _runner(tmp_path, adapter, _registry_with_reader())
     await run_with_approval(runner, "test")
-    first_prompt = "\n".join(message.content for message in adapter.requests[2].messages)
-    third_prompt = "\n".join(message.content for message in adapter.requests[6].messages)
-    fourth_prompt = "\n".join(message.content for message in adapter.requests[7].messages)
+    first_prompt = "\n".join(message.content for message in adapter.requests[1].messages)
+    third_prompt = "\n".join(message.content for message in adapter.requests[5].messages)
+    fourth_prompt = "\n".join(message.content for message in adapter.requests[6].messages)
 
     assert "已完成步骤上下文" not in first_prompt
     assert "### 步骤 1: 步骤1" in third_prompt

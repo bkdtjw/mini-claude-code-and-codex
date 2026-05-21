@@ -14,6 +14,7 @@ class PlanPhase(str, Enum):  # noqa: UP042
     RECON = "recon"
     PLANNING = "planning"
     PLAN_READY = "plan_ready"
+    CONFIRMING = "confirming"
     AWAITING_APPROVAL = "awaiting_approval"
     EXECUTING = "executing"
     PAUSED = "paused"
