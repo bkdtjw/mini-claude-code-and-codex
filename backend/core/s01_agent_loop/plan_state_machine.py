@@ -13,6 +13,7 @@ PLAN_TRANSITIONS: frozenset[tuple[PlanPhase, PlanPhase]] = frozenset(
         (PlanPhase.RECON, PlanPhase.PLANNING),
         (PlanPhase.PLANNING, PlanPhase.RECON),
         (PlanPhase.PLANNING, PlanPhase.PLAN_READY),
+        (PlanPhase.PLAN_READY, PlanPhase.EXECUTING),
         (PlanPhase.PLAN_READY, PlanPhase.CONFIRMING),
         (PlanPhase.PLAN_READY, PlanPhase.AWAITING_APPROVAL),
         (PlanPhase.CONFIRMING, PlanPhase.EXECUTING),

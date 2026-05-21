@@ -11,7 +11,12 @@ from backend.tests.unit.plan_execute_test_support import (
 )
 
 
-def _runner(tmp_path: object, adapter: MockAdapter) -> PlanExecuteRunner:
+def _runner(
+    tmp_path: object,
+    adapter: MockAdapter,
+    *,
+    require_confirmation: bool = True,
+) -> PlanExecuteRunner:
     root = tmp_path
     return PlanExecuteRunner(
         adapter=adapter,
@@ -19,6 +24,7 @@ def _runner(tmp_path: object, adapter: MockAdapter) -> PlanExecuteRunner:
         plan_store=PlanStore(str(root / "plans")),
         todo_store=TodoStore(str(root / "todos")),
         session_id="test-session",
+        require_confirmation=require_confirmation,
     )
 
 
@@ -53,3 +59,15 @@ async def test_runner_plan_file_from_recon_plan(tmp_path) -> None:
     detail_path = tmp_path / "plans" / f"test-session-{runner.plan_name}.md"
     assert "LLM生成的目标" in plan_path.read_text(encoding="utf-8")
     assert "## 分步执行计划" in detail_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_runner_can_skip_confirmation_for_non_feishu_entry(tmp_path) -> None:
+    runner = _runner(
+        tmp_path,
+        MockAdapter([VALID_PLAN_JSON, "done"]),
+        require_confirmation=False,
+    )
+    await runner.run("test")
+    assert runner._todo_state is not None
+    assert runner._todo_state.status == "completed"
