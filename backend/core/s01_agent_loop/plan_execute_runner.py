@@ -142,7 +142,7 @@ class PlanExecuteRunner(
     def agent_spec(self) -> Any | None:
         return self._agent_spec
 
-    async def _run_recon(self, user_message: str) -> str:
+    async def _run_recon(self, user_message: str) -> ExecutionPlan:
         return await run_recon(ReconInput(self._adapter, self._tool_registry, self._session_id, user_message))  # noqa: E501
 
     async def _generate_plan(self, user_message: str, recon_report: str = "") -> ExecutionPlan:

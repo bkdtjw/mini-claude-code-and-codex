@@ -5,11 +5,12 @@ import shlex
 from dataclasses import dataclass
 
 from backend.adapters.base import LLMAdapter
-from backend.common.errors import AgentError
 from backend.common.types import AgentConfig, ToolExecuteFn, ToolResult
 from backend.core.s02_tools import ToolRegistry
 
 from .agent_loop import AgentLoop
+from .plan_models import ExecutionPlan
+from .plan_recon_parse import exception_fallback_plan, parse_recon_execution_plan
 
 RECON_TIMEOUT_SECONDS = 180.0
 RECON_MAX_ITERATIONS = 15
@@ -33,7 +34,8 @@ READONLY_BASH_PREFIXES = tuple(f"{name} " for name in sorted(READONLY_BASH_COMMA
 _UNSAFE_SHELL_TOKENS = (";", "&&", "||", "|", ">", "<", "`", "$(")
 
 RECON_SYSTEM_PROMPT = """
-你是 Agent Studio 的软件架构师和规划专家。你的任务不是实施，而是通过只读探索把用户需求转成可直接执行的结构化 ExecutionPlan。
+你是 Agent Studio 的软件架构师和规划专家。你的任务不是实施，
+而是通过只读探索把用户需求转成可直接执行的结构化 ExecutionPlan。
 
 用户的任务：{user_message}
 
@@ -94,7 +96,7 @@ class ReconInput:
     user_message: str
 
 
-async def run_recon(recon_input: ReconInput) -> str:
+async def run_recon(recon_input: ReconInput) -> ExecutionPlan:
     try:
         registry = build_readonly_registry(recon_input.source_registry)
         loop = AgentLoop(
@@ -113,13 +115,9 @@ async def run_recon(recon_input: ReconInput) -> str:
             loop.run(recon_input.user_message),
             timeout=RECON_TIMEOUT_SECONDS,
         )
-        return result.content
-    except TimeoutError:
-        return "侦察超时，基于有限信息规划"
-    except AgentError as exc:
-        return f"侦察失败: {exc.message}，基于用户描述规划"
+        return parse_recon_execution_plan(result.content, recon_input.user_message)
     except Exception as exc:  # noqa: BLE001
-        return f"侦察失败: {exc}，基于用户描述规划"
+        return exception_fallback_plan(recon_input.user_message, exc)
 
 
 def build_readonly_registry(source: ToolRegistry) -> ToolRegistry:

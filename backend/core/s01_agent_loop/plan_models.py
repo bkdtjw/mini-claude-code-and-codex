@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PlanPhase(str, Enum):  # noqa: UP042
@@ -29,9 +29,29 @@ class PlanStep(BaseModel):
     title: str
     description: str
     tools_hint: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)
     type: Literal["script_step", "agent_step"] = "agent_step"
     tool_name: str = ""
     tool_arguments: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_recon_step(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        if "step_id" not in normalized and "id" in normalized:
+            normalized["step_id"] = _parse_step_id(normalized.get("id"))
+        if "tools_hint" not in normalized and "estimated_tools" in normalized:
+            normalized["tools_hint"] = normalized.get("estimated_tools")
+        return normalized
+
+
+class PlanKeyFile(BaseModel):
+    """File identified during recon planning."""
+
+    path: str
+    role: str = ""
 
 
 class ExecutionPlan(BaseModel):
@@ -39,9 +59,23 @@ class ExecutionPlan(BaseModel):
 
     goal: str
     approach: list[str] = Field(default_factory=list)
+    overall_summary: str = ""
+    risks: list[str] = Field(default_factory=list)
+    key_files: list[PlanKeyFile] = Field(default_factory=list)
     data_structures: str = ""
     steps: list[PlanStep] = Field(default_factory=list)
     version: int = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_recon_plan(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        approach = normalized.get("approach")
+        if isinstance(approach, str):
+            normalized["approach"] = [approach] if approach.strip() else []
+        return normalized
 
 
 class TodoStep(BaseModel):
@@ -90,9 +124,19 @@ class PlanState(BaseModel):
 
 __all__ = [
     "ExecutionPlan",
+    "PlanKeyFile",
     "PlanPhase",
     "PlanState",
     "PlanStep",
     "TodoState",
     "TodoStep",
 ]
+
+
+def _parse_step_id(value: Any) -> int:
+    if isinstance(value, int):
+        return value
+    text = str(value or "").strip()
+    if text.startswith("step_"):
+        text = text.removeprefix("step_")
+    return int(text)

@@ -9,6 +9,7 @@ from .plan_approval_wait import await_plan_approval
 from .plan_execute_errors import PlanExecuteError
 from .plan_finish import execution_finish_status
 from .plan_models import PlanPhase, PlanState, TodoState, TodoStep
+from .plan_recon_parse import recon_plan_preview
 from .plan_state_machine import TERMINAL_PHASES
 
 if TYPE_CHECKING:
@@ -103,9 +104,10 @@ class PlanResumeMixin:
         if self._state.phase != PlanPhase.RECON:
             self._set_phase(PlanPhase.RECON)
         await self._notify_renderer("on_recon_start", user_message)
-        recon_report = await self._run_recon(user_message)
+        recon_plan = await self._run_recon(user_message)
         if self._cancelled:
             return False
+        recon_report = recon_plan_preview(recon_plan)
         self._state.recon_report = recon_report[:2000]
         self._persist_state()
         await self._notify_renderer("on_recon_done", recon_report[:200])

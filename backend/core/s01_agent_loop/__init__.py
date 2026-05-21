@@ -4,7 +4,15 @@ from .message_history import MessageHistory
 from .plan_checkpoint_store import PlanCheckpointStore
 from .plan_control_store import PlanControlStore
 from .plan_execute_runner import PlanExecuteRunner
-from .plan_models import ExecutionPlan, PlanPhase, PlanState, PlanStep, TodoState, TodoStep
+from .plan_models import (
+    ExecutionPlan,
+    PlanKeyFile,
+    PlanPhase,
+    PlanState,
+    PlanStep,
+    TodoState,
+    TodoStep,
+)
 from .plan_prompt import (
     PLANNING_SYSTEM_PROMPT,
     PlanParseError,
@@ -13,8 +21,14 @@ from .plan_prompt import (
 )
 from .plan_recon import build_readonly_registry, is_readonly_bash
 from .plan_renderer import PlanRenderer, SilentPlanRenderer
+from .plan_state_machine import (
+    PLAN_TRANSITIONS,
+    TERMINAL_PHASES,
+    is_terminal,
+    transition,
+    validate_transition,
+)
 from .plan_step_prompt import build_step_messages
-from .plan_state_machine import PLAN_TRANSITIONS, TERMINAL_PHASES, is_terminal, transition, validate_transition
 from .plan_store import PlanStore, TodoStore, generate_plan_name
 from .plan_todo_tool import TODOUPDATE_TOOL_NAME, create_todoupdate_executor
 from .step_result import StepResult, StepResultStore, StepStatus
@@ -28,6 +42,7 @@ __all__ = [
     "PLANNING_SYSTEM_PROMPT",
     "PlanExecuteRunner",
     "PlanCheckpointStore",
+    "PlanKeyFile",
     "PlanPhase",
     "PlanParseError",
     "PlanRenderer",
