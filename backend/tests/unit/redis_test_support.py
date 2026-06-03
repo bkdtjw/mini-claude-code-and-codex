@@ -115,6 +115,19 @@ class FakeAsyncRedis:
             condition.notify_all()
             return len(items)
 
+    async def lrange(self, name: str, start: int, end: int) -> list[str]:
+        self._maybe_fail("lrange")
+        items = self.lists.get(name, [])
+        stop = None if end == -1 else end + 1
+        return list(items[start:stop])
+
+    async def ltrim(self, name: str, start: int, end: int) -> bool:
+        self._maybe_fail("ltrim")
+        items = self.lists.get(name, [])
+        stop = None if end == -1 else end + 1
+        self.lists[name] = list(items[start:stop])
+        return True
+
     async def brpop(self, name: str, timeout: int = 0) -> tuple[str, str] | None:
         self._maybe_fail("brpop")
         condition = self._condition(name)

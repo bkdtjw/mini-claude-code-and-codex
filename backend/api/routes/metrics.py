@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.api.middleware.auth import verify_token
 from backend.common.metrics import METRIC_NAMES, get_metrics
-from backend.schemas.observability import MetricDetailResponse, MetricsSummaryResponse, MetricSeriesResponse
+from backend.schemas.observability import (
+    LatencySummaryResponse,
+    MetricDetailResponse,
+    MetricsSummaryResponse,
+    MetricSeriesResponse,
+)
 
 router = APIRouter(
     prefix="/api/metrics",
@@ -52,6 +57,18 @@ async def metric_detail(name: str, days: int = Query(default=30, ge=1, le=365)) 
         raise HTTPException(
             status_code=500,
             detail={"code": "METRIC_DETAIL_ERROR", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/latency", response_model=LatencySummaryResponse)
+async def latency_summary(days: int = Query(default=1, ge=1, le=365)) -> LatencySummaryResponse:
+    try:
+        collector = await get_metrics()
+        return LatencySummaryResponse(latencies=await collector.get_latency_summary(days))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "LATENCY_SUMMARY_ERROR", "message": str(exc)},
         ) from exc
 
 

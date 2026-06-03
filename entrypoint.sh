@@ -8,6 +8,13 @@ if [ -f /app/twitter_cookies.json ]; then
     chown appuser:appuser /app/twitter_cookies.json 2>/dev/null || true
 fi
 
+# Source files may be bind-mounted from a restrictive host umask. Keep the
+# repair narrow: appuser only needs to traverse packages and read Python code.
+if [ -d /app/backend ]; then
+    find /app/backend -type d -exec chmod a+rx {} + 2>/dev/null || true
+    find /app/backend -type f \( -name "*.py" -o -name "*.pyi" \) -exec chmod a+r {} + 2>/dev/null || true
+fi
+
 ALEMBIC_INI="/app/backend/alembic.ini"
 ALEMBIC_DIR="/app/backend/alembic"
 DB_WAIT_ATTEMPTS="${DB_WAIT_ATTEMPTS:-15}"

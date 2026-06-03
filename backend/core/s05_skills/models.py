@@ -34,6 +34,12 @@ class ToolConfig(BaseModel):
         alias="tool_config",
     )
 
+    @model_validator(mode="after")
+    def include_history_lookup(self) -> ToolConfig:
+        if self.allowed_tools and "read_history" not in self.allowed_tools:
+            self.allowed_tools = [*self.allowed_tools, "read_history"]
+        return self
+
 
 class AgentSpec(BaseModel):
     id: str

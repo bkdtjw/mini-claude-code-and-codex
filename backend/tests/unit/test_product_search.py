@@ -60,6 +60,35 @@ async def test_product_search_merges_and_sorts(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
+async def test_product_search_keeps_brand_results_when_full_search_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_mock = AsyncMock(side_effect=RuntimeError("折淘客全网搜索错误 500"))
+    brand_mock = AsyncMock(
+        return_value=ZhetaokeBrandResult(
+            products=[
+                ZhetaokeSearchProduct(
+                    tao_id="b",
+                    title="精选品牌商品",
+                    coupon_price="12.90",
+                    item_url="https://uland.taobao.com/item/edetail?id=b",
+                )
+            ]
+        )
+    )
+    monkeypatch.setattr(product_search, "search_taobao_products", search_mock)
+    monkeypatch.setattr(product_search, "fetch_brand_products", brand_mock)
+    _, execute = product_search.create_product_search_tool("app-key", "sid", "pid")
+
+    result = await execute({"q": "挂灯", "max_results": 5})
+
+    assert result.is_error is False
+    assert "[精选品牌] 精选品牌商品" in result.output
+    assert "数据源提示" in result.output
+    assert "全网搜索失败" in result.output
+
+
+@pytest.mark.asyncio
 async def test_product_search_can_skip_brand_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     search_mock = AsyncMock(return_value=[])
     brand_mock = AsyncMock(return_value=ZhetaokeBrandResult(products=[]))
@@ -71,7 +100,43 @@ async def test_product_search_can_skip_brand_pool(monkeypatch: pytest.MonkeyPatc
 
     assert result.is_error is False
     brand_mock.assert_not_awaited()
-    assert "未返回商品数据" in result.output
+    assert "未找到匹配商品/优惠券" in result.output
+    assert "失败" not in result.output
+
+
+@pytest.mark.asyncio
+async def test_product_search_returns_clear_no_result_when_all_sources_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_mock = AsyncMock(return_value=[])
+    brand_mock = AsyncMock(return_value=ZhetaokeBrandResult(products=[]))
+    monkeypatch.setattr(product_search, "search_taobao_products", search_mock)
+    monkeypatch.setattr(product_search, "fetch_brand_products", brand_mock)
+    _, execute = product_search.create_product_search_tool("app-key", "sid", "pid")
+
+    result = await execute({"q": "不存在挂灯", "include_brand_pool": True})
+
+    assert result.is_error is False
+    assert "未找到匹配商品/优惠券" in result.output
+    assert "失败" not in result.output
+
+
+@pytest.mark.asyncio
+async def test_product_search_no_result_when_one_source_fails_and_one_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_mock = AsyncMock(side_effect=RuntimeError("HTTP 500"))
+    brand_mock = AsyncMock(return_value=ZhetaokeBrandResult(products=[]))
+    monkeypatch.setattr(product_search, "search_taobao_products", search_mock)
+    monkeypatch.setattr(product_search, "fetch_brand_products", brand_mock)
+    _, execute = product_search.create_product_search_tool("app-key", "sid", "pid")
+
+    result = await execute({"q": "不存在挂灯", "include_brand_pool": True})
+
+    assert result.is_error is False
+    assert "未找到匹配商品/优惠券" in result.output
+    assert "数据源提示" in result.output
+    assert "全网搜索失败" in result.output
 
 
 @pytest.mark.asyncio
@@ -90,3 +155,9 @@ def test_builtin_tools_registers_product_search() -> None:
     register_builtin_tools(registry, workspace=None)
 
     assert registry.has("product_search")
+
+
+def test_product_search_schema_requires_query() -> None:
+    definition, _execute = product_search.create_product_search_tool("app-key", "sid", "pid")
+
+    assert definition.parameters.required == ["q"]

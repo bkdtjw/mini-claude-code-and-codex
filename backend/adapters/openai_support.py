@@ -16,6 +16,7 @@ from backend.common.types import (
 )
 
 from .message_zones import request_zone_messages
+from .openai_thinking import apply_thinking_payload
 
 
 def build_payload(
@@ -41,6 +42,7 @@ def build_payload(
         payload["stream"] = True
     if extra_body:
         payload.update(extra_body)
+    apply_thinking_payload(payload, request)
     if enable_prompt_cache:
         if request.prompt_cache_key:
             payload["prompt_cache_key"] = request.prompt_cache_key
@@ -58,9 +60,7 @@ def to_openai_messages(messages: list[Message]) -> list[dict[str, Any]]:
             continue
         if msg.role == "tool" and msg.tool_results:
             for res in msg.tool_results:
-                result.append(
-                    {"role": "tool", "tool_call_id": res.tool_call_id, "content": res.output}
-                )
+                result.append({"role": "tool", "tool_call_id": res.tool_call_id, "content": res.output})
             continue
         role = msg.role if msg.role in {"system", "user"} else "user"
         result.append({"role": role, "content": msg.content})
@@ -131,9 +131,7 @@ def parse_response(data: dict[str, Any]) -> LLMResponse:
 
 def _provider_metadata(message: dict[str, Any]) -> dict[str, Any]:
     reasoning = message.get("reasoning_content")
-    if isinstance(reasoning, str) and reasoning:
-        return {"reasoning_content": reasoning}
-    return {}
+    return {"reasoning_content": reasoning} if isinstance(reasoning, str) and reasoning else {}
 
 
 def parse_stream_line(raw: str, tool_chunks: dict[int, dict[str, str]]) -> list[StreamChunk]:
@@ -149,8 +147,16 @@ def parse_stream_line(raw: str, tool_chunks: dict[int, dict[str, str]]) -> list[
         buffer["id"] = tool_call.get("id", buffer["id"])
         function = tool_call.get("function", {})
         buffer["name"] = function.get("name", buffer["name"])
-        buffer["arguments"] += function.get("arguments", "")
-    chunks = [StreamChunk(type="text", data=delta["content"])] if delta.get("content") else []
+        arguments = function.get("arguments", "")
+        if isinstance(arguments, dict):
+            buffer["arguments"] += json.dumps(arguments, ensure_ascii=False)
+        elif arguments is not None:
+            buffer["arguments"] += str(arguments)
+    chunks = [
+        StreamChunk(type=chunk_type, data=delta[key])
+        for chunk_type, key in (("reasoning", "reasoning_content"), ("text", "content"))
+        if delta.get(key)
+    ]
     if choice.get("finish_reason") == "tool_calls":
         chunks.extend(flush_tool_calls(tool_chunks))
     return chunks
@@ -173,10 +179,12 @@ def flush_tool_calls(tool_chunks: dict[int, dict[str, str]]) -> list[StreamChunk
     return chunks
 
 
-def parse_args(raw: str) -> dict[str, Any]:
+def parse_args(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
     try:
         return json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return {"raw": raw}
 
 

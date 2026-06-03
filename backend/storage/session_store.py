@@ -36,7 +36,7 @@ class SessionStore:
                 for message in session.messages:
                     db.add(to_message_record(session.id, message))
                 await db.commit()
-            return session
+            return session.model_copy(update={"title": title, "workspace": workspace})
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SESSION_STORE_CREATE_ERROR", str(exc)) from exc
 

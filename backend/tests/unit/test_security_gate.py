@@ -227,6 +227,13 @@ async def test_agent_loop_emits_security_reject_event() -> None:
     assert result.content == "done"
     assert isinstance(security_event[1], ToolResult)
     assert "SecurityGate rejected" in security_event[1].output
+    assert any(
+        event_type == "tool_result"
+        and isinstance(data, ToolResult)
+        and data.tool_call_id == "call-1"
+        and data.is_error
+        for event_type, data in events
+    )
 
 
 @pytest.mark.asyncio

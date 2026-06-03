@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
@@ -11,11 +10,11 @@ from backend.common.types import (
     LLMResponse,
     LLMUsage,
     Message,
-    StreamChunk,
     ToolCall,
     ToolDefinition,
 )
 
+from .anthropic_stream import parse_stream_line
 from .message_zones import request_system_prompt, request_zone_messages
 
 
@@ -41,6 +40,8 @@ def build_payload(request: LLMRequest, default_model: str, *, stream: bool) -> d
         payload["tools"] = tools
     if request.tool_choice is not None:
         payload["tool_choice"] = _to_anthropic_tool_choice(request.tool_choice)
+    if request.thinking:
+        payload["thinking"] = {"type": "enabled", "budget_tokens": 4096}
     if stream:
         payload["stream"] = True
     return payload
@@ -150,34 +151,6 @@ def _provider_metadata(content_blocks: list[dict[str, Any]]) -> dict[str, Any]:
         "thinking_blocks": thinking_blocks,
         "thinking": "".join(str(block.get("thinking", "")) for block in thinking_blocks),
     }
-
-
-def parse_stream_line(event_type: str, raw: str, provider: str) -> StreamChunk | None:
-    if raw == "[DONE]" or event_type == "message_stop":
-        return StreamChunk(type="done")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
-    if event_type == "content_block_delta":
-        delta = data.get("delta", {})
-        text = delta.get("text", "") if delta.get("type") == "text_delta" else ""
-        return StreamChunk(type="text", data=text) if text else None
-    if event_type == "content_block_start":
-        block = data.get("content_block", {})
-        if block.get("type") == "tool_use":
-            return StreamChunk(
-                type="tool_call",
-                data={
-                    "id": block.get("id", ""),
-                    "name": block.get("name", ""),
-                    "arguments": block.get("input", {}),
-                },
-            )
-    if event_type == "error":
-        detail = data.get("error", {}).get("message", str(data))
-        raise LLMError("STREAM_ERROR", detail, provider, None)
-    return None
 
 
 def build_headers(api_key: str, extra_headers: dict[str, str]) -> dict[str, str]:

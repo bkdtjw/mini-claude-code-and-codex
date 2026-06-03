@@ -15,9 +15,12 @@ class NoopAdapter:
 
 
 @pytest.mark.asyncio
-async def test_level1_sinks_large_tool_result_to_artifact(tmp_path: Path) -> None:
+async def test_process_tool_result_keeps_large_output_until_threshold(tmp_path: Path) -> None:
     output = json.dumps(
-        [{"item_id": f"item-{index}", "name": f"商品{index}", "price": index} for index in range(300)],
+        [
+            {"item_id": f"item-{index}", "name": f"商品{index}", "price": index}
+            for index in range(300)
+        ],
         ensure_ascii=False,
     )
     compressor = LayeredCompressor(
@@ -28,7 +31,6 @@ async def test_level1_sinks_large_tool_result_to_artifact(tmp_path: Path) -> Non
 
     result = await compressor.process_tool_result(ToolResult(tool_call_id="tc1", output=output))
 
-    assert "完整结果:" in result.output
-    assert len(result.output) < len(output)
-    assert result.artifacts
-    assert Path(result.artifacts[0].path).exists()
+    assert result.output == output
+    assert result.artifacts == []
+    assert list(tmp_path.rglob("*.json")) == []

@@ -150,6 +150,12 @@ class LoginWorkflowRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
+try:
+    from backend.core.s13_knowledge import db_models as _knowledge_db_models  # noqa: F401
+except ImportError:
+    _knowledge_db_models = None
+
+
 __all__ = [
     "Base",
     "MCPServerRecord",

@@ -15,6 +15,14 @@ from backend.core.task_queue import TaskQueue
 from .models import ToolConfig
 
 _RECURSIVE_TOOL_NAMES = {"dispatch_agent", "orchestrate_agents", "spawn_agent"}
+_DEFAULT_ALLOWED_TOOLS = {"read_history"}
+
+
+def allowed_tools_with_defaults(tools: ToolConfig) -> set[str]:
+    allowed = set(tools.allowed_tools)
+    if allowed:
+        allowed.update(_DEFAULT_ALLOWED_TOOLS)
+    return allowed
 
 
 class FilteredBridge:
@@ -81,6 +89,7 @@ def build_runtime_registry(
     spec_registry: Any,
     is_sub_agent: bool,
     skill_loader: Any = None,
+    zhipu_web_search_api_key: str = "",
 ) -> ToolRegistry:
     base_registry = ToolRegistry()
     kwargs = {
@@ -95,10 +104,16 @@ def build_runtime_registry(
     }
     if _accepts_keyword(register_tools, "skill_loader"):
         kwargs["skill_loader"] = skill_loader
+    if zhipu_web_search_api_key and _accepts_keyword(
+        register_tools,
+        "zhipu_web_search_api_key",
+    ):
+        kwargs["zhipu_web_search_api_key"] = zhipu_web_search_api_key
     register_tools(base_registry, workspace, **kwargs)
     filtered = ToolRegistry()
+    allowed_tools = allowed_tools_with_defaults(tools)
     for definition in base_registry.list_definitions():
-        if tools.allowed_tools and definition.name not in tools.allowed_tools:
+        if allowed_tools and definition.name not in allowed_tools:
             continue
         if max_depth <= 0 and definition.name in _RECURSIVE_TOOL_NAMES:
             continue
@@ -119,4 +134,4 @@ def _accepts_keyword(func: Callable[..., None], name: str) -> bool:
     return any(param.kind == param.VAR_KEYWORD or param.name == name for param in parameters)
 
 
-__all__ = ["FilteredBridge", "build_runtime_registry"]
+__all__ = ["FilteredBridge", "allowed_tools_with_defaults", "build_runtime_registry"]

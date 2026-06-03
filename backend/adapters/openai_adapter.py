@@ -103,7 +103,7 @@ class OpenAICompatAdapter(LLMAdapter):
             except LLMError as exc:
                 await incr_llm_error()
                 log_llm_request_error(
-                    logger, model=model, provider=self._provider, request_type="complete", exc=exc
+                    logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at
                 )
                 raise
             except httpx.RequestError as exc:
@@ -119,13 +119,13 @@ class OpenAICompatAdapter(LLMAdapter):
                     continue
                 await incr_llm_error()
                 log_llm_request_error(
-                    logger, model=model, provider=self._provider, request_type="complete", exc=exc
+                    logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at
                 )
                 raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
             except Exception as exc:
                 await incr_llm_error()
                 log_llm_request_error(
-                    logger, model=model, provider=self._provider, request_type="complete", exc=exc
+                    logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at
                 )
                 raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
         raise LLMError("COMPLETE_ERROR", "Completion failed without response", self._provider, None)

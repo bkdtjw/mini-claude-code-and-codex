@@ -18,6 +18,16 @@ def test_browse_web_tool_definition_schema() -> None:
     assert definition.category == "browser"
     assert definition.parameters.required == ["task"]
     assert "vision_provider_id" in definition.parameters.properties
+    description = definition.description.lower()
+    task_description = definition.parameters.properties["task"]["description"].lower()
+    assert "browser automation sub-agent" in description
+    assert "website" in description
+    assert "web application" in description
+    assert "navigate pages" in description
+    assert "click and fill" in description
+    assert "visible page text" in description
+    assert "evidence screenshots" in description
+    assert "website or web application" in task_description
 
 
 async def test_browse_web_tool_execute_returns_success(monkeypatch: pytest.MonkeyPatch) -> None:

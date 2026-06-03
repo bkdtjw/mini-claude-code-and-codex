@@ -21,8 +21,10 @@ class LoopSettings(BaseModel):
     provider_id: str | None = None
     workspace: str | None = None
     permission_mode: str = "auto"
+    thinking: bool = False
     spec_id: str = ""
     mode: str = "direct"
+    knowledge_base_id: str | None = None
 
 
 class RunLoopInput(BaseModel):
@@ -32,6 +34,7 @@ class RunLoopInput(BaseModel):
     message: str
     send_message: Callable[[dict[str, Any]], Awaitable[None]]
     session_id: str
+    display_message: str = ""
     store: SessionStore | None = None
 
 
@@ -49,8 +52,10 @@ def parse_loop_settings(data: dict[str, Any]) -> LoopSettings:
         provider_id=str(data.get("provider_id", "")).strip() or None,
         workspace=str(data.get("workspace", "")).strip() or None,
         permission_mode=str(data.get("permission_mode", "auto")).strip() or "auto",
+        thinking=bool(data.get("thinking", False)),
         spec_id=spec_id,
         mode=str(data.get("mode", "direct")).strip() or "direct",
+        knowledge_base_id=str(data.get("knowledge_base_id", "")).strip() or None,
     )
 
 
@@ -84,7 +89,7 @@ def restore_messages(
 
 
 def serialize_message_for_client(message: Message) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "id": message.id,
         "role": message.role,
         "content": message.content,
@@ -92,6 +97,12 @@ def serialize_message_for_client(message: Message) -> dict[str, Any]:
         "tool_results": [result.model_dump(mode="json") for result in message.tool_results or []],
         "timestamp": message.timestamp.isoformat(),
     }
+    reasoning = message.provider_metadata.get(
+        "reasoning_content"
+    ) or message.provider_metadata.get("thinking")
+    if isinstance(reasoning, str) and reasoning:
+        payload["reasoning_content"] = reasoning
+    return payload
 
 
 def serialize_session_for_client(session: Session, messages: list[Message]) -> dict[str, Any]:
@@ -116,12 +127,22 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
     data = event.data
     if event.type == "status_change":
         return {"type": "status", "status": data}
+    if event.type == "text_delta":
+        return {"type": "text", "content": str(data or "")}
+    if event.type == "reasoning_delta":
+        return {"type": "reasoning", "content": str(data or "")}
     if event.type == "message" and isinstance(data, Message):
-        return {
+        payload = {
             "type": "message",
             "content": data.content,
             "tool_calls": [call.model_dump() for call in data.tool_calls or []],
         }
+        reasoning = data.provider_metadata.get(
+            "reasoning_content"
+        ) or data.provider_metadata.get("thinking")
+        if isinstance(reasoning, str) and reasoning:
+            payload["reasoning_content"] = reasoning
+        return payload
     if event.type == "tool_call" and isinstance(data, ToolCall):
         return {"type": "tool_call", "id": data.id, "name": data.name, "arguments": data.arguments}
     if event.type == "tool_result" and isinstance(data, ToolResult):
@@ -154,6 +175,7 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
 
 
 async def run_loop(payload: RunLoopInput) -> None:
+    message_start = len(payload.loop.message_history.raw_messages)
     try:
         result = await payload.loop.run(payload.message)
         try:
@@ -173,6 +195,7 @@ async def run_loop(payload: RunLoopInput) -> None:
         except Exception:
             return
     finally:
+        _restore_display_message(payload, message_start)
         history = payload.loop.message_history
         has_checkpoint = history.has_checkpoint_fn
         checkpoint_failed = history.checkpoint_failed
@@ -181,6 +204,15 @@ async def run_loop(payload: RunLoopInput) -> None:
                 await payload.store.save_messages(payload.session_id, payload.loop.messages)
             except Exception:
                 pass
+
+
+def _restore_display_message(payload: RunLoopInput, message_start: int) -> None:
+    if not payload.display_message:
+        return
+    for message in payload.loop.message_history.raw_messages[message_start:]:
+        if message.role == "user" and message.content == payload.message:
+            message.content = payload.display_message
+            return
 
 
 __all__ = [

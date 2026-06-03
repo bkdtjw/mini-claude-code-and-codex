@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from backend.common.metrics import close_metrics, get_metrics, incr, init_metrics
+from backend.common.metrics import close_metrics, get_metrics, incr, init_metrics, record_latency_sample
 
 from .redis_test_support import use_fake_redis
 
@@ -39,3 +39,20 @@ async def test_incr_swallows_redis_errors(monkeypatch: pytest.MonkeyPatch) -> No
     await init_metrics()
     fake.client.fail_operations.add("incrby")
     await incr("tool_calls")
+
+
+@pytest.mark.asyncio
+async def test_latency_summary_uses_redis_samples(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = await use_fake_redis(monkeypatch)
+    close_metrics()
+    await init_metrics()
+
+    await record_latency_sample("tool_call", 100)
+    await record_latency_sample("tool_call", 300)
+    summary = await (await get_metrics()).get_latency_summary(days=1)
+
+    key = f"metrics:latency:tool_call:{date.today().isoformat()}"
+    assert await fake.client.ttl(key) == 30 * 86400
+    assert summary["tool_call"]["count"] == 2
+    assert summary["tool_call"]["p95_ms"] == 300
+    assert "sub_agent_task" not in summary

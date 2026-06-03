@@ -1,13 +1,4 @@
-import type {
-  LogEntry,
-  LogSearchParams,
-  LogSearchResult,
-  MetricDetail,
-  MetricsSummary,
-  Provider,
-  Session,
-  TraceResult,
-} from "@/types";
+import type { LogEntry, LogSearchParams, LogSearchResult, MetricDetail, MetricsSummary, Provider, Session, TraceResult, WorkspaceEntry, WorkspaceList, WorkspaceValidation } from "@/types";
 
 type JsonBody = Record<string, unknown> | unknown[];
 
@@ -39,6 +30,33 @@ interface ProviderResponse {
   available_models: string[];
   is_default: boolean;
   enabled: boolean;
+}
+
+interface WorkspaceEntryResponse {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  is_project: boolean;
+}
+
+interface WorkspaceRootsResponse {
+  roots: WorkspaceEntryResponse[];
+}
+
+interface WorkspaceListResponse {
+  root: string;
+  path: string;
+  parent?: string | null;
+  breadcrumbs: Array<{ name: string; path: string }>;
+  entries: WorkspaceEntryResponse[];
+  truncated: boolean;
+}
+
+interface WorkspaceValidationResponse {
+  ok: boolean;
+  path: string;
+  is_project: boolean;
+  message: string;
 }
 
 interface MetricSeriesResponse {
@@ -101,6 +119,13 @@ const toProvider = (item: ProviderResponse): Provider => ({
   enabled: item.enabled,
 });
 
+const toWorkspaceEntry = (item: WorkspaceEntryResponse): WorkspaceEntry => ({
+  name: item.name,
+  path: item.path,
+  isDirectory: item.is_directory,
+  isProject: item.is_project,
+});
+
 const toLogEntry = (item: LogEntryResponse): LogEntry => ({
   timestamp: item.timestamp,
   level: item.level,
@@ -149,6 +174,10 @@ export const api = {
     return (res.sessions ?? []).map(toSession);
   },
   getSession: (id: string): Promise<Record<string, unknown>> => request(`/api/sessions/${id}`),
+  updateSessionTitle: async (id: string, title: string): Promise<Session> => {
+    const res = await request<SessionResponse>(`/api/sessions/${id}/title`, { method: "PUT", body: json({ title }) });
+    return toSession(res);
+  },
   deleteSession: (id: string): Promise<{ ok: boolean; message: string }> => request(`/api/sessions/${id}`, { method: "DELETE" }),
   listProviders: async (): Promise<Provider[]> => {
     const res = await request<ProviderResponse[]>("/api/providers");
@@ -167,6 +196,31 @@ export const api = {
   setDefault: async (id: string): Promise<Provider> => {
     const res = await request<ProviderResponse>(`/api/providers/${id}/default`, { method: "PUT" });
     return toProvider(res);
+  },
+  listWorkspaceRoots: async (): Promise<WorkspaceEntry[]> => {
+    const res = await request<WorkspaceRootsResponse>("/api/workspaces/roots");
+    return (res.roots ?? []).map(toWorkspaceEntry);
+  },
+  listWorkspaceDirectory: async (path?: string): Promise<WorkspaceList> => {
+    const search = path ? `?path=${encodeURIComponent(path)}` : "";
+    const res = await request<WorkspaceListResponse>(`/api/workspaces/list${search}`);
+    return {
+      root: res.root,
+      path: res.path,
+      parent: res.parent ?? null,
+      breadcrumbs: res.breadcrumbs ?? [],
+      entries: (res.entries ?? []).map(toWorkspaceEntry),
+      truncated: Boolean(res.truncated),
+    };
+  },
+  validateWorkspace: async (path: string): Promise<WorkspaceValidation> => {
+    const res = await request<WorkspaceValidationResponse>(`/api/workspaces/validate?path=${encodeURIComponent(path)}`);
+    return {
+      ok: res.ok,
+      path: res.path,
+      isProject: res.is_project,
+      message: res.message,
+    };
   },
   getMetricsSummary: async (days = 7): Promise<MetricsSummary> => {
     const res = await request<MetricsSummaryResponse>(`/api/metrics/summary?days=${days}`);

@@ -3,12 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import MetricCard from "@/components/observability/MetricCard";
 import MetricsTrend from "@/components/observability/MetricsTrend";
 import { api } from "@/lib/api-client";
-import type { MetricsSummary } from "@/types";
+import { observabilityApi } from "@/lib/observability-api";
+import type { LatencySummary, MetricsSummary } from "@/types";
 
 const dayOptions = [7, 14, 30];
+const REFRESH_INTERVAL_MS = 30_000;
 
 const formatCompact = (value: number) =>
   value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K` : String(value);
+const formatMs = (value: number) => (value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`);
 
 interface MetricCardData {
   title: string;
@@ -24,6 +27,7 @@ const emptySummary = (days: number): MetricsSummary => ({
     feishu_messages: { total: 0, daily: {} },
     feishu_replies: { total: 0, daily: {} },
     llm_calls: { total: 0, daily: {} },
+    llm_cached_prompt_tokens: { total: 0, daily: {} },
     llm_completion_tokens: { total: 0, daily: {} },
     llm_errors: { total: 0, daily: {} },
     llm_prompt_tokens: { total: 0, daily: {} },
@@ -35,25 +39,48 @@ const emptySummary = (days: number): MetricsSummary => ({
   },
 });
 
+const emptyLatency = (): LatencySummary => ({ latencies: {} });
+
 export default function Metrics() {
   const [days, setDays] = useState(7);
   const [summary, setSummary] = useState<MetricsSummary>(emptySummary(7));
+  const [latency, setLatency] = useState<LatencySummary>(emptyLatency());
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const load = async () => {
+    let cancelled = false;
+
+    const load = async (showLoading: boolean) => {
       try {
-        setLoading(true);
+        if (showLoading) {
+          setLoading(true);
+          setLoaded(false);
+        }
         setError("");
-        setSummary(await api.getMetricsSummary(days));
+        const [metricsSummary, latencySummary] = await Promise.all([
+          api.getMetricsSummary(days),
+          observabilityApi.getLatencySummary(days),
+        ]);
+        if (cancelled) return;
+        setSummary(metricsSummary);
+        setLatency(latencySummary);
+        setLoaded(true);
       } catch (err) {
+        if (cancelled) return;
         setError((err as Error).message || "加载指标失败");
       } finally {
-        setLoading(false);
+        if (!cancelled && showLoading) setLoading(false);
       }
     };
-    void load();
+
+    void load(true);
+    const timer = window.setInterval(() => void load(false), REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [days]);
 
   const labels = useMemo(() => Object.keys(summary.metrics.llm_calls.daily), [summary]);
@@ -68,6 +95,13 @@ export default function Metrics() {
     { title: "Token 用量", value: `${formatCompact(summary.metrics.llm_prompt_tokens.total)}/${formatCompact(summary.metrics.llm_completion_tokens.total)}`, note: "输入 / 输出" },
     { title: "飞书消息", value: summary.metrics.feishu_messages.total, note: `回复 ${summary.metrics.feishu_replies.total}` },
   ];
+  const latencyCards = Object.entries(latency.latencies).map(([key, item]) => ({
+    key,
+    title: `${item.name} P95`,
+    value: formatMs(item.p95_ms),
+    note: `样本 ${item.count} · max ${formatMs(item.max_ms)}`,
+    tone: item.p95_ms > 30000 ? "danger" as const : "default" as const,
+  }));
 
   return (
     <div className="h-full overflow-y-auto bg-[#050505] px-6 py-6 text-[#e6edf3]">
@@ -75,7 +109,7 @@ export default function Metrics() {
         <header className="flex flex-col gap-4 rounded-3xl border border-[#252525] bg-[radial-gradient(circle_at_top_left,_rgba(88,166,255,0.15),_transparent_35%),linear-gradient(180deg,#0d1117_0%,#070707_100%)] p-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[0.28em] text-[#7d8590]">Observability</div>
-            <h1 className="mt-3 text-3xl font-semibold text-[#f0f6fc]">系统概览</h1>
+            <h1 className="mt-3 text-3xl font-medium text-[#f0f6fc]">系统概览</h1>
             <p className="mt-2 max-w-2xl text-sm text-[#9aa7b2]">这里直接读 Redis 指标汇总，适合快速看调用量、失败量和 Token 消耗。</p>
           </div>
           <label className="text-sm text-[#9aa7b2]">
@@ -92,12 +126,17 @@ export default function Metrics() {
 
         {error ? <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {loading
-            ? Array.from({ length: 6 }, (_, index) => (
+        {loading ? (
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }, (_, index) => (
               <div key={index} className="h-[136px] animate-pulse rounded-2xl border border-[#252525] bg-[#101010]" />
-            ))
-            : cards.map((card) => (
+            ))}
+          </section>
+        ) : null}
+
+        {!loading && loaded ? (
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {cards.map((card) => (
               <MetricCard
                 key={card.title}
                 title={card.title}
@@ -106,13 +145,28 @@ export default function Metrics() {
                 tone={card.tone}
               />
             ))}
-        </section>
+          </section>
+        ) : null}
 
         {loading ? (
           <div className="h-[300px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" />
-        ) : (
+        ) : loaded ? (
           <MetricsTrend labels={labels} agentRuns={agentRuns} llmCalls={llmCalls} />
-        )}
+        ) : null}
+
+        {!loading && loaded && latencyCards.length ? (
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {latencyCards.map((card) => (
+              <MetricCard
+                key={card.key}
+                title={card.title}
+                value={card.value}
+                note={card.note}
+                tone={card.tone}
+              />
+            ))}
+          </section>
+        ) : null}
       </section>
     </div>
   );

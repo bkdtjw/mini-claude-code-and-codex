@@ -10,6 +10,7 @@ class CreateSessionRequest(BaseModel):
     provider_id: str | None = None
     system_prompt: str = ""
     workspace: str | None = None
+    title: str = ""
 
 
 class UpdateSessionTitleRequest(BaseModel):
@@ -18,6 +19,8 @@ class UpdateSessionTitleRequest(BaseModel):
 
 class SessionResponse(BaseModel):
     id: str
+    title: str = ""
+    workspace: str = ""
     config: dict[str, Any]
     status: str
     created_at: str

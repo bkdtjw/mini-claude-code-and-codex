@@ -91,6 +91,8 @@ def to_message(record: MessageRecord) -> Message:
 def to_session(record: SessionRecord, messages: list[Message] | None = None) -> Session:
     return Session(
         id=record.id,
+        title=record.title,
+        workspace=record.workspace,
         config=SessionConfig(
             model=record.model,
             provider=record.provider,

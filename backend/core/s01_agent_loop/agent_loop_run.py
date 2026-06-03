@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from backend.common.errors import AgentError
-from backend.common.metrics import incr
+from backend.common.metrics import incr, record_latency_sample
+from backend.common.prometheus_metrics import observe_agent_run
+from backend.common.tracing import trace_context, trace_span
 from backend.common.types import Message
 
+from .agent_loop_guard import AgentLoopGuard
 from .agent_loop_support import (
     build_llm_request,
     build_run_logger,
@@ -16,6 +20,7 @@ from .agent_loop_support import (
     response_content,
 )
 from .failure_recovery import ToolFailureRecoveryTracker
+from .streaming import complete_with_stream
 from .tool_batching import merge_results, partition_by_side_effect
 
 if TYPE_CHECKING:
@@ -26,9 +31,14 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
     failure_recovery = ToolFailureRecoveryTracker(
         loop._config.max_consecutive_tool_failures
     )
+    loop_guard = AgentLoopGuard(loop._config)
     iteration_count = 0
+    run_started = monotonic()
     _trace_id, _session_id, logger, log_context = build_run_logger(loop._config.session_id)
-    with log_context:
+    with trace_context(_trace_id), log_context, trace_span(
+        "agent.run",
+        {"session_id": _session_id, "model": loop._config.model, "provider": loop._config.provider},
+    ) as run_span:
         try:
             was_aborted = loop._aborted
             loop._aborted = False
@@ -47,17 +57,38 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                 loop._set_status("thinking")
                 tool_definitions = loop._executor.list_definitions()
                 messages = loop._history.raw_messages
-                messages[:] = await loop._layered_compressor.check_and_compact(messages)
-                messages[:] = await loop._layered_compressor.summarize_and_archive(messages)
+                messages[:] = await loop._layered_compressor.check_and_compact(
+                    messages,
+                    tool_definitions,
+                )
+                messages[:] = await loop._layered_compressor.summarize_and_archive(
+                    messages,
+                    tool_definitions,
+                )
                 estimated_tokens = loop._token_counter.estimate_messages_tokens(messages)
                 estimated_tokens += loop._token_counter.estimate_tools_tokens(tool_definitions)
                 if loop._compressor.policy.should_compact(estimated_tokens):
                     loop._set_status("compacting")
                     messages[:] = await loop._compressor.compact(messages)
                     loop._set_status("thinking")
+                guard_prompt = loop_guard.prompt_for_iteration(iteration_count)
+                if guard_prompt is not None:
+                    await loop._append_message(Message(role="user", content=guard_prompt.content))
+                    logger.info(
+                        "agent_loop_guard_prompt",
+                        iteration=iteration_count,
+                        kind=guard_prompt.kind,
+                    )
                 logger.info("llm_call_start", iteration=iteration_count)
-                response = await loop._adapter.complete(
-                    build_llm_request(
+                with trace_span(
+                    "llm.call",
+                    {
+                        "iteration": iteration_count,
+                        "model": loop._config.model,
+                        "provider": loop._config.provider,
+                    },
+                ):
+                    request = build_llm_request(
                         loop._config,
                         loop._history.raw_messages,
                         tool_definitions,
@@ -65,7 +96,7 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                         memory_index=loop._memory_index,
                         static_skill_messages=loop._static_skill_messages,
                     )
-                )
+                    response = await complete_with_stream(loop, request)
                 log_llm_call_end(logger, response)
                 assistant = Message(
                     content=response_content(response),
@@ -77,6 +108,10 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                 loop._emit("message", assistant)
                 if not response.tool_calls:
                     loop._set_status("done")
+                    run_span.set_attribute("iterations", iteration_count)
+                    duration_seconds = monotonic() - run_started
+                    observe_agent_run("success", duration_seconds)
+                    await record_latency_sample("agent_run", int(duration_seconds * 1000))
                     logger.info("agent_run_end", iterations=iteration_count)
                     return assistant
                 call_map = {call.id: call for call in response.tool_calls}
@@ -124,10 +159,6 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                     loop._security_gate,
                 )
                 signed_results = merge_results(read_results, write_results, signed_calls)
-                signed_results = [
-                    await loop._layered_compressor.process_tool_result(result)
-                    for result in signed_results
-                ]
                 results = failure_recovery.annotate(
                     [
                         *skipped_results,
@@ -147,6 +178,10 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
         except Exception as exc:
             loop._status = "error"
             loop._emit("error", exc)
+            run_span.set_attribute("iterations", iteration_count)
+            duration_seconds = monotonic() - run_started
+            observe_agent_run("error", duration_seconds)
+            await record_latency_sample("agent_run", int(duration_seconds * 1000))
             logger.exception("agent_run_error", iterations=iteration_count)
             existing_count = len(loop._history)
             patch_orphan_tool_calls(loop._history.raw_messages)

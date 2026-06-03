@@ -23,6 +23,7 @@ from .feishu_card_approval import (
     handle_tool_approve,
     handle_tool_reject,
 )
+from .feishu_knowledge_actions import register_kb_select
 
 logger = get_logger(component="feishu_card_action")
 
@@ -130,6 +131,7 @@ dispatcher.register("plan_approve", handle_plan_approve)
 dispatcher.register("plan_cancel", handle_plan_cancel)
 dispatcher.register("tool_approve", handle_tool_approve)
 dispatcher.register("tool_reject", handle_tool_reject)
+register_kb_select(dispatcher)
 
 
 def _verify_signature(body: bytes, timestamp: str, signature: str) -> bool:

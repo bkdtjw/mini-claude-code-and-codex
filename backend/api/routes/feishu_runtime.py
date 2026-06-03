@@ -4,6 +4,7 @@ import asyncio
 import os
 from typing import TYPE_CHECKING, Any
 
+from backend.api.routes.feishu_menu_state import FeishuMenuState
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger
 from backend.common.types import AgentConfig
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(component="feishu_runtime")
 
-_FEISHU_EVENT_TTL = 86400
+_FEISHU_EVENT_TTL = 5 * 60
 _FEISHU_REDIS_RETRIES = 3
 BROWSE_WEB_HINT = """
 
@@ -67,6 +68,7 @@ async def build_agent_loop(
         default_model=resolved_model,
         feishu_webhook_url=app_settings.feishu_webhook_url or None,
         feishu_secret=app_settings.feishu_webhook_secret or None,
+        zhipu_web_search_api_key=app_settings.zhipu_web_search_api_key or None,
         youtube_api_key=app_settings.youtube_api_key or None,
         youtube_proxy_url=app_settings.youtube_proxy_url or None,
         twitter_username=app_settings.twitter_username or None,
@@ -78,6 +80,8 @@ async def build_agent_loop(
         spec_registry=spec_registry,
         task_queue=task_queue,
         include_internal_product_tools=False,
+        owner_id=owner_id,
+        set_current_kb=FeishuMenuState().set_current_kb,
     )
     bridge = MCPToolBridge(MCPServerManager(), registry)
     await bridge.sync_all()

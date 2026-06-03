@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -13,6 +14,7 @@ from backend.core.s04_sub_agents import (
     SubAgentLifecycle,
     SubAgentSpawner,
 )
+from backend.core.s05_skills.on_demand_loader import OnDemandSkillLoader
 
 from .bash import create_bash_tool
 from .dispatch_agent import create_dispatch_agent_tool
@@ -24,13 +26,14 @@ from .file_read import create_read_tool
 from .file_write import create_write_tool
 from .load_skill import create_load_skill_tool
 from .read_history import create_read_history_tool
-from backend.core.s05_skills.on_demand_loader import OnDemandSkillLoader
+from .web_search import create_web_search_tool
 
 if TYPE_CHECKING:
     from backend.core.s05_skills import AgentRuntime, SpecRegistry
     from backend.core.task_queue import TaskQueue
 
 PermissionMode = Literal["readonly", "auto", "full"]
+KnowledgeStateSetter = Callable[[str, str], Awaitable[None]]
 
 
 def register_builtin_tools(
@@ -42,6 +45,7 @@ def register_builtin_tools(
     agents_dir: str | None = None,
     feishu_webhook_url: str | None = None,
     feishu_secret: str | None = None,
+    zhipu_web_search_api_key: str | None = None,
     youtube_api_key: str | None = None,
     youtube_proxy_url: str | None = None,
     twitter_username: str | None = None,
@@ -57,6 +61,8 @@ def register_builtin_tools(
     is_sub_agent: bool = False,
     parent_task_id: str = "",
     include_internal_product_tools: bool = True,
+    owner_id: str = "",
+    set_current_kb: KnowledgeStateSetter | None = None,
 ) -> None:
     """根据权限模式注册不同的工具集。"""
     tools = (
@@ -95,6 +101,10 @@ def register_builtin_tools(
                 )
 
     tools.append(create_read_history_tool())
+
+    resolved_zhipu_web_search_api_key = zhipu_web_search_api_key or ""
+    if resolved_zhipu_web_search_api_key:
+        tools.append(create_web_search_tool(resolved_zhipu_web_search_api_key))
 
     # YouTube 搜索工具 - API Key 版本（优先）
     resolved_youtube_api_key = youtube_api_key or os.environ.get("YOUTUBE_API_KEY", "")
@@ -180,6 +190,13 @@ def register_builtin_tools(
     resolved_feishu_secret = feishu_secret or os.environ.get("FEISHU_WEBHOOK_SECRET", "")
     if feishu_url:
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
+
+    try:
+        from .knowledge_tools import create_knowledge_tools
+
+        tools.extend(create_knowledge_tools(owner_id=owner_id, set_current_kb=set_current_kb))
+    except ImportError:
+        pass
 
     try:
         from .product_coupon_lookup import (

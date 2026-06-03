@@ -7,6 +7,7 @@ export function useSession(sessionId?: string) {
   const messages = useSessionStore((state) => state.messages);
   const status = useSessionStore((state) => state.status);
   const streamingText = useSessionStore((state) => state.streamingText);
+  const streamingReasoning = useSessionStore((state) => state.streamingReasoning);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const selectSession = useSessionStore((state) => state.selectSession);
   const loadSessions = useSessionStore((state) => state.loadSessions);
@@ -25,8 +26,8 @@ export function useSession(sessionId?: string) {
   }, [loadSessions, loadProviders]);
 
   useEffect(() => {
-    if (sessionId) selectSession(sessionId);
-  }, [sessionId, selectSession]);
+    if (sessionId && sessionId !== currentSessionId) selectSession(sessionId);
+  }, [currentSessionId, sessionId, selectSession]);
 
-  return { messages, status, streamingText, sendMessage, model, provider };
+  return { messages, status, streamingText, streamingReasoning, sendMessage, model, provider };
 }

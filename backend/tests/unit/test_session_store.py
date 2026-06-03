@@ -24,6 +24,8 @@ async def test_session_store_crud_roundtrip(tmp_path) -> None:
         fetched = await store.get(created.id)
         assert fetched is not None
         assert fetched.id == created.id
+        assert fetched.title == "initial"
+        assert fetched.workspace == "C:/demo"
         assert fetched.config.model == "glm-4-plus"
 
         listed = await store.list_all()

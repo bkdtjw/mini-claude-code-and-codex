@@ -1,46 +1,106 @@
-import { useParams } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { Code2, Search, WandSparkles, type LucideIcon } from "lucide-react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import InputBar from "@/components/chat/InputBar";
 import MessageList from "@/components/chat/MessageList";
+import KnowledgeStatusPill from "@/components/knowledge/KnowledgeStatusPill";
 import { useSession } from "@/hooks/useSession";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAgentStore } from "@/stores/agentStore";
 import { useSessionStore } from "@/stores/sessionStore";
+import type { ChatRunOptions } from "@/types";
 
-const getWorkspaceName = (workspace: string): string => {
-  const parts = workspace.split(/[/\\]/).filter(Boolean);
-  return parts[parts.length - 1] ?? "";
-};
+const EMPTY_SUGGESTIONS: { icon: LucideIcon; label: string; prompt: string }[] = [
+  { icon: Code2, label: "梳理当前项目结构", prompt: "请先阅读当前项目结构，告诉我主要模块和入口文件。" },
+  { icon: Search, label: "定位一个问题", prompt: "请帮我定位一个前端问题，先读相关代码再给出修复方案。" },
+  { icon: WandSparkles, label: "实现一个改动", prompt: "请根据现有代码风格，实现一个小改动并完成验证。" },
+];
 
 export default function Session() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const initialPromptSent = useRef(false);
   const sessionId = id ?? "";
-  const { messages, status, streamingText, sendMessage } = useSession(sessionId);
+  const { messages, status, streamingText, streamingReasoning, sendMessage } = useSession(sessionId);
   useWebSocket(sessionId);
 
   const sessions = useSessionStore((state) => state.sessions);
   const currentSessionId = useSessionStore((state) => state.currentSessionId);
   const abortRun = useSessionStore((state) => state.abortRun);
+  const currentModel = useAgentStore((state) => state.currentModel);
+  const currentProviderId = useAgentStore((state) => state.currentProviderId);
+  const providers = useAgentStore((state) => state.providers);
+  const workspace = useAgentStore((state) => state.workspace);
 
   const activeSession = sessions.find((item) => item.id === (currentSessionId ?? sessionId));
-  const displayTitle = activeSession?.title.trim() || "新对话";
-  const workspaceName = activeSession?.workspace ? getWorkspaceName(activeSession.workspace) : "";
-  const modelName = activeSession?.model ?? "";
+  const workspaceName = (workspace || activeSession?.workspace || "").split(/[/\\]/).filter(Boolean).pop();
+  const currentProvider = providers.find((provider) => provider.id === currentProviderId);
+  const modelLabel = [currentProvider?.name, currentModel].filter(Boolean).join(" · ");
+  const hasMessages = Boolean(messages.length || streamingText || streamingReasoning);
+  const suggestionsEnabled = Boolean(
+    currentProviderId && currentModel && !["thinking", "tool_calling", "compacting", "waiting_approval"].includes(status),
+  );
+
+  useEffect(() => {
+    const state = location.state as ({ initialPrompt?: string } & ChatRunOptions) | null;
+    const prompt = state?.initialPrompt?.trim();
+    if (!sessionId || !prompt || initialPromptSent.current) return;
+    initialPromptSent.current = true;
+    void sendMessage(prompt, { thinking: state?.thinking, thinkingLevel: state?.thinkingLevel });
+    navigate(`/session/${sessionId}`, { replace: true, state: null });
+  }, [location.state, navigate, sendMessage, sessionId]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#000000]">
-      <header className="grid h-14 shrink-0 grid-cols-[120px_1fr_120px] items-center border-b border-[#1a1a1a] px-4">
-        <div className="text-xs text-[#555555]">{workspaceName ? `工作区：${workspaceName}` : ""}</div>
-        <div className="min-w-0 text-center">
-          <div className="truncate text-sm font-medium text-[#e0e0e0]">{displayTitle}</div>
-          {activeSession?.workspace ? <div className="truncate text-[11px] text-[#666666]">{activeSession.workspace}</div> : null}
-        </div>
-        <div className="flex justify-end">
-          {modelName ? <span className="rounded-full border border-[#252525] px-2 py-1 text-[11px] text-[#8b949e]">{modelName}</span> : null}
+    <div className="relative flex h-full min-h-0 flex-col bg-[var(--as-bg)]">
+      <header className="grid h-12 shrink-0 grid-cols-[160px_1fr_220px] items-center border-b border-[var(--as-border)] px-5">
+        <div className="text-xs text-[var(--as-text-subtle)]">{workspaceName ? `项目：${workspaceName}` : ""}</div>
+        <div className="justify-self-center text-sm font-medium text-[var(--as-text)]">新线程</div>
+        <div className="flex justify-self-end gap-2">
+          <KnowledgeStatusPill />
+          {modelLabel ? (
+            <span className="rounded-md border border-[var(--as-border-strong)] bg-[var(--as-surface)] px-2.5 py-1 font-mono text-[11px] text-[var(--as-text-secondary)]">
+              {modelLabel}
+            </span>
+          ) : null}
         </div>
       </header>
 
-      <MessageList messages={messages} status={status} streamingText={streamingText} />
-      <InputBar status={status} onSend={sendMessage} onAbort={abortRun} />
+      {hasMessages ? (
+        <MessageList messages={messages} status={status} streamingText={streamingText} streamingReasoning={streamingReasoning} />
+      ) : (
+        <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendMessage(prompt)} />
+      )}
+      <div className="absolute bottom-10 left-0 right-0 px-6">
+        <InputBar status={status} onSend={sendMessage} onAbort={abortRun} compact />
+      </div>
     </div>
+  );
+}
+
+function EmptySessionState({ enabled, onPick }: { enabled: boolean; onPick: (prompt: string) => void }) {
+  return (
+    <main className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+      <div className="w-full max-w-[620px] text-center">
+        <div className="mt-5 grid gap-2 sm:grid-cols-3">
+          {EMPTY_SUGGESTIONS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                disabled={!enabled}
+                onClick={() => onPick(item.prompt)}
+                className="group rounded-[11px] border border-[var(--as-border)] bg-[var(--as-surface-low)] p-3 text-left text-[12px] text-[var(--as-text-secondary)] transition hover:-translate-y-0.5 hover:border-[var(--as-border-strong)] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+              >
+                <Icon size={15} className="mb-2 text-[var(--as-accent)]" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </main>
   );
 }

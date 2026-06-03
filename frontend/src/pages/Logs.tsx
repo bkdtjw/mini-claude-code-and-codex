@@ -2,8 +2,10 @@ import { useState } from "react";
 
 import LogResults from "@/components/observability/LogResults";
 import LogSearchForm from "@/components/observability/LogSearchForm";
+import TraceFlameGraph from "@/components/observability/TraceFlameGraph";
 import { api } from "@/lib/api-client";
-import type { LogEntry, LogLevel } from "@/types";
+import { observabilityApi } from "@/lib/observability-api";
+import type { LogEntry, LogLevel, TraceSpan } from "@/types";
 
 export default function Logs() {
   const [query, setQuery] = useState("");
@@ -18,6 +20,7 @@ export default function Logs() {
   const [error, setError] = useState("");
   const [title, setTitle] = useState("日志结果");
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [spans, setSpans] = useState<TraceSpan[]>([]);
 
   const runSearch = async () => {
     const hasMetadataFilter = Boolean(level || event.trim() || component.trim() || workerId.trim() || errorCode.trim());
@@ -45,6 +48,7 @@ export default function Logs() {
           : "多字段检索结果",
       );
       setLogs(result.logs);
+      setSpans([]);
     } catch (err) {
       setError((err as Error).message || "搜索失败");
       setLogs([]);
@@ -61,12 +65,17 @@ export default function Logs() {
     try {
       setLoading(true);
       setError("");
-      const result = await api.getTrace(query.trim());
+      const [result, spanResult] = await Promise.all([
+        api.getTrace(query.trim()),
+        observabilityApi.getTraceSpans(query.trim()),
+      ]);
       setTitle(`完整调用链 · ${result.traceId}`);
       setLogs(result.events);
+      setSpans(spanResult.spans);
     } catch (err) {
       setError((err as Error).message || "加载调用链失败");
       setLogs([]);
+      setSpans([]);
     } finally {
       setLoading(false);
     }
@@ -77,7 +86,7 @@ export default function Logs() {
       <section className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="rounded-3xl border border-[#252525] bg-[radial-gradient(circle_at_top_right,_rgba(210,153,34,0.14),_transparent_32%),linear-gradient(180deg,#0d1117_0%,#070707_100%)] p-6">
           <div className="text-xs uppercase tracking-[0.28em] text-[#7d8590]">Trace Search</div>
-          <h1 className="mt-3 text-3xl font-semibold text-[#f0f6fc]">日志检索</h1>
+          <h1 className="mt-3 text-3xl font-medium text-[#f0f6fc]">日志检索</h1>
           <p className="mt-2 max-w-2xl text-sm text-[#9aa7b2]">按 trace_id 或 session_id 找结构化日志，点击任意一行可以展开完整 JSON。</p>
         </header>
 
@@ -104,7 +113,14 @@ export default function Logs() {
         />
 
         {error ? <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
-        {loading ? <div className="h-[320px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" /> : <LogResults logs={logs} title={title} />}
+        {loading ? (
+          <div className="h-[320px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" />
+        ) : (
+          <>
+            <TraceFlameGraph spans={spans} />
+            <LogResults logs={logs} title={title} />
+          </>
+        )}
       </section>
     </div>
   );

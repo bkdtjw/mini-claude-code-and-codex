@@ -18,6 +18,8 @@ AgentStatus = Literal[
 
 AgentEventType = Literal[
     "status_change",
+    "text_delta",
+    "reasoning_delta",
     "message",
     "tool_call",
     "tool_result",
@@ -47,9 +49,11 @@ class AgentConfig(BaseModel):
     provider: str = "anthropic"
     system_prompt: str = ""
     session_id: str = ""
+    thinking_enabled: bool = False
     tools: list[str] = Field(default_factory=list)
     max_iterations: int = 20
-    max_consecutive_tool_failures: int = 3
+    max_consecutive_tool_failures: int = 5
+    dead_end_reflection_iteration: int = 10
     timeout_seconds: float = 300.0
 
 

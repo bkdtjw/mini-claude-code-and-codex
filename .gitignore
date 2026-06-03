@@ -54,3 +54,6 @@ task_outputs/
 server.log
 mihomo.log
 tests/.tmp_proxy*/
+
+# Large local font assets not bundled by the frontend build
+frontend/src/assets/fonts/NotoSansSC-*.woff2

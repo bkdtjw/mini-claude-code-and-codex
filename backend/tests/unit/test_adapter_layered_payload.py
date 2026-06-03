@@ -4,6 +4,7 @@ import json
 
 from backend.adapters.anthropic_support import build_payload as build_anthropic_payload
 from backend.adapters.anthropic_support import parse_response as parse_anthropic_response
+from backend.adapters.anthropic_support import parse_stream_line as parse_anthropic_stream_line
 from backend.adapters.openai_support import build_payload as build_openai_payload
 from backend.common.types import LLMRequest, Message, ToolDefinition, ToolParameterSchema
 
@@ -96,3 +97,22 @@ def test_anthropic_parse_response_records_cache_read_tokens() -> None:
     )
 
     assert response.usage.cached_prompt_tokens == 80
+
+
+def test_anthropic_stream_parser_buffers_tool_input_json_delta() -> None:
+    tool_blocks: dict[int, dict[str, object]] = {}
+    start = {
+        "index": 0,
+        "content_block": {"type": "tool_use", "id": "tool-1", "name": "zhetaoke_taobao_search", "input": {}},
+    }
+    first = {"index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"q":"露营灯",'}}
+    second = {"index": 0, "delta": {"type": "input_json_delta", "partial_json": '"page_size":5}'}}
+
+    assert parse_anthropic_stream_line("content_block_start", json.dumps(start), "anthropic", tool_blocks) is None
+    assert parse_anthropic_stream_line("content_block_delta", json.dumps(first), "anthropic", tool_blocks) is None
+    assert parse_anthropic_stream_line("content_block_delta", json.dumps(second), "anthropic", tool_blocks) is None
+    chunk = parse_anthropic_stream_line("content_block_stop", json.dumps({"index": 0}), "anthropic", tool_blocks)
+
+    assert chunk is not None
+    assert chunk.type == "tool_call"
+    assert chunk.data["arguments"] == {"q": "露营灯", "page_size": 5}

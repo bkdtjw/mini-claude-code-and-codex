@@ -29,6 +29,7 @@ from backend.core.s02_tools.builtin.feishu_client import FeishuClient
 from backend.storage.session_store import SessionStore
 
 from .feishu_browse_artifacts import send_browse_web_artifacts
+from .feishu_knowledge_flow import KbContext, handle_kb_menu, route_kb_file, route_kb_text
 from .feishu_menu_state import FeishuMenuState
 from .feishu_plan_control import (
     RUNNING_REPLY,
@@ -101,7 +102,14 @@ class FeishuMessageHandler:
     async def handle_menu_event(self, event_key: str, open_id: str) -> None:
         try:
             event_key = event_key.strip().lstrip("=")
+            await self._menu_state.clear_pending(open_id)
             logger.info("feishu_menu_event", event_key=event_key, open_id=open_id)
+            chat_id = await self._menu_state.get_chat(open_id)
+            if await handle_kb_menu(
+                KbContext(self, open_id, chat_id or open_id, ""),
+                event_key,
+            ):
+                return
             if event_key == "plan_mode":
                 await self._menu_state.set_mode(open_id, "plan_execute")
                 await self._send_to_user(
@@ -112,7 +120,6 @@ class FeishuMessageHandler:
                 )
                 return
             if event_key == "direct_mode":
-                chat_id = await self._menu_state.get_chat(open_id)
                 stopped = await stop_active_plan_for_chat(self, chat_id) if chat_id else False
                 await self._menu_state.clear_mode(open_id)
                 text = "已切换回普通模式 ✅"
@@ -209,6 +216,24 @@ class FeishuMessageHandler:
                 "feishu_message_start", event_id=event_id, chat_id=chat_id, message_type=msg_type
             )
             await incr("feishu_messages")
+            owner_id = open_id or chat_id
+            if msg_type == "file":
+                async with self._chat_lock(chat_id):
+                    if await route_kb_file(
+                        KbContext(self, owner_id, chat_id, message_id),
+                        msg,
+                    ):
+                        logger.info(
+                            "feishu_message_end",
+                            chat_id=chat_id,
+                            duration_ms=int((monotonic() - started_at) * 1000),
+                        )
+                        return
+                try:
+                    await self._reply(message_id, json.dumps({"text": "暂不支持该消息类型"}))
+                except Exception:
+                    pass
+                return
             text = extract_text(msg, msg_type)
             if text is None:
                 try:
@@ -226,7 +251,13 @@ class FeishuMessageHandler:
                 loop: AgentLoop | None = None
                 should_persist = False
                 try:
-                    owner_id = open_id or chat_id
+                    if await route_kb_text(KbContext(self, owner_id, chat_id, message_id), text):
+                        logger.info(
+                            "feishu_message_end",
+                            chat_id=chat_id,
+                            duration_ms=int((monotonic() - started_at) * 1000),
+                        )
+                        return
                     if await handle_plan_resume_gate(self, owner_id, chat_id, text):
                         logger.info(
                             "feishu_message_end",

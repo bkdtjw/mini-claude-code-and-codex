@@ -44,6 +44,8 @@ async def test_repeated_failure_fingerprint_skips_real_tool_execution() -> None:
         adapter,
         registry,
     )
+    events: list[tuple[str, object]] = []
+    loop.on(lambda event: events.append((event.type, event.data)))
 
     result = await loop.run("read missing file")
     tool_outputs = [
@@ -56,3 +58,10 @@ async def test_repeated_failure_fingerprint_skips_real_tool_execution() -> None:
     assert len(executed) == 3
     assert any("[重复失败拦截]" in output for output in tool_outputs)
     assert any("FileNotFoundError" in output for output in tool_outputs)
+    assert any(
+        isinstance(data, ToolResult)
+        and data.tool_call_id == "tc_4"
+        and "[重复失败拦截]" in data.output
+        for event_type, data in events
+        if event_type == "tool_result"
+    )

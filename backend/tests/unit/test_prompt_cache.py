@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import json
 
 import pytest
 
 from backend.adapters.base import LLMAdapter
-from backend.adapters.openai_support import build_payload, parse_response
+from backend.adapters.openai_support import build_payload, parse_response, parse_stream_line
 from backend.common.types import (
     AgentConfig,
     LLMRequest,
@@ -85,6 +86,58 @@ def test_openai_parse_response_records_cached_prompt_tokens() -> None:
         }
     )
     assert response.usage.cached_prompt_tokens == 1920
+
+
+def test_openai_parse_response_preserves_object_tool_arguments() -> None:
+    response = parse_response(
+        {
+            "id": "resp-1",
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "function": {
+                                    "name": "product_coupon_lookup",
+                                    "arguments": {"text": "https://item.taobao.com/item.htm?id=1"},
+                                },
+                            }
+                        ]
+                    }
+                }
+            ],
+        }
+    )
+
+    assert response.tool_calls[0].arguments == {"text": "https://item.taobao.com/item.htm?id=1"}
+
+
+def test_openai_stream_parser_preserves_object_tool_arguments() -> None:
+    tool_chunks: dict[int, dict[str, str]] = {}
+    payload = {
+        "choices": [
+            {
+                "delta": {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call-1",
+                            "function": {
+                                "name": "zhetaoke_product_detail",
+                                "arguments": {"tao_id": "10025768652616"},
+                            },
+                        }
+                    ]
+                },
+                "finish_reason": "tool_calls",
+            }
+        ]
+    }
+
+    chunks = parse_stream_line(json.dumps(payload, ensure_ascii=False), tool_chunks)
+
+    assert chunks[0].data["arguments"] == {"tao_id": "10025768652616"}
 
 
 def test_prompt_cache_key_is_stable_for_same_prefix() -> None:

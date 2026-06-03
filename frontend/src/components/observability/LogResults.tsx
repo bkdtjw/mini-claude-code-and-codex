@@ -35,7 +35,7 @@ export default function LogResults({ logs, title }: LogResultsProps) {
   return (
     <section className="rounded-3xl border border-[#252525] bg-[#0b0b0b] p-5">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-[#f0f6fc]">{title}</h3>
+        <h3 className="text-lg font-medium text-[#f0f6fc]">{title}</h3>
         <span className="text-sm text-[#7d8590]">{logs.length} 条</span>
       </div>
 

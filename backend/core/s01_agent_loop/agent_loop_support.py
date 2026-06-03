@@ -17,7 +17,6 @@ from backend.common.types import (
     ToolResult,
 )
 
-
 def _cache_key_part(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip())[:40]
     return normalized or "default"
@@ -88,6 +87,7 @@ def build_llm_request(
         recent_messages=recent,
         cache_prefix_hash=prefix_hash,
         messages=legacy_messages,
+        thinking=config.thinking_enabled,
         prompt_cache_key=build_prompt_cache_key(
             PromptCachePrefix(config.provider, config.model, system_prompt, tools)
         ),
@@ -132,7 +132,7 @@ def _memory_entry_to_message(entry: Any) -> Message:
 
 def response_content(response: LLMResponse) -> str:
     content = response.content or ""
-    if content.strip():
+    if content.strip() or response.tool_calls:
         return content
     return response.provider_metadata.get("reasoning_content", "") or ""
 

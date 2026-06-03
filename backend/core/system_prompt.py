@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import platform
 
+from backend.core.s02_tools.commerce_tool_guidance import COMMERCE_TOOL_RESULT_RULES
+
 COMPRESSION_RETENTION_TEMPLATE = """
 压缩时按以下优先级保留信息：
-P1 绝不删：标识符（商品ID、短链URL、淘口令、item_id、shop_id、订单号）
-P2 绝不删：用户决策（选了什么、排除了什么、为什么）
-P3 保留结论：失败路径（什么失败了、原因、换了什么策略）
-P4 保留摘要：关键结果（top 3 名称+价格，不需要完整 JSON）
+P1 绝不删：标识符（商品ID、短链URL、淘口令、item_id、shop_id、订单号）。标识符一个字符都不能改。
+P2 绝不删：用户决策（选了什么、排除了什么、为什么）、用户纠正、否定例外、具体数字、用户约束。
+P3 保留结论：失败路径（什么失败了、原因、换了什么策略）、因果关系、架构决策、环境状态变更。
+P4 保留摘要：关键结果（top 3 名称+价格，不需要完整 JSON）、未完成任务、工具调用结论。
 P5 可删但存文件：工具原始输出（写入文件，保留路径）
 P6 可删：日常寒暄、确认语句
 标识符必须原样保留，不得修改任何字符。
@@ -43,12 +45,23 @@ def build_system_prompt(workspace: str | None = None) -> str:
     ]
     if workspace:
         parts.append(f"当前工作目录: {workspace}")
+        parts.append(
+            "本地项目相关任务（目录结构、入口文件、模块、代码搜索、文件读取、命令执行）"
+            "使用已提供的本地工具完成；browse_web 是浏览器自动化工具，用于观察和操作网页。"
+        )
+    else:
+        parts.append(
+            "当前没有选择本地工作目录。涉及当前项目、本地文件、代码、目录结构或入口文件的"
+            "请求无法直接完成，应先让用户选择工作区或提供文件内容；不要调用网页、商品、"
+            "金融等无关工具来替代本地项目工具。"
+        )
     parts.extend(
         [
             "你有 spawn_agent 工具可以派生子 agent 并行执行任务。",
             "多个子任务互不依赖、可以同时进行时，用 spawn_agent 一次传多个任务并行执行。",
             "子任务之间有先后依赖，或任务简单到你自己几步就能完成时，不要派子 agent。",
             "子 agent 执行完成后你会收到全部结果，请汇总后再回复用户。",
+            COMMERCE_TOOL_RESULT_RULES,
         ]
     )
     parts.append("回复使用中文。")

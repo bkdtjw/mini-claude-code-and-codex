@@ -24,20 +24,24 @@ def create_product_coupon_lookup_tool(
         name="product_coupon_lookup",
         description=(
             "Lookup coupon and affiliate data for a concrete product from a shared "
-            "Taobao/JD link, item id, or copy text. Prefer this over browser "
-            "automation for product coupon checks."
+            "Taobao/JD link, item id/SKU, or share copy that contains a concrete "
+            "product link/id. Do not use for pure keyword or title-only searches; "
+            "use product_search or zhetaoke_taobao_search first."
         ),
         category="search",
         parameters=ToolParameterSchema(
             properties={
-                "text": {"type": "string", "description": "完整分享文案，如【淘宝】短链「标题」"},
+                "text": {
+                    "type": "string",
+                    "description": "必填，具体商品分享文案、商品链接或商品 ID/SKU；不能传纯关键词",
+                },
                 "url": {"type": "string", "description": "淘宝/京东商品链接或短链"},
                 "platform": {"type": "string", "description": "auto、taobao、jd，默认 auto"},
-                "title": {"type": "string", "description": "可选商品标题，用于相似搜索兜底"},
+                "title": {"type": "string", "description": "可选兜底标题；不要只传标题调用本工具"},
                 "item_id": {"type": "string", "description": "可选淘宝 item_id 或京东 SKU"},
                 "max_results": {"type": "integer", "description": "相似搜索最多返回数，默认 5"},
             },
-            required=[],
+            required=["text"],
         ),
     )
 

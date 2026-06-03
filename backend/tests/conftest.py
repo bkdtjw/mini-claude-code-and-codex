@@ -56,7 +56,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 @pytest.fixture(scope="session")
 def pg_container() -> Generator[PostgresContainer, None, None]:
-    with PostgresContainer("postgres:16-alpine") as container:
+    with PostgresContainer("pgvector/pgvector:pg16") as container:
         yield container
 
 

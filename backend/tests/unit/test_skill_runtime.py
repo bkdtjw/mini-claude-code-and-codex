@@ -137,7 +137,7 @@ def _register_builtin_tools(
         event_handler,
         parent_task_id,
     )
-    for name in ("Read", "Bash"):
+    for name in ("Read", "Bash", "read_history"):
         registry.register(_tool(name), _executor(name))
     if not is_sub_agent:
         for name in ("dispatch_agent", "orchestrate_agents", "query_specs", "spawn_agent"):
@@ -188,7 +188,10 @@ async def test_create_loop_from_id_uses_prompt_and_tool_whitelist(runtime: Agent
     assert "base:" in loop._config.system_prompt  # noqa: SLF001
     assert "spec prompt" not in loop._config.system_prompt  # noqa: SLF001
     assert loop._static_skill_messages[0].content == "spec prompt"  # noqa: SLF001
-    assert sorted(tool.name for tool in loop._executor.list_definitions()) == ["Read"]  # noqa: SLF001
+    assert sorted(tool.name for tool in loop._executor.list_definitions()) == [  # noqa: SLF001
+        "Read",
+        "read_history",
+    ]
     bridge = runtime._deps.mcp_manager.bridge  # noqa: SLF001
     assert bridge is not None
     assert bridge.sync_all_calls == 0
@@ -210,6 +213,7 @@ async def test_create_loop_syncs_only_required_mcp_servers(runtime: AgentRuntime
     assert sorted(tool.name for tool in loop._executor.list_definitions()) == [  # noqa: SLF001
         "Read",
         "mcp__demo__lookup",
+        "read_history",
     ]
     bridge = runtime._deps.mcp_manager.bridge  # noqa: SLF001
     assert bridge is not None
@@ -267,7 +271,10 @@ async def test_create_loop_inline_returns_whitelisted_tools(runtime: AgentRuntim
         tools=["Read"],
     )
 
-    assert sorted(tool.name for tool in loop._executor.list_definitions()) == ["Read"]  # noqa: SLF001
+    assert sorted(tool.name for tool in loop._executor.list_definitions()) == [  # noqa: SLF001
+        "Read",
+        "read_history",
+    ]
 
 
 @pytest.mark.asyncio

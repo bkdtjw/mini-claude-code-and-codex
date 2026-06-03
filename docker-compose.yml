@@ -94,7 +94,7 @@ services:
       - ./custom_nodes.yaml:/app/custom_nodes.yaml:ro
       - ./proxy-config.yaml:/app/proxy-config.yaml:ro
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agent}

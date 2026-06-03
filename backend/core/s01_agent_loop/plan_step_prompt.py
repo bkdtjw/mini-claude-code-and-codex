@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from backend.core.s02_tools.commerce_tool_guidance import COMMERCE_TOOL_RESULT_RULES
+
 from .plan_models import PlanStep
 from .step_result import StepResult
 
@@ -16,6 +18,7 @@ STEP_EXECUTION_SYSTEM_PROMPT = """
 3. 如发现后续计划明显不适配，使用 TodoUpdate 调整未执行步骤。
 4. 输出要简洁说明完成内容、关键发现、涉及文件和未解决风险。
 5. 不要声称完成没有实际执行的操作。
+6. {commerce_tool_result_rules}
 
 收敛要求：
 - 当前步骤应尽量在 5 次工具调用内完成。
@@ -69,6 +72,7 @@ def build_step_messages(
         title=step.title,
         description=step.description,
         workspace=workspace or "当前项目工作区",
+        commerce_tool_result_rules=COMMERCE_TOOL_RESULT_RULES,
         completed_context_block=completed_context_block,
         previous_summary=summary,
     )

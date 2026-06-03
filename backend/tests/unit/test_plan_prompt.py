@@ -28,6 +28,27 @@ def test_parse_plan_response_json_with_preamble() -> None:
     assert plan.steps[0].title == "分析"
 
 
+def test_parse_plan_response_python_literal_object() -> None:
+    content = """
+    {
+      'goal': '验证 recon',
+      'approach': ['读取文件'],
+      'steps': [
+        {
+          'id': 'step_1',
+          'title': '读取 recon',
+          'description': '读取 recon 文件',
+          'estimated_tools': ['Read'],
+        }
+      ]
+    }
+    """
+    plan = parse_plan_response(content)
+    assert plan.goal == "验证 recon"
+    assert plan.steps[0].step_id == 1
+    assert plan.steps[0].tools_hint == ["Read"]
+
+
 def test_parse_plan_response_invalid() -> None:
     with pytest.raises(PlanParseError):
         parse_plan_response("这不是 JSON，也没有任何结构化内容。")

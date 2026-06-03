@@ -6,7 +6,7 @@ export const normalizeWsIncoming = (raw: Record<string, unknown>): WsIncoming =>
   if (type === "status") return { type: "status", status: String(raw.status ?? "error") as AgentStatus };
   if (type === "message") {
     const toolCalls = (raw.tool_calls as ToolCall[] | undefined) ?? undefined;
-    return { type: "message", content: String(raw.content ?? ""), toolCalls };
+    return { type: "message", content: String(raw.content ?? ""), reasoningContent: String(raw.reasoning_content ?? ""), toolCalls };
   }
   if (type === "tool_call") {
     return {
@@ -35,6 +35,7 @@ export const normalizeWsIncoming = (raw: Record<string, unknown>): WsIncoming =>
     };
   }
   if (type === "text") return { type: "text", content: String(raw.content ?? "") };
+  if (type === "reasoning") return { type: "reasoning", content: String(raw.content ?? "") };
   if (type === "done") return { type: "done", message: raw.message as Message };
   return { type: "error", message: String(raw.message ?? "Unknown websocket error") };
 };

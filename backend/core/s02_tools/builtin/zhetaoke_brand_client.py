@@ -6,6 +6,7 @@ import httpx
 from pydantic import BaseModel, Field, field_validator
 
 from backend.config.http_client import load_http_client_config
+from backend.core.s02_tools.commerce_tool_guidance import is_zhetaoke_no_result
 from backend.core.s02_tools.builtin.youtube_log_filter import install_httpx_api_key_redaction
 from backend.core.s02_tools.builtin.zhetaoke_search_client import ZhetaokeSearchProduct
 
@@ -134,7 +135,11 @@ async def _request_json_from_url(
         raise ZhetaokeBrandError("折淘客精选品牌返回不是 JSON object")
     status = int(payload.get("status") or 0)
     if status != 200:
-        raise ZhetaokeBrandError(f"折淘客精选品牌错误 {status}")
+        message = str(payload.get("content") or payload.get("msg") or payload.get("message") or "").strip()
+        if is_zhetaoke_no_result(status, message):
+            return {"status": 200, "content": [], "total_count": 0}
+        suffix = f"：{message}" if message else ""
+        raise ZhetaokeBrandError(f"折淘客精选品牌错误 {status}{suffix}")
     return payload
 
 

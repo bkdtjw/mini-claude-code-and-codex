@@ -28,6 +28,8 @@ def _get_store(request: Request) -> SessionStore:
 def _to_summary(session: Session) -> SessionResponse:
     return SessionResponse(
         id=session.id,
+        title=session.title,
+        workspace=session.workspace,
         config=session.config.model_dump(mode="json"),
         status=session.status,
         created_at=session.created_at.isoformat(),
@@ -39,10 +41,12 @@ def _to_summary(session: Session) -> SessionResponse:
 async def create_session(body: CreateSessionRequest, request: Request) -> SessionResponse:
     try:
         session = Session(
+            title=body.title.strip(),
+            workspace=body.workspace or "",
             config=SessionConfig(model=body.model, provider=body.provider_id or "default", system_prompt=body.system_prompt),
             created_at=datetime.utcnow(),
         )
-        saved = await _get_store(request).create(session, workspace=body.workspace or "")
+        saved = await _get_store(request).create(session, title=body.title.strip(), workspace=body.workspace or "")
         return _to_summary(saved)
     except HTTPException:
         raise

@@ -4,7 +4,9 @@ import asyncio
 from time import monotonic
 
 from backend.common.logging import get_logger
-from backend.common.metrics import incr
+from backend.common.metrics import incr, record_latency_sample
+from backend.common.prometheus_metrics import observe_tool_call
+from backend.common.tracing import trace_span
 from backend.common.types import SignedToolCall, ToolCall, ToolDefinition, ToolResult
 
 from .registry import ToolRegistry
@@ -58,27 +60,33 @@ class ToolExecutor:
 
     async def execute(self, tool_call: ToolCall) -> ToolResult:
         started_at = monotonic()
-        logger.info("tool_execute_start", tool=tool_call.name, tool_call_id=tool_call.id)
-        await incr("tool_calls")
-        try:
-            tool = self._registry.get(tool_call.name)
-            if tool is None:
-                result = self._error_result(tool_call, f"Unknown tool: {tool_call.name}")
-                await self._log_result(tool_call, result, started_at)
-                return result
-            _, executor = tool
+        with trace_span("tool.execute", {"tool": tool_call.name, "tool_call_id": tool_call.id}) as span:
+            logger.info("tool_execute_start", tool=tool_call.name, tool_call_id=tool_call.id)
+            await incr("tool_calls")
             try:
-                result = self._finalize_result(tool_call, await executor(tool_call.arguments))
-                await self._log_result(tool_call, result, started_at)
-                return result
+                tool = self._registry.get(tool_call.name)
+                if tool is None:
+                    result = self._error_result(tool_call, f"Unknown tool: {tool_call.name}")
+                    span.set_status("error")
+                    await self._log_result(tool_call, result, started_at)
+                    return result
+                _, executor = tool
+                try:
+                    result = self._finalize_result(tool_call, await executor(tool_call.arguments))
+                    if result.is_error:
+                        span.set_status("error")
+                    await self._log_result(tool_call, result, started_at)
+                    return result
+                except Exception as exc:  # noqa: BLE001
+                    result = self._error_result(tool_call, str(exc))
+                    span.set_status("error")
+                    await self._log_result(tool_call, result, started_at)
+                    return result
             except Exception as exc:  # noqa: BLE001
                 result = self._error_result(tool_call, str(exc))
+                span.set_status("error")
                 await self._log_result(tool_call, result, started_at)
                 return result
-        except Exception as exc:  # noqa: BLE001
-            result = self._error_result(tool_call, str(exc))
-            await self._log_result(tool_call, result, started_at)
-            return result
 
     async def execute_batch(self, tool_calls: list[ToolCall]) -> list[ToolResult]:
         try:
@@ -139,6 +147,8 @@ class ToolExecutor:
 
     async def _log_result(self, tool_call: ToolCall, result: ToolResult, started_at: float) -> None:
         duration_ms = int((monotonic() - started_at) * 1000)
+        observe_tool_call(tool_call.name, "error" if result.is_error else "success", duration_ms / 1000)
+        await record_latency_sample("tool_call", duration_ms)
         if result.is_error:
             logger.warning(
                 "tool_execute_error",

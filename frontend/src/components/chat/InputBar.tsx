@@ -1,33 +1,44 @@
-import { useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { FolderOpen, SendHorizontal, Square } from "lucide-react";
 
+import { providerModels, supportsThinking } from "@/lib/model-capabilities";
+import InputKnowledgeControls from "@/components/knowledge/InputKnowledgeControls";
 import { useAgentStore } from "@/stores/agentStore";
-import type { AgentStatus } from "@/types";
+import type { AgentStatus, ChatRunOptions, ThinkingLevel } from "@/types";
 
 interface InputBarProps {
   status: AgentStatus;
-  onSend: (text: string) => void;
+  onSend: (text: string, options?: ChatRunOptions) => void;
   onAbort: () => void;
   compact?: boolean;
 }
 
+const runningStatuses: AgentStatus[] = ["thinking", "compacting", "tool_calling", "waiting_approval"];
+
 const statusText = (status: AgentStatus): string => {
-  if (status === "thinking") return "思考中...";
-  if (status === "tool_calling") return "执行工具...";
-  if (status === "error") return "请求失败，请重试";
+  if (status === "thinking") return "生成中";
+  if (status === "compacting") return "压缩上下文";
+  if (status === "tool_calling") return "执行工具";
+  if (status === "waiting_approval") return "等待工具审批";
+  if (status === "error") return "请求失败";
   return "就绪";
 };
 
 const modeLabels = {
-  readonly: "🔒 只读",
-  auto: "🛡️ 默认权限",
-  full: "⚡ 完全访问",
+  readonly: "只读",
+  auto: "默认权限",
+  full: "完全访问",
 } as const;
+
+const thinkingLevels: { value: ThinkingLevel; label: string }[] = [
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
 
 export default function InputBar({ status, onSend, onAbort, compact = false }: InputBarProps) {
   const [text, setText] = useState("");
-  const [reasoning, setReasoning] = useState("standard");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const running = status === "thinking" || status === "tool_calling";
   const currentModel = useAgentStore((state) => state.currentModel);
   const currentProviderId = useAgentStore((state) => state.currentProviderId);
   const providers = useAgentStore((state) => state.providers);
@@ -36,13 +47,22 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
   const workspace = useAgentStore((state) => state.workspace);
   const permissionMode = useAgentStore((state) => state.permissionMode);
   const setPermissionMode = useAgentStore((state) => state.setPermissionMode);
+  const thinkingLevel = useAgentStore((state) => state.thinkingLevel);
+  const setThinkingLevel = useAgentStore((state) => state.setThinkingLevel);
+
+  const running = runningStatuses.includes(status);
+  const currentProvider = providers.find((item) => item.id === currentProviderId) ?? null;
+  const modelOptions = providerModels(currentProvider);
+  const thinkingAvailable = supportsThinking(currentProvider, currentModel);
+  const canSend = Boolean(text.trim() && currentProvider && currentModel && !running);
+  const thinkingIndex = thinkingLevels.findIndex((item) => item.value === thinkingLevel);
+  const workspaceLabel = workspace ? workspace.split(/[/\\]/).filter(Boolean).pop() ?? workspace : "工作区";
 
   const resize = () => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    const lineHeight = 24;
-    const maxHeight = lineHeight * 6;
+    const maxHeight = 24 * 6;
     textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
   };
@@ -53,120 +73,122 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
 
   const handleSend = () => {
     const value = text.trim();
-    if (!value || running) return;
-    onSend(value);
+    if (!canSend) return;
+    onSend(value, { thinkingLevel: thinkingAvailable ? thinkingLevel : undefined });
     setText("");
   };
 
-  const currentProvider = providers.find((item) => item.id === currentProviderId);
-  const modelOptions = currentProvider?.availableModels.length ? currentProvider.availableModels : [currentModel];
-  const sendEnabled = Boolean(text.trim()) || running;
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    handleSend();
+  };
 
   return (
     <div className={`shrink-0 ${compact ? "" : "pb-2"} pt-2`}>
-      <div className="mx-auto w-[85%] max-w-6xl rounded-2xl bg-[#1a1a1a] px-5 py-4">
+      <div className="mx-auto w-full max-w-[1120px] rounded-xl border border-[var(--as-border-strong)] bg-[var(--as-surface)] px-4 py-4 shadow-[var(--as-shadow)] focus-within:border-[var(--as-accent)]">
         <textarea
           ref={textareaRef}
           value={text}
-          disabled={running}
+          disabled={running || !currentProvider || !currentModel}
           onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-              event.preventDefault();
-              handleSend();
-            }
-          }}
+          onKeyDown={handleKeyDown}
           rows={1}
-          placeholder="向 Agent Studio 提问，@ 添加文件，/ 调出命令"
-          className="max-h-36 min-h-[56px] w-full resize-none bg-transparent text-sm text-[#e0e0e0] outline-none placeholder:text-[#555555]"
+          placeholder={currentProvider && currentModel ? "向 Agent Studio 发送消息" : "先在设置中配置并启用 Provider"}
+          className="max-h-36 min-h-[64px] w-full resize-none bg-transparent text-[13px] leading-6 text-[var(--as-text)] outline-none placeholder:text-[var(--as-text-subtle)] disabled:cursor-not-allowed"
         />
-        <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-[#666666]">
-            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-[#252525]">
-              ➕
-            </button>
-            <select
-              value={currentModel}
-              onChange={(event) => setModel(event.target.value)}
-              className="rounded-md bg-transparent px-2 py-1 text-xs text-[#e0e0e0] outline-none hover:bg-[#252525]"
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5 text-xs text-[var(--as-text-muted)] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <button
+              type="button"
+              title={workspace || "选择工作区"}
+              onClick={() => void useAgentStore.getState().openFolder()}
+              className="flex h-9 w-[104px] shrink-0 items-center gap-1.5 rounded-[7px] border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-2.5 text-[11px] text-[var(--as-text-secondary)] hover:border-[#2b2b31] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
             >
-              {modelOptions.map((model) => (
-                <option key={model} value={model} className="bg-[#1a1a1a] text-[#e0e0e0]">
-                  {model} ▾
+              <FolderOpen size={13} className="shrink-0 text-[var(--as-text-muted)]" />
+              <span className="min-w-0 truncate">{workspaceLabel}</span>
+            </button>
+            <InputKnowledgeControls running={running} />
+            <select
+              value={currentProviderId ?? ""}
+              disabled={!providers.length || running}
+              onChange={(event) => event.target.value && setProvider(event.target.value)}
+              className="as-select w-[116px] shrink-0 font-mono"
+            >
+              {!providers.length ? <option value="">未配置 Provider</option> : null}
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
                 </option>
               ))}
             </select>
             <select
-              value={currentProviderId ?? ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value) setProvider(value);
-              }}
-              className="rounded-md bg-transparent px-2 py-1 text-xs text-[#e0e0e0] outline-none hover:bg-[#252525]"
+              value={currentModel}
+              disabled={!modelOptions.length || running}
+              onChange={(event) => setModel(event.target.value)}
+              className="as-select w-[150px] shrink-0 font-mono"
             >
-              {providers.length ? (
-                providers.map((provider) => (
-                  <option key={provider.id} value={provider.id} className="bg-[#1a1a1a] text-[#e0e0e0]">
-                    {provider.name} ▾
-                  </option>
-                ))
-              ) : (
-                <option value="" className="bg-[#1a1a1a] text-[#e0e0e0]">
-                  Provider ▾
+              {!modelOptions.length ? <option value="">无可用模型</option> : null}
+              {modelOptions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
                 </option>
-              )}
+              ))}
             </select>
+            {thinkingAvailable ? (
+              <>
+              <span className="shrink-0 text-[11px] text-[var(--as-text-muted)]">推理强度</span>
+              <div className="relative grid h-9 w-[118px] shrink-0 grid-cols-3 rounded-[7px] border border-[var(--as-border-strong)] bg-[var(--as-bg)] p-0.5">
+                <span
+                  className="absolute left-0.5 top-0.5 h-8 rounded-md transition-transform duration-150"
+                  style={{
+                    width: "calc((100% - 4px) / 3)",
+                    transform: `translateX(${Math.max(thinkingIndex, 0) * 100}%)`,
+                    background: thinkingLevel === "high" ? "var(--as-thinking)" : "var(--as-accent)",
+                  }}
+                />
+                {thinkingLevels.map((level) => (
+                  <button
+                    key={level.value}
+                    type="button"
+                    disabled={running}
+                    onClick={() => setThinkingLevel(level.value)}
+                    className={`relative z-10 rounded-[5px] text-[11px] hover:text-[var(--as-text)] disabled:cursor-not-allowed ${
+                      thinkingLevel === level.value ? "text-white" : "text-[var(--as-text-secondary)]"
+                    }`}
+                  >
+                    {level.label}
+                  </button>
+                ))}
+              </div>
+              </>
+            ) : null}
             <select
-              value={reasoning}
-              onChange={(event) => setReasoning(event.target.value)}
-              className="rounded-md bg-transparent px-2 py-1 text-xs text-[#e0e0e0] outline-none hover:bg-[#252525]"
+              value={permissionMode}
+              disabled={running}
+              onChange={(event) => setPermissionMode(event.target.value as keyof typeof modeLabels)}
+              className="as-select w-[120px] shrink-0"
             >
-              <option value="standard" className="bg-[#1a1a1a] text-[#e0e0e0]">
-                标准 ▾
-              </option>
-              <option value="fast" className="bg-[#1a1a1a] text-[#e0e0e0]">
-                快速 ▾
-              </option>
-              <option value="deep" className="bg-[#1a1a1a] text-[#e0e0e0]">
-                深度 ▾
-              </option>
+              {Object.entries(modeLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm text-[#666666] hover:bg-[#252525] hover:text-[#e0e0e0]">
-              🎤
-            </button>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {!compact ? <span className="hidden text-[11px] text-[var(--as-text-subtle)] sm:inline">{statusText(status)}</span> : null}
             <button
               type="button"
+              disabled={!running && !canSend}
               onClick={running ? onAbort : handleSend}
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs ${
-                sendEnabled ? "bg-[#ffffff] text-[#000000]" : "bg-[#333333] text-[#777777]"
-              }`}
+              className="as-primary-btn h-10 gap-1.5 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {running ? "⏹" : "⬆"}
+              {running ? <Square size={14} fill="currentColor" /> : <SendHorizontal size={15} />}
+              <span>{running ? "停止" : "发送"}</span>
             </button>
           </div>
         </div>
-      </div>
-      <div className="mx-auto mt-1 flex w-full max-w-4xl items-center gap-3 text-xs text-[#555555]">
-        <button
-          type="button"
-          onClick={() => void useAgentStore.getState().openFolder()}
-          className="flex items-center gap-1 hover:text-[#999999]"
-        >
-          📁 {workspace ? workspace.split(/[/\\]/).pop() : "本地"} ▾
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const next = { readonly: "auto", auto: "full", full: "readonly" } as const;
-            setPermissionMode(next[permissionMode]);
-          }}
-          className="flex items-center gap-1 hover:text-[#999999]"
-        >
-          {modeLabels[permissionMode]} ▾
-        </button>
-        {!compact ? <span className="ml-auto">{statusText(status)}</span> : null}
       </div>
     </div>
   );

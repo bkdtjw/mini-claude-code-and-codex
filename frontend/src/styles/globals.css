@@ -1,6 +1,39 @@
+@import "./fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --as-bg: #0d0d0f;
+  --as-sidebar: #08080a;
+  --as-surface-low: #121216;
+  --as-surface: #141417;
+  --as-active: #16161a;
+  --as-surface-raised: #18181c;
+  --as-hover: #1a1a1e;
+  --as-code-bg: #08080a;
+  --as-border: #1c1c20;
+  --as-border-strong: #232327;
+  --as-text-bright: #e8e8ec;
+  --as-text: #e4e4e7;
+  --as-text-secondary: #8a8a92;
+  --as-text-muted: #6a6a72;
+  --as-text-subtle: #55555c;
+  --as-accent: #3b82f6;
+  --as-accent-soft: #93c5fd;
+  --as-accent-hover: #2563eb;
+  --as-thinking: #8b5cf6;
+  --as-thinking-soft: #c4b5fd;
+  --as-danger: #ef4444;
+  --as-success: #22c55e;
+  --as-shadow: 0 2px 12px rgb(0 0 0 / 20%);
+  --as-user-shadow: 0 8px 22px rgb(30 58 110 / 20%);
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --as-font-mono: var(--font-mono);
+  color-scheme: dark;
+}
 
 html,
 body,
@@ -10,9 +43,35 @@ body,
 
 body {
   margin: 0;
-  background: #000000;
-  color: #e0e0e0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: var(--as-bg);
+  color: var(--as-text);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+select,
+textarea,
+input {
+  font: inherit;
+}
+
+button,
+select,
+label {
+  transition: all 120ms ease;
+}
+
+button:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+::selection {
+  background: rgb(59 130 246 / 30%);
 }
 
 @keyframes shimmer {
@@ -25,48 +84,82 @@ body {
   }
 }
 
+@keyframes as-cursor-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  46%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes as-star-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .tool-shimmer {
-  background: linear-gradient(90deg, #666666 0%, #999999 25%, #cccccc 50%, #999999 75%, #666666 100%);
+  background: linear-gradient(90deg, #6d6d75 0%, #b8b8c2 50%, #6d6d75 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: shimmer 2s ease-in-out infinite;
+  animation: shimmer 1.8s ease-in-out infinite;
 }
 
-/* Theme compatibility overrides for legacy utility classes */
-.bg-\[\#0d1117\] {
-  background: #000000 !important;
+.as-spin-star {
+  display: inline-block;
+  animation: as-star-spin 1.2s linear infinite;
 }
 
-.bg-\[\#161b22\] {
-  background: #0a0a0a !important;
+.as-stream-cursor {
+  background: var(--as-text-bright);
+  animation: as-cursor-blink 1s steps(1, end) infinite;
 }
 
-.bg-\[\#1c2128\],
-.bg-\[\#1f2937\],
-.bg-\[\#21262d\] {
-  background: #1a1a1a !important;
+.as-markdown > :first-child {
+  margin-top: 0;
 }
 
-.hover\:bg-\[\#1c2128\]:hover,
-.hover\:bg-\[\#0d1117\]:hover,
-.hover\:bg-\[\#1f2937\]:hover {
-  background: #252525 !important;
+.as-markdown > :last-child {
+  margin-bottom: 0;
 }
 
-.border-\[\#30363d\] {
-  border-color: #1a1a1a !important;
+.as-md-list {
+  list-style: none;
+  padding-left: 0;
 }
 
-.bg-\[\#1c2128\].border-\[\#30363d\] {
-  border-color: #252525 !important;
+.as-md-list > li {
+  position: relative;
+  padding-left: 1rem;
 }
 
-.text-\[\#e6edf3\] {
-  color: #e0e0e0 !important;
+.as-md-list > li::before {
+  content: "";
+  position: absolute;
+  left: 0.1rem;
+  top: 0.82em;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 999px;
+  background: var(--as-accent);
 }
 
-.text-\[\#8b949e\] {
-  color: #666666 !important;
+@layer components {
+  .as-select {
+    @apply rounded-[7px] border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-2.5 py-1.5 text-xs text-[var(--as-text)] outline-none hover:bg-[var(--as-hover)] focus:border-[var(--as-accent)] disabled:cursor-not-allowed disabled:text-[var(--as-text-subtle)];
+  }
+
+  .as-primary-btn {
+    @apply inline-flex items-center justify-center rounded-lg bg-[var(--as-accent)] font-medium text-white transition hover:bg-[var(--as-accent-hover)] active:brightness-90;
+  }
+
+  .as-link-btn {
+    @apply cursor-pointer rounded-md px-1.5 py-1 text-sm text-[var(--as-text-secondary)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)];
+  }
 }

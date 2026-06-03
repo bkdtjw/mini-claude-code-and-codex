@@ -16,10 +16,18 @@ def _is_safe_path(path: str) -> bool:
 def create_read_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="Read",
-        description="Read the contents of a file by relative path.",
+        description=(
+            "Read a local workspace/repository file by relative path. Use after Glob, Grep, "
+            "or Bash identifies files that need inspection."
+        ),
         category="file-ops",
         parameters=ToolParameterSchema(
-            properties={"path": {"type": "string", "description": "Relative file path"}},
+            properties={
+                "path": {
+                    "type": "string",
+                    "description": "Relative path inside the current workspace/repository",
+                }
+            },
             required=["path"],
         ),
         side_effect=False,

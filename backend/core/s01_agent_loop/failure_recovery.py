@@ -46,7 +46,9 @@ class ToolFailureRecoveryTracker:
             )
         return allowed, skipped
 
-    def annotate(self, results: list[ToolResult], call_map: dict[str, ToolCall]) -> list[ToolResult]:
+    def annotate(
+        self, results: list[ToolResult], call_map: dict[str, ToolCall]
+    ) -> list[ToolResult]:
         if self._threshold <= 0:
             return results
         annotated: list[ToolResult] = []
@@ -107,6 +109,7 @@ def _append_recovery_context(
             f"失败指纹: {state.last_fingerprint}",
             f"调用摘要: {state.call_summary}",
             "不要再次用相同工具和相同参数重试。",
+            "这可能已经进入死胡同：先反思根因，再决定是否继续。",
             "请先分析失败原因，然后换策略：读取上下文、缩小范围、换工具、改参数，或询问用户。",
             "最近失败指纹: " + ", ".join(recent_fingerprints[-3:]),
         ]
@@ -121,6 +124,7 @@ def _build_repeated_failure_output(state: ToolFailureState) -> str:
             "该工具调用与最近失败指纹相同，已跳过真实执行。",
             f"失败指纹: {state.last_fingerprint}",
             f"调用摘要: {state.call_summary}",
+            "这条路径已被判定为重复失败，继续尝试不会带来新信息。",
             "请换工具、换参数，或先解释失败原因后再继续。",
         ]
     )
@@ -141,7 +145,11 @@ def _normalized_args(arguments: dict[str, object]) -> str:
 
 
 def _call_summary(call: ToolCall) -> str:
-    detail = call.arguments.get("command") or call.arguments.get("path") or call.arguments.get("url")
+    detail = (
+        call.arguments.get("command")
+        or call.arguments.get("path")
+        or call.arguments.get("url")
+    )
     if not isinstance(detail, str) or not detail.strip():
         detail = _normalized_args(call.arguments)
     return _shorten(f"{call.name}({detail})", 260)

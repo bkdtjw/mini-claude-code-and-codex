@@ -55,7 +55,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
 
             store = TaskStore()
-            # Create FeishuClient if app credentials are configured
             feishu_client = None
             if app_settings.feishu_app_id and app_settings.feishu_app_secret:
                 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
@@ -132,13 +131,16 @@ def create_app() -> FastAPI:
         chat_completions,
         cookie_sync,
         feishu_events,
+        knowledge,
         logs,
         mcp,
         metrics,
+        prometheus,
         provider_roles,
         providers,
         sessions,
         websocket,
+        workspaces,
     )
     from backend.api.routes.reports import router as reports_router
 
@@ -154,11 +156,14 @@ def create_app() -> FastAPI:
     app.include_router(chat_completions.router)
     app.include_router(websocket.router)
     app.include_router(sessions.router)
+    app.include_router(workspaces.router)
     app.include_router(providers.router)
     app.include_router(provider_roles.router)
     app.include_router(mcp.router)
+    app.include_router(prometheus.router)
     app.include_router(metrics.router)
     app.include_router(logs.router)
+    app.include_router(knowledge.router)
     app.include_router(cookie_sync.router)
     app.include_router(feishu_events.router)
     app.include_router(reports_router)

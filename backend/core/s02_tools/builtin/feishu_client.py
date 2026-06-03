@@ -9,6 +9,7 @@ import httpx
 
 from backend.common.feishu_markdown import strip_markdown_for_feishu
 from backend.common.logging import get_logger
+from backend.core.s02_tools.builtin.feishu_client_resources import download_message_resource
 
 logger = get_logger(component="feishu_client")
 
@@ -18,6 +19,8 @@ _UPLOAD_IMAGE_URL = "https://open.feishu.cn/open-apis/im/v1/images"
 _TOKEN_TTL_MARGIN = 300  # refresh 5 min before expiry
 
 class FeishuClient:
+    download_message_resource = download_message_resource
+
     def __init__(self, app_id: str, app_secret: str) -> None:
         self._app_id = app_id
         self._app_secret = app_secret

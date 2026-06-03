@@ -22,6 +22,17 @@ class FakeMetricsCollector:
         del days
         return dict(self.values.get(metric, {"2026-04-18": 0, "2026-04-19": 0}))
 
+    async def get_latency_summary(self, days: int = 1) -> dict[str, dict[str, object]]:
+        return {
+            "tool_call": {
+                "name": "工具调用",
+                "count": days,
+                "p50_ms": 100.0,
+                "p95_ms": 300.0,
+                "max_ms": 300.0,
+            }
+        }
+
 
 @pytest.fixture
 async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[httpx.AsyncClient, None]:
@@ -73,3 +84,16 @@ async def test_metric_detail_returns_single_metric(client: httpx.AsyncClient) ->
         "total": 8,
         "daily": {"2026-04-18": 3, "2026-04-19": 5},
     }
+
+
+@pytest.mark.asyncio
+async def test_latency_summary_returns_recent_p95(client: httpx.AsyncClient) -> None:
+    response = await client.get(
+        "/api/metrics/latency?days=2",
+        headers={"Authorization": "Bearer test-secret"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["latencies"]["tool_call"]["count"] == 2
+    assert payload["latencies"]["tool_call"]["p95_ms"] == 300

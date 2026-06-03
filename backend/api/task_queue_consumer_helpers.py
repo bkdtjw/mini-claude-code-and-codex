@@ -53,6 +53,14 @@ def _restored_messages(loop: Any, messages: list[Message]) -> list[Message]:
     return messages
 
 
+def _payload_log_context(payload: Any) -> dict[str, str]:
+    return {
+        "trace_id": str(payload.input_data.get("trace_id", "")),
+        "session_id": f"sub-agent:{payload.task_id}",
+        "parent_task_id": payload.parent_task_id,
+    }
+
+
 async def _safe_fail(queue: TaskQueue, task_id: str, error: str, worker_id: str = "") -> None:
     try:
         failed = await queue.fail(task_id, error, worker_id=worker_id)
@@ -75,6 +83,7 @@ async def _safe_fail(queue: TaskQueue, task_id: str, error: str, worker_id: str 
 __all__ = [
     "_heartbeat_loop",
     "_loop_config_value",
+    "_payload_log_context",
     "_restored_messages",
     "_safe_fail",
     "_timeout_seconds",

@@ -8,9 +8,11 @@ import pytest
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.builtin import zhetaoke_search
+from backend.core.s02_tools.commerce_tool_guidance import ZHETAOKE_NO_RESULT_NOTE
 from backend.core.s02_tools.builtin.zhetaoke_search_client import (
     ZHETAOKE_SEARCH_URL,
     ZhetaokeSearchCredentials,
+    ZhetaokeSearchError,
     ZhetaokeSearchProduct,
     ZhetaokeSearchRequest,
     search_taobao_products,
@@ -81,6 +83,31 @@ async def test_search_taobao_products_parses_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_taobao_products_treats_empty_301_as_no_results() -> None:
+    fake_client = FakeClient({"status": 301, "content": "无符合条件的数据"})
+
+    products = await search_taobao_products(
+        ZhetaokeSearchCredentials(appkey="app-key", sid="sid", pid="pid"),
+        ZhetaokeSearchRequest(q="帐篷灯 露营灯"),
+        fake_client,  # type: ignore[arg-type]
+    )
+
+    assert products == []
+
+
+@pytest.mark.asyncio
+async def test_search_taobao_products_includes_business_error_message() -> None:
+    fake_client = FakeClient({"status": 500, "content": "接口维护中"})
+
+    with pytest.raises(ZhetaokeSearchError, match="接口维护中"):
+        await search_taobao_products(
+            ZhetaokeSearchCredentials(appkey="app-key", sid="sid", pid="pid"),
+            ZhetaokeSearchRequest(q="帐篷灯"),
+            fake_client,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.asyncio
 async def test_zhetaoke_taobao_search_tool_returns_report(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -108,6 +135,20 @@ async def test_zhetaoke_taobao_search_tool_returns_report(
 
 
 @pytest.mark.asyncio
+async def test_zhetaoke_taobao_search_tool_reports_no_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_mock = AsyncMock(return_value=[])
+    monkeypatch.setattr(zhetaoke_search, "search_taobao_products", search_mock)
+    _, execute = zhetaoke_search.create_zhetaoke_taobao_search_tool("app-key", "sid", "pid")
+
+    result = await execute({"q": "帐篷灯", "page_size": 3})
+
+    assert result.is_error is False
+    assert ZHETAOKE_NO_RESULT_NOTE in result.output
+
+
+@pytest.mark.asyncio
 async def test_zhetaoke_taobao_search_requires_sid_pid() -> None:
     _, execute = zhetaoke_search.create_zhetaoke_taobao_search_tool("app-key", "", "")
 
@@ -123,3 +164,13 @@ def test_builtin_tools_registers_zhetaoke_taobao_search() -> None:
     register_builtin_tools(registry, workspace=None)
 
     assert registry.has("zhetaoke_taobao_search")
+
+
+def test_zhetaoke_taobao_search_schema_requires_query() -> None:
+    definition, _execute = zhetaoke_search.create_zhetaoke_taobao_search_tool(
+        "app-key",
+        "sid",
+        "pid",
+    )
+
+    assert definition.parameters.required == ["q"]

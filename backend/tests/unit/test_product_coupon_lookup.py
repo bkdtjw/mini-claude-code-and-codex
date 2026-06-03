@@ -160,6 +160,14 @@ def test_builtin_tools_registers_product_coupon_lookup() -> None:
     assert registry.has("product_coupon_lookup")
 
 
+def test_product_coupon_lookup_schema_requires_text() -> None:
+    definition, _execute = create_product_coupon_lookup_tool()
+
+    assert definition.parameters.required == ["text"]
+    assert "Do not use for pure keyword" in definition.description
+    assert "不能传纯关键词" in definition.parameters.properties["text"]["description"]
+
+
 def test_builtin_tools_can_hide_internal_product_tools() -> None:
     registry = ToolRegistry()
 

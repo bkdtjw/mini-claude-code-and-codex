@@ -43,13 +43,13 @@ async def stream_response(adapter: Any, request: LLMRequest) -> AsyncIterator[St
         async for chunk in _stream_attempts(state):
             yield chunk
     except LLMError as exc:
-        await _log_stream_error(adapter, model, exc)
+        await _log_stream_error(adapter, model, exc, started_at)
         raise
     except httpx.RequestError as exc:
-        await _log_stream_error(adapter, model, exc)
+        await _log_stream_error(adapter, model, exc, started_at)
         raise LLMError("NETWORK_ERROR", str(exc), adapter._provider, None) from exc  # noqa: SLF001
     except Exception as exc:
-        await _log_stream_error(adapter, model, exc)
+        await _log_stream_error(adapter, model, exc, started_at)
         raise LLMError("STREAM_ERROR", str(exc), adapter._provider, None) from exc  # noqa: SLF001
 
 
@@ -120,7 +120,7 @@ async def _finish_stream(state: StreamState) -> None:
     )
 
 
-async def _log_stream_error(adapter: Any, model: str, exc: Exception) -> None:
+async def _log_stream_error(adapter: Any, model: str, exc: Exception, started_at: float) -> None:
     await incr_llm_error()
     log_llm_request_error(
         adapter._logger,  # noqa: SLF001
@@ -128,6 +128,7 @@ async def _log_stream_error(adapter: Any, model: str, exc: Exception) -> None:
         provider=adapter._provider,  # noqa: SLF001
         request_type="stream",
         exc=exc,
+        started_at=started_at,
     )
 
 

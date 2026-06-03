@@ -10,6 +10,7 @@ from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.builtin.file_glob import create_glob_tool
 from backend.core.s02_tools.builtin.file_grep import create_grep_tool
+from backend.core.s02_tools.builtin.file_read import create_read_tool
 
 
 async def _run_glob(workspace: Path, args: dict[str, object]) -> ToolResult:
@@ -89,3 +90,21 @@ def test_register_builtin_tools_includes_search_tools(tmp_path: Path) -> None:
 
     names = [definition.name for definition in registry.list_definitions()]
     assert names[:6] == ["Read", "Glob", "Grep", "str_replace", "file_edit", "Write"]
+
+
+def test_local_file_tools_describe_workspace_project_usage(tmp_path: Path) -> None:
+    read_definition, _ = create_read_tool(str(tmp_path))
+    glob_definition, _ = create_glob_tool(str(tmp_path))
+    grep_definition, _ = create_grep_tool(str(tmp_path))
+
+    combined = " ".join(
+        [
+            read_definition.description,
+            glob_definition.description,
+            grep_definition.description,
+        ]
+    ).lower()
+    assert "workspace" in combined
+    assert "repository" in combined
+    assert "project structure" in combined
+    assert "code search" in combined

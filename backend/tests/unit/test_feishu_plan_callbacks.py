@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from backend.api.routes.feishu_plan_support import _plan_result_text
 from backend.api.routes.feishu_tool_approval import build_tool_approval_card
 from backend.common.types import Message
-from backend.core.s01_agent_loop import TodoState, TodoStep
+from backend.core.s01_agent_loop import ExecutionPlan, PlanStep, TodoState, TodoStep
 from backend.schemas.feishu import FeishuCardAction, FeishuCardActionPayload, FeishuCardActionValue
 from backend.tests.unit.test_feishu_plan import MockFeishuClient, _event, _handler
 
@@ -89,3 +90,86 @@ def test_plan_result_text_does_not_hide_failed_steps() -> None:
             return Message(role="assistant", content="exit summary with failed step")
 
     assert _plan_result_text(Runner()) == "exit summary with failed step"  # type: ignore[arg-type]
+
+
+def test_plan_result_text_uses_plan_level_summary() -> None:
+    class Runner:
+        _plan_name = "summary-plan"
+        _plan_path = Path("data/plans/feishu-oc_1-summary-plan.md")
+        _plan = ExecutionPlan(
+            goal="验证 Plan 模式",
+            overall_summary="Plan recon、详细计划和确认后执行链路已完成验证。",
+            steps=[
+                PlanStep(step_id=1, title="读取 recon", description=""),
+                PlanStep(step_id=2, title="读取 runner", description=""),
+            ],
+        )
+        _todo_state = TodoState(
+            plan_name="summary-plan",
+            session_id="feishu-oc_1",
+            status="completed",
+            steps=[
+                TodoStep(id=2, title="读取 runner", status="done", output_summary="Step 2 长报告"),
+                TodoStep(
+                    id=1,
+                    title="读取 recon",
+                    status="done",
+                    output_summary="```json\n{}\n```\n完整步骤结果: data/steps/step_1.json",
+                ),
+            ],
+        )
+
+        def _plan_ref(self) -> str:
+            return self._plan_path.as_posix()
+
+        def build_exit_summary(self) -> Message:
+            return Message(role="assistant", content="exit summary")
+
+    result = _plan_result_text(Runner())  # type: ignore[arg-type]
+    assert "计划已完成：summary-plan" in result
+    assert "Plan recon、详细计划和确认后执行链路已完成验证。" in result
+    assert "1. 读取 recon" in result
+    assert "2. 读取 runner" in result
+    assert "summary-plan.md" in result
+    assert "最终输出：" in result
+    assert "Step 2 长报告" in result
+    assert "完整步骤结果" not in result
+
+
+def test_plan_result_text_includes_clean_final_step_output() -> None:
+    class Runner:
+        _plan_name = "commerce-plan"
+        _plan_path = Path("data/plans/feishu-oc_1-commerce-plan.md")
+        _plan = ExecutionPlan(
+            goal="找商品",
+            overall_summary="筛选5款商品。",
+            steps=[PlanStep(step_id=1, title="汇总输出", description="")],
+        )
+        _todo_state = TodoState(
+            plan_name="commerce-plan",
+            session_id="feishu-oc_1",
+            status="completed",
+            steps=[
+                TodoStep(
+                    id=1,
+                    title="汇总输出",
+                    status="done",
+                    output_summary=(
+                        "TOP5 推荐\n1. 迪卡侬 BL40\n```json\n{\"items\": []}\n```\n"
+                        "完整步骤结果: data/steps/step_1.json"
+                    ),
+                ),
+            ],
+        )
+
+        def _plan_ref(self) -> str:
+            return self._plan_path.as_posix()
+
+        def build_exit_summary(self) -> Message:
+            return Message(role="assistant", content="exit summary")
+
+    result = _plan_result_text(Runner())  # type: ignore[arg-type]
+    assert "TOP5 推荐" in result
+    assert "迪卡侬 BL40" in result
+    assert "```json" not in result
+    assert "完整步骤结果" not in result

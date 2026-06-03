@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import inspect
 import json
 from typing import Any
 
@@ -118,6 +119,8 @@ async def feishu_event(request: Request) -> dict[str, Any]:
         open_id = _nested_str(event, "operator", "operator_id", "open_id") or _nested_str(
             event, "operator", "open_id"
         )
+        if await _seen_by_handler(event_id):
+            return {"code": 0}
         if _handler is not None and open_id and event_key:
             await _handler.handle_menu_event(event_key, open_id)
         return {"code": 0}
@@ -131,3 +134,15 @@ async def feishu_event(request: Request) -> dict[str, Any]:
             asyncio.create_task(_handler.handle_message(data))
 
     return {"status": "ok"}
+
+
+async def _seen_by_handler(event_id: str) -> bool:
+    if _handler is None or not event_id:
+        return False
+    seen = getattr(_handler, "_seen", None)
+    if not callable(seen):
+        return False
+    result = seen(event_id)
+    if not inspect.isawaitable(result):
+        return False
+    return bool(await result)

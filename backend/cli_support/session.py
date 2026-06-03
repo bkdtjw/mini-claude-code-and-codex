@@ -107,6 +107,7 @@ async def create_session(
             default_model=args.model or provider.default_model,
             feishu_webhook_url=settings.feishu_webhook_url or None,
             feishu_secret=settings.feishu_webhook_secret or None,
+            zhipu_web_search_api_key=settings.zhipu_web_search_api_key or None,
             youtube_api_key=settings.youtube_api_key or None,
             youtube_proxy_url=settings.youtube_proxy_url or None,
             twitter_username=settings.twitter_username or None,

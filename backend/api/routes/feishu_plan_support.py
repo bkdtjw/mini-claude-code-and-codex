@@ -9,6 +9,7 @@ from backend.core.s01_agent_loop import PlanControlStore, PlanExecuteRunner
 
 from .feishu_plan_control import RUNNING_REPLY
 from .feishu_plan_renderer import FeishuPlanRenderer
+from .feishu_plan_result import plan_result_text
 from .feishu_plan_runtime import FeishuPlanRunnerInput, create_feishu_plan_runner
 from .feishu_tool_approval import attach_feishu_runner_approval
 
@@ -71,7 +72,7 @@ async def run_plan(handler: Any, chat_id: str, runner: PlanExecuteRunner, messag
         if handler._plan_runners.get(chat_id) is runner:
             handler._plan_runners.pop(chat_id, None)
         try:
-            handler._plan_summaries[chat_id] = runner.build_exit_summary().content
+            handler._plan_summaries[chat_id] = _plan_result_text(runner)
         except Exception:
             pass
 
@@ -91,7 +92,7 @@ async def resume_plan(handler: Any, chat_id: str, runner: PlanExecuteRunner) -> 
         if handler._plan_runners.get(chat_id) is runner:
             handler._plan_runners.pop(chat_id, None)
         try:
-            handler._plan_summaries[chat_id] = runner.build_exit_summary().content
+            handler._plan_summaries[chat_id] = _plan_result_text(runner)
         except Exception:
             pass
 
@@ -101,15 +102,7 @@ async def send_chat_text(handler: Any, chat_id: str, text: str) -> None:
 
 
 def _plan_result_text(runner: PlanExecuteRunner) -> str:
-    todo_state = getattr(runner, "_todo_state", None)
-    if todo_state is not None:
-        if any(getattr(step, "status", "") != "done" for step in getattr(todo_state, "steps", [])):
-            return runner.build_exit_summary().content
-        for step in reversed(getattr(todo_state, "steps", [])):
-            output_summary = str(getattr(step, "output_summary", "")).strip()
-            if getattr(step, "status", "") == "done" and output_summary:
-                return output_summary
-    return runner.build_exit_summary().content
+    return plan_result_text(runner)
 
 
 def parse_plan_request(text: str) -> tuple[str, str] | None:

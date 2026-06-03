@@ -19,7 +19,7 @@ from backend.core.task_queue import TaskQueue
 
 from .mcp_requirements import extract_required_mcp_servers
 from .models import AgentCategory, AgentSpec, ToolConfig
-from .runtime_support import FilteredBridge
+from .runtime_support import FilteredBridge, allowed_tools_with_defaults
 
 if TYPE_CHECKING:
     from .runtime import AgentRuntime
@@ -175,7 +175,7 @@ async def _create_plan_runner(
         bridge = FilteredBridge(
             raw_bridge,
             registry,
-            set(tools.allowed_tools),
+            allowed_tools_with_defaults(tools),
             extract_required_mcp_servers(spec),
         )
         await bridge.sync_all()

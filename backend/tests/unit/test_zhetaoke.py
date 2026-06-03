@@ -123,3 +123,11 @@ def test_builtin_tools_registers_zhetaoke_detail() -> None:
     register_builtin_tools(registry, workspace=None)
 
     assert registry.has("zhetaoke_product_detail")
+
+
+def test_zhetaoke_detail_schema_requires_tao_id() -> None:
+    definition, _execute = zhetaoke.create_zhetaoke_product_detail_tool("app-key")
+
+    assert definition.parameters.required == ["tao_id"]
+    assert "Do not use for pure keyword" in definition.description
+    assert "不能传纯关键词" in definition.parameters.properties["tao_id"]["description"]

@@ -61,7 +61,7 @@ async def run_isolated_agent(
                 model=run.model or runtime.config.default_model,
                 system_prompt=_build_sub_agent_system_prompt(run, runtime.config.workspace),
                 max_iterations=run.max_iterations,
-                max_consecutive_tool_failures=3,
+                max_consecutive_tool_failures=5,
             ),
             adapter=runtime.adapter,
             tool_registry=build_isolated_registry(
@@ -78,11 +78,14 @@ async def run_isolated_agent(
             timeout=runtime.config.timeout_per_agent,
         )
         return SubAgentResult(role=run.task.role, stage_id=-1, output=result.content.strip())
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return SubAgentResult(
             role=run.task.role,
             stage_id=-1,
-            output=f"子 Agent [{run.task.role}] 执行超时（{runtime.config.timeout_per_agent:.0f}s）",
+            output=(
+                f"子 Agent [{run.task.role}] "
+                f"执行超时（{runtime.config.timeout_per_agent:.0f}s）"
+            ),
             is_error=True,
         )
     except AgentError as exc:

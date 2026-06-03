@@ -86,7 +86,7 @@ class AnthropicAdapter(LLMAdapter):
                 return result
             except LLMError as exc:
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at)
                 raise
             except httpx.RequestError as exc:
                 if self._is_retryable_request_error(exc) and attempt < self._max_retries:
@@ -94,17 +94,18 @@ class AnthropicAdapter(LLMAdapter):
                     await self._backoff(attempt, type(exc).__name__)
                     continue
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at)
                 raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
             except Exception as exc:
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at)
                 raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
         raise LLMError("COMPLETE_ERROR", "Completion failed without response", self._provider, None)
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         model = request.model or self._default_model
         payload = build_payload(request, self._default_model, stream=True)
+        tool_blocks: dict[int, dict[str, object]] = {}
         started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="stream")
         try:
             for attempt in range(1, self._max_retries + 1):
@@ -122,7 +123,12 @@ class AnthropicAdapter(LLMAdapter):
                                 continue
                             if not line.startswith("data:"):
                                 continue
-                            chunk = parse_stream_line(event_type, line.split(":", 1)[1].strip(), self._provider)
+                            chunk = parse_stream_line(
+                                event_type,
+                                line.split(":", 1)[1].strip(),
+                                self._provider,
+                                tool_blocks,
+                            )
                             if chunk is None:
                                 continue
                             yield chunk
@@ -137,15 +143,15 @@ class AnthropicAdapter(LLMAdapter):
             raise LLMError("RATE_LIMIT", "Anthropic rate limited", self._provider, 429)
         except LLMError as exc:
             await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
+            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc, started_at=started_at)
             raise
         except httpx.RequestError as exc:
             await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
+            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc, started_at=started_at)
             raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
         except Exception as exc:
             await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
+            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc, started_at=started_at)
             raise LLMError("STREAM_ERROR", str(exc), self._provider, None) from exc
 
     def _headers(self) -> dict[str, str]:

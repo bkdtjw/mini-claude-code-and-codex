@@ -21,6 +21,7 @@ _PROVIDER_ROLES_MIGRATION_SQL = (
     "ALTER TABLE providers "
     "ADD COLUMN IF NOT EXISTS roles VARCHAR(200) NOT NULL DEFAULT ''"
 )
+_PGVECTOR_EXTENSION_SQL = "CREATE EXTENSION IF NOT EXISTS vector"
 
 
 def build_session_factory(database_url: str) -> tuple[AsyncEngine, SessionFactory]:
@@ -54,6 +55,7 @@ async def init_db(target_engine: AsyncEngine | None = None) -> None:
     resolved_engine = target_engine or engine
     try:
         async with resolved_engine.begin() as connection:
+            await connection.execute(text(_PGVECTOR_EXTENSION_SQL))
             await connection.run_sync(Base.metadata.create_all)
             await connection.execute(text(_PROVIDER_ROLES_MIGRATION_SQL))
     except Exception as exc:  # noqa: BLE001

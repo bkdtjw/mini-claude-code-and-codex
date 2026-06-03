@@ -8,9 +8,24 @@ from .diff_support import build_unified_diff
 
 
 def _is_safe_path(path: str) -> bool:
-    if not path or os.path.isabs(path):
+    if not path:
         return False
     return ".." not in path.replace("\\", "/").split("/")
+
+
+def _resolve_path(root: str, path: str) -> tuple[str, str] | None:
+    if os.path.isabs(path):
+        full_path = os.path.abspath(path)
+    elif _is_safe_path(path):
+        full_path = os.path.abspath(os.path.join(root, path))
+    else:
+        return None
+    if not full_path.startswith(root + os.sep):
+        return None
+    relative_path = os.path.relpath(full_path, root)
+    if relative_path == ".":
+        return None
+    return full_path, relative_path.replace(os.sep, "/")
 
 
 def create_write_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
@@ -35,11 +50,10 @@ def create_write_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
     async def execute(args: dict[str, object]) -> ToolResult:
         try:
             relative_path = str(args.get("path", ""))
-            if not _is_safe_path(relative_path):
+            resolved = _resolve_path(root, relative_path)
+            if resolved is None:
                 return ToolResult(output="Invalid path", is_error=True)
-            full_path = os.path.abspath(os.path.join(root, relative_path))
-            if not full_path.startswith(root + os.sep) and full_path != root:
-                return ToolResult(output="Invalid path", is_error=True)
+            full_path, relative_path = resolved
             old_exists = os.path.exists(full_path)
             old_content = ""
             if old_exists:

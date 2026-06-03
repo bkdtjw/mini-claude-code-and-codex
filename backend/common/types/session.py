@@ -20,6 +20,8 @@ class SessionConfig(BaseModel):
 
 class Session(BaseModel):
     id: str = Field(default_factory=generate_id)
+    title: str = ""
+    workspace: str = ""
     config: SessionConfig
     messages: list[Message] = Field(default_factory=list)
     created_at: datetime

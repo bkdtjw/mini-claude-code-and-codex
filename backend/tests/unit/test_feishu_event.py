@@ -1,7 +1,6 @@
 """Tests for Feishu bidirectional communication."""
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime
 from typing import Any
@@ -11,14 +10,14 @@ import httpx
 import pytest
 
 import backend.config.redis_client as redis_client
-
-from backend.common.types import Message, ProviderConfig, ProviderType, Session, SessionConfig
+from backend.api.routes.feishu_handler import FeishuMessageHandler, _extract_text
 from backend.common.errors import AgentError
+from backend.common.types import Message, ProviderConfig, ProviderType, Session, SessionConfig
 from backend.config.settings import settings
 from backend.core.s01_agent_loop import MessageHistory
 from backend.core.s05_skills import AgentCategory, AgentSpec, SpecRegistry
+
 from .redis_test_support import use_fake_redis
-from backend.api.routes.feishu_handler import FeishuMessageHandler, _extract_text
 
 
 def _make_event(
@@ -73,9 +72,9 @@ async def _init_fake_redis(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestUrlVerification:
     @pytest.mark.asyncio
     async def test_challenge_response(self) -> None:
-        from backend.api.routes.feishu import router
-
         from fastapi import FastAPI
+
+        from backend.api.routes.feishu import router
 
         app = FastAPI()
         app.include_router(router)
@@ -87,6 +86,33 @@ class TestUrlVerification:
             )
         assert resp.status_code == 200
         assert resp.json() == {"challenge": "test123"}
+
+    @pytest.mark.asyncio
+    async def test_menu_event_dedupes_before_dispatch(self) -> None:
+        from fastapi import FastAPI
+
+        from backend.api.routes.feishu import router, set_handler
+
+        handler = AsyncMock()
+        handler._seen = AsyncMock(side_effect=[False, True])
+        app = FastAPI()
+        app.include_router(router)
+        set_handler(handler)
+        event = {
+            "header": {
+                "event_id": "evt_menu_dup",
+                "event_type": "application.bot.menu_v6",
+            },
+            "event": {
+                "event_key": "kb_mode_on",
+                "operator": {"operator_id": {"open_id": "ou_1"}},
+            },
+        }
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            assert (await client.post("/api/feishu/event", json=event)).json() == {"code": 0}
+            assert (await client.post("/api/feishu/event", json=event)).json() == {"code": 0}
+        handler.handle_menu_event.assert_awaited_once_with("kb_mode_on", "ou_1")
 
 
 class TestMessageHandling:
@@ -170,7 +196,7 @@ class TestMessageHandling:
         fake = await use_fake_redis(monkeypatch)
         assert await handler._seen("evt_ttl") is False
         assert "feishu:event:evt_ttl" in fake.client.values
-        assert await fake.client.ttl("feishu:event:evt_ttl") == 86400
+        assert await fake.client.ttl("feishu:event:evt_ttl") == 300
 
     @pytest.mark.asyncio
     async def test_bot_message_ignored(self) -> None:
@@ -265,7 +291,10 @@ class TestMessageHandling:
             )
         )
         loop = _mock_loop(model="glm-5.1", system_prompt="")
-        with patch("backend.api.routes.feishu_handler.build_agent_loop", AsyncMock(return_value=loop)) as build_loop:
+        with patch(
+            "backend.api.routes.feishu_handler.build_agent_loop",
+            AsyncMock(return_value=loop),
+        ) as build_loop:
             await handler._get_or_create_loop("oc_abc")
         assert build_loop.await_args.kwargs["model"] == "glm-5.1"
 

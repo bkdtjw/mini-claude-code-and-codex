@@ -7,17 +7,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
-from .zhetaoke_brand_client import (
-    ZhetaokeBrandCredentials,
-    ZhetaokeBrandRequest,
-    fetch_brand_products,
-)
-from .zhetaoke_search_client import (
-    ZhetaokeSearchCredentials,
-    ZhetaokeSearchProduct,
-    ZhetaokeSearchRequest,
-    search_taobao_products,
-)
+from backend.core.s02_tools.commerce_tool_guidance import ZHETAOKE_TOOL_NOTE
+from .zhetaoke_brand_client import ZhetaokeBrandCredentials, ZhetaokeBrandRequest, fetch_brand_products
+from .zhetaoke_search_client import ZhetaokeSearchCredentials, ZhetaokeSearchProduct, ZhetaokeSearchRequest, search_taobao_products
 
 
 class ProductSearchArgs(BaseModel):
@@ -40,12 +32,14 @@ def create_product_search_tool(
         name="product_search",
         description=(
             "Search products from multiple verified affiliate data sources and merge results. "
-            "Currently uses Zhetaoke Taobao full-network search plus selected-brand pool."
+            "No-result sources are not failures; continue merging other sources. "
+            "Currently uses Zhetaoke Taobao full-network search plus selected-brand pool. "
+            + ZHETAOKE_TOOL_NOTE
         ),
         category="search",
         parameters=ToolParameterSchema(
             properties={
-                "q": {"type": "string", "description": "商品关键词、店铺名或商品链接"},
+                "q": {"type": "string", "description": "必填，商品关键词、店铺名或商品链接"},
                 "max_results": {"type": "integer", "description": "返回数量，默认 8，最大 20"},
                 "sort_by": {"type": "string", "description": "coupon_price、commission、volume、source"},
                 "only_coupon": {"type": "boolean", "description": "是否只看有券商品，默认 true"},
@@ -54,7 +48,7 @@ def create_product_search_tool(
                 "min_price": {"type": "string", "description": "券后价/折扣价下限"},
                 "max_price": {"type": "string", "description": "券后价/折扣价上限"},
             },
-            required=[],
+            required=["q"],
         ),
     )
 
@@ -62,9 +56,11 @@ def create_product_search_tool(
         try:
             params = _parse_args(args)
             credentials = _load_credentials(appkey, sid, pid)
-            products = await _collect_products(params, credentials)
+            products, errors = await _collect_products(params, credentials)
             merged = _sort_products(_dedupe_products(products), params.sort_by)[: params.max_results]
-            return ToolResult(output=_format_report(params, merged))
+            if len(errors) >= 1 + int(params.include_brand_pool) and not merged:
+                return ToolResult(output=f"商品聚合搜索失败：{'; '.join(errors)}", is_error=True)
+            return ToolResult(output=_format_report(params, merged, errors))
         except (ValueError, Exception) as exc:  # noqa: BLE001
             return ToolResult(output=f"商品聚合搜索失败：{exc}", is_error=True)
 
@@ -93,28 +89,35 @@ def _load_credentials(appkey: str, sid: str, pid: str) -> ZhetaokeSearchCredenti
 async def _collect_products(
     params: ProductSearchArgs,
     credentials: ZhetaokeSearchCredentials,
-) -> list[tuple[str, ZhetaokeSearchProduct]]:
+) -> tuple[list[tuple[str, ZhetaokeSearchProduct]], list[str]]:
     products: list[tuple[str, ZhetaokeSearchProduct]] = []
-    search_items = await search_taobao_products(
-        credentials,
-        ZhetaokeSearchRequest(
-            q=params.q,
-            page_size=params.max_results,
-            sort=_to_search_sort(params.sort_by),
-            youquan="1" if params.only_coupon else "",
-            start_tk_rate=params.min_commission_rate,
-            start_price=params.min_price,
-            end_price=params.max_price,
-        ),
-    )
-    products.extend(("全网搜索", item) for item in search_items)
-    if params.include_brand_pool:
-        brand_result = await fetch_brand_products(
-            ZhetaokeBrandCredentials(**credentials.model_dump()),
-            ZhetaokeBrandRequest(page_size=min(params.max_results, 10), sort="new"),
+    errors: list[str] = []
+    try:
+        search_items = await search_taobao_products(
+            credentials,
+            ZhetaokeSearchRequest(
+                q=params.q,
+                page_size=params.max_results,
+                sort=_to_search_sort(params.sort_by),
+                youquan="1" if params.only_coupon else "",
+                start_tk_rate=params.min_commission_rate,
+                start_price=params.min_price,
+                end_price=params.max_price,
+            ),
         )
-        products.extend(("精选品牌", item) for item in brand_result.products)
-    return products
+        products.extend(("全网搜索", item) for item in search_items)
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"全网搜索失败：{exc}")
+    if params.include_brand_pool:
+        try:
+            brand_result = await fetch_brand_products(
+                ZhetaokeBrandCredentials(**credentials.model_dump()),
+                ZhetaokeBrandRequest(page_size=min(params.max_results, 10), sort="new"),
+            )
+            products.extend(("精选品牌", item) for item in brand_result.products)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"精选品牌失败：{exc}")
+    return products, errors
 
 
 def _to_search_sort(sort_by: str) -> str:
@@ -164,11 +167,18 @@ def _number(value: str) -> float:
         return 0.0
 
 
-def _format_report(params: ProductSearchArgs, products: list[tuple[str, ZhetaokeSearchProduct]]) -> str:
+def _format_report(
+    params: ProductSearchArgs,
+    products: list[tuple[str, ZhetaokeSearchProduct]],
+    errors: list[str],
+) -> str:
     label = params.q or "商品"
     if not products:
-        return f'商品聚合搜索: "{label}" 未返回商品数据。'
+        output = f'商品聚合搜索: "{label}" 未找到匹配商品/优惠券。'
+        return "\n\n".join([output, f"数据源提示: {'；'.join(errors)}"]) if errors else output
     lines = [f'商品聚合搜索: "{label}"，返回 {len(products)} 个结果']
+    if errors:
+        lines.extend(["", f"数据源提示: {'；'.join(errors)}"])
     for index, (source, item) in enumerate(products, start=1):
         lines.extend(
             [

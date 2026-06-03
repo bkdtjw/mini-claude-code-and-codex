@@ -4,10 +4,9 @@ from dataclasses import dataclass
 
 from backend.adapters.base import LLMAdapter
 from backend.common.errors import AgentError
-from backend.common.types import Message, ToolResult
+from backend.common.types import Message, ToolDefinition, ToolResult
 
-from .level1_artifact import sink_tool_result
-from .level2_compact import compact_old_tool_summaries
+from .level2_compact import compact_oldest_large_tool_result
 from .level3_summary import Level3SummaryError, SummaryArchiveRequest, summarize_archive
 from .token_counter import TokenCounter
 
@@ -47,21 +46,38 @@ class LayeredCompressor:
 
     async def process_tool_result(self, result: ToolResult) -> ToolResult:
         try:
-            return sink_tool_result(result, self._artifacts_dir, self._session_id)
+            return result
         except Exception:
             return result
 
-    async def check_and_compact(self, messages: list[Message]) -> list[Message]:
+    async def check_and_compact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> list[Message]:
         try:
-            if self._current_usage_pct(messages) > self._threshold_l2:
-                return compact_old_tool_summaries(messages)
-            return list(messages)
+            compacted = list(messages)
+            if not self._has_read_history(tools):
+                return compacted
+            while self._current_usage_pct(compacted, tools) > self._threshold_l2:
+                compacted, changed = compact_oldest_large_tool_result(
+                    compacted,
+                    self._artifacts_dir,
+                    self._session_id,
+                )
+                if not changed:
+                    break
+            return compacted
         except Exception:
             return list(messages)
 
-    async def summarize_and_archive(self, messages: list[Message]) -> list[Message]:
+    async def summarize_and_archive(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> list[Message]:
         try:
-            if self._current_usage_pct(messages) <= self._threshold_l3:
+            if self._current_usage_pct(messages, tools) <= self._threshold_l3:
                 return list(messages)
             return await summarize_archive(
                 SummaryArchiveRequest(
@@ -77,6 +93,18 @@ class LayeredCompressor:
         except Exception:
             return list(messages)
 
-    def _current_usage_pct(self, messages: list[Message]) -> float:
+    def _current_usage_pct(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> float:
         tokens = self._token_counter.estimate_messages_tokens(messages)
+        if tools:
+            tokens += self._token_counter.estimate_tools_tokens(tools)
         return tokens / max(1, self._max_context_tokens)
+
+    @staticmethod
+    def _has_read_history(tools: list[ToolDefinition] | None) -> bool:
+        if tools is None:
+            return True
+        return any(tool.name == "read_history" for tool in tools)

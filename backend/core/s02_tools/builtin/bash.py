@@ -118,10 +118,18 @@ def _decode_output(data: bytes) -> str:
 def create_bash_tool(cwd: str, timeout: int = 30) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="Bash",
-        description="Execute a shell command and return the output.",
+        description=(
+            "Execute a local shell command in the current workspace and return the output. Use "
+            "for local commands such as pwd, ls, find, tree, git, tests, and project inspection."
+        ),
         category="shell",
         parameters=ToolParameterSchema(
-            properties={"command": {"type": "string", "description": "Shell command to execute"}},
+            properties={
+                "command": {
+                    "type": "string",
+                    "description": "Local shell command to execute in the current workspace",
+                }
+            },
             required=["command"],
         ),
     )

@@ -24,7 +24,11 @@ from .models import AgentCategory, AgentSpec, ToolConfig
 from .on_demand_loader import OnDemandSkillLoader
 from .registry import SpecRegistry
 from .runtime_plan import create_runtime_runner
-from .runtime_support import FilteredBridge, build_runtime_registry
+from .runtime_support import (
+    FilteredBridge,
+    allowed_tools_with_defaults,
+    build_runtime_registry,
+)
 
 
 class AgentRuntimeDeps(BaseModel):
@@ -78,7 +82,7 @@ class AgentRuntime:
             bridge = FilteredBridge(
                 MCPToolBridge(self._deps.mcp_manager, registry),
                 registry,
-                set(spec.tools.allowed_tools),
+                allowed_tools_with_defaults(spec.tools),
                 extract_required_mcp_servers(spec),
             )
             await bridge.sync_all()
@@ -243,6 +247,7 @@ class AgentRuntime:
             self._deps.spec_registry,
             is_sub_agent,
             skill_loader,
+            zhipu_web_search_api_key=self._deps.settings.zhipu_web_search_api_key,
         )
 
     async def _resolve_provider(self, requested: str) -> ProviderConfig:

@@ -27,6 +27,30 @@ async def test_write_tool_returns_structured_create_diff(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_write_tool_accepts_absolute_path_under_workspace(tmp_path: Path) -> None:
+    _, execute = create_write_tool(str(tmp_path))
+    target = tmp_path / "reports" / "final.md"
+
+    result = await execute({"path": str(target), "content": "report\n"})
+
+    assert result.is_error is False
+    assert result.output == "Wrote file: reports/final.md"
+    assert target.read_text(encoding="utf-8") == "report\n"
+
+
+@pytest.mark.asyncio
+async def test_write_tool_rejects_absolute_path_outside_workspace(tmp_path: Path) -> None:
+    _, execute = create_write_tool(str(tmp_path))
+    target = tmp_path.parent / "outside.md"
+
+    result = await execute({"path": str(target), "content": "nope\n"})
+
+    assert result.is_error is True
+    assert result.output == "Invalid path"
+    assert not target.exists()
+
+
+@pytest.mark.asyncio
 async def test_edit_tools_return_structured_modify_diffs(tmp_path: Path) -> None:
     target = tmp_path / "sample.txt"
     target.write_text("one\ntwo\nthree\n", encoding="utf-8")

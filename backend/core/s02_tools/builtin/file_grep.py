@@ -30,12 +30,21 @@ class GrepResult(BaseModel):
 def create_grep_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="Grep",
-        description="Search text files in the workspace and return path, line number, and matching line.",
+        description=(
+            "Search local text/code files in the current workspace/repository and return path, "
+            "line number, and matching line. Use this for code search and locating symbols."
+        ),
         category="file-ops",
         parameters=ToolParameterSchema(
             properties={
-                "pattern": {"type": "string", "description": "Text or regex pattern to search for"},
-                "include": {"type": "string", "description": "Glob of files to search, default **/*"},
+                "pattern": {
+                    "type": "string",
+                    "description": "Text or regex pattern to search for in local workspace files",
+                },
+                "include": {
+                    "type": "string",
+                    "description": "Workspace glob of files to search, default **/*",
+                },
                 "case_sensitive": {"type": "boolean", "description": "Whether matching is case-sensitive"},
                 "regex": {"type": "boolean", "description": "Treat pattern as a regular expression"},
                 "max_results": {"type": "integer", "description": "Maximum matches to return"},

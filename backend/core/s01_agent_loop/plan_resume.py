@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from backend.common.logging import get_logger
 from backend.common.types import Message
 
 from .plan_approval_wait import await_plan_approval
@@ -10,9 +11,13 @@ from .plan_detail_store import DetailedPlanWrite, save_detailed_plan
 from .plan_execute_errors import PlanExecuteError
 from .plan_execution_plan import build_todo_state_from_plan
 from .plan_finish import execution_finish_status
+from .plan_lightweight import LightweightPlanInput, generate_lightweight_plan
 from .plan_models import PlanPhase, PlanState
 from .plan_recon_parse import recon_plan_preview
 from .plan_state_machine import TERMINAL_PHASES
+from .plan_task_routing import route_plan_task
+
+logger = get_logger(component="plan_execute_runner")
 
 if TYPE_CHECKING:
     from backend.adapters.base import LLMAdapter
@@ -107,10 +112,18 @@ class PlanResumeMixin:
             raise PlanExecuteError("PLAN_RESUME_RUN_ERROR", str(exc)) from exc
 
     async def _run_from_recon(self, user_message: str) -> bool:
+        route = route_plan_task(user_message)
+        logger.info("plan_task_routed", task_kind=route.task_kind.value, used_recon=route.used_recon, reason=route.reason)  # noqa: E501
         if self._state.phase != PlanPhase.RECON:
             self._set_phase(PlanPhase.RECON)
         await self._notify_renderer("on_recon_start", user_message)
-        recon_plan = await self._run_recon(user_message)
+        if route.used_recon:
+            recon_plan = await self._run_recon(user_message)
+        else:
+            tool_names = [definition.name for definition in self._tool_registry.list_definitions()]
+            recon_plan = await generate_lightweight_plan(
+                LightweightPlanInput(self._adapter, route, user_message, tool_names)
+            )
         if self._cancelled:
             return False
         recon_report = recon_plan_preview(recon_plan)

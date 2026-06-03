@@ -21,11 +21,18 @@ class GlobResult(BaseModel):
 def create_glob_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="Glob",
-        description="Find files in the workspace by glob pattern without using shell commands.",
+        description=(
+            "Find local files and discover the current workspace/repository structure by glob "
+            "pattern without using shell commands. Use this for project structure, entrypoint, "
+            "module, and file-list discovery."
+        ),
         category="file-ops",
         parameters=ToolParameterSchema(
             properties={
-                "pattern": {"type": "string", "description": "Glob pattern such as **/*.py"},
+                "pattern": {
+                    "type": "string",
+                    "description": "Workspace glob pattern such as **/*.py or frontend/src/**/*",
+                },
                 "max_results": {"type": "integer", "description": "Maximum file paths to return"},
             },
             required=["pattern"],

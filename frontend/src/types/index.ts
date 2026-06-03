@@ -2,6 +2,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
   content: string;
+  reasoningContent?: string;
+  reasoningDurationMs?: number;
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
   timestamp: string;
@@ -28,7 +30,7 @@ export interface ToolResult {
   diffs?: FileDiff[];
 }
 
-export type AgentStatus = "idle" | "thinking" | "tool_calling" | "done" | "error";
+export type AgentStatus = "idle" | "thinking" | "compacting" | "tool_calling" | "waiting_approval" | "done" | "error";
 
 export interface Session {
   id: string;
@@ -53,11 +55,44 @@ export interface Provider {
   enabled: boolean;
 }
 
+export interface WorkspaceEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  isProject: boolean;
+}
+
+export interface WorkspaceCrumb {
+  name: string;
+  path: string;
+}
+
+export interface WorkspaceList {
+  root: string;
+  path: string;
+  parent?: string | null;
+  breadcrumbs: WorkspaceCrumb[];
+  entries: WorkspaceEntry[];
+  truncated: boolean;
+}
+
+export interface WorkspaceValidation {
+  ok: boolean;
+  path: string;
+  isProject: boolean;
+  message: string;
+}
+
+export type ThinkingLevel = "low" | "medium" | "high";
+
+export interface ChatRunOptions { thinking?: boolean; thinkingLevel?: ThinkingLevel; mode?: "direct" | "project" | "knowledge"; knowledgeBaseId?: string; }
+
 export type MetricName =
   | "llm_calls"
   | "llm_errors"
   | "llm_prompt_tokens"
   | "llm_completion_tokens"
+  | "llm_cached_prompt_tokens"
   | "tool_calls"
   | "tool_errors"
   | "task_triggers"
@@ -81,6 +116,18 @@ export interface MetricDetail {
   name: string;
   total: number;
   daily: Record<string, number>;
+}
+
+export interface LatencyStat {
+  name: string;
+  count: number;
+  p50_ms: number;
+  p95_ms: number;
+  max_ms: number;
+}
+
+export interface LatencySummary {
+  latencies: Record<string, LatencyStat>;
 }
 
 export type LogLevel = "debug" | "info" | "warning" | "error";
@@ -118,12 +165,31 @@ export interface TraceResult {
   events: LogEntry[];
 }
 
+export interface TraceSpan {
+  traceId: string;
+  spanId: string;
+  parentSpanId: string;
+  name: string;
+  status: "success" | "error";
+  startTime: string;
+  endTime: string;
+  durationMs: number;
+  component: string;
+  attributes: Record<string, unknown>;
+}
+
+export interface TraceSpanResult {
+  traceId: string;
+  spans: TraceSpan[];
+}
+
 export type WsIncoming =
   | { type: "status"; status: AgentStatus }
-  | { type: "message"; content: string; toolCalls?: ToolCall[] }
+  | { type: "message"; content: string; reasoningContent?: string; toolCalls?: ToolCall[] }
   | { type: "tool_call"; id: string; name: string; arguments: Record<string, unknown> }
   | { type: "tool_result"; toolCallId: string; output: string; isError: boolean; diffs?: FileDiff[] }
   | { type: "security_reject"; toolCallId: string; output: string; isError: boolean; diffs?: FileDiff[] }
   | { type: "text"; content: string }
+  | { type: "reasoning"; content: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };

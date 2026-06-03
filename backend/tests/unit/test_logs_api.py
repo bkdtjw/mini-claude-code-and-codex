@@ -129,6 +129,37 @@ async def test_trace_endpoint_returns_chronological_events(client: httpx.AsyncCl
 
 
 @pytest.mark.asyncio
+async def test_trace_spans_endpoint_returns_structured_spans(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    now = datetime.now(UTC)
+    _append_log(
+        tmp_path / "app.log",
+        now - timedelta(seconds=2),
+        level="info",
+        event="trace_span",
+        trace_id="trace-spans",
+        component="trace",
+        span_id="root",
+        parent_span_id="",
+        span_name="agent.run",
+        status="success",
+        start_time=(now - timedelta(seconds=4)).isoformat().replace("+00:00", "Z"),
+        end_time=(now - timedelta(seconds=2)).isoformat().replace("+00:00", "Z"),
+        duration_ms=2000,
+        attributes={"model": "unit"},
+    )
+    response = await client.get(
+        "/api/logs/trace/trace-spans/spans",
+        headers={"Authorization": "Bearer test-secret"},
+    )
+
+    assert response.status_code == 200
+    span = response.json()["spans"][0]
+    assert span["span_id"] == "root"
+    assert span["name"] == "agent.run"
+    assert span["attributes"]["model"] == "unit"
+
+
+@pytest.mark.asyncio
 async def test_logs_search_reads_worker_scoped_log_files(client: httpx.AsyncClient, tmp_path: Path) -> None:
     _append_log(
         tmp_path / "app.worker-1.log",

@@ -49,7 +49,7 @@ export default function ToolCallLine({ call, result, pending = false }: ToolCall
 
   if (pending) {
     return (
-      <div className="tool-shimmer flex items-center gap-2 py-1 text-sm text-[#999999]">
+      <div className="tool-shimmer flex items-center gap-2 py-1 font-sans text-sm text-[#999999]">
         <span className="text-xs">...</span>
         <span>正在运行 {label}</span>
       </div>
@@ -59,7 +59,7 @@ export default function ToolCallLine({ call, result, pending = false }: ToolCall
   if (!result) return null;
 
   return (
-    <div className="group flex items-start gap-2 py-1 text-sm">
+    <div className="group flex items-start gap-2 py-1 font-sans text-sm">
       <span className={`mt-0.5 text-xs ${result.isError ? "text-red-500" : "text-emerald-500"}`}>
         {result.isError ? "x" : "ok"}
       </span>
@@ -80,9 +80,9 @@ export default function ToolCallLine({ call, result, pending = false }: ToolCall
           </div>
         ) : null}
         {expanded && result.output ? (
-          <pre className="mt-1 max-h-48 overflow-x-auto overflow-y-auto rounded bg-[#0a0a0a] p-2 text-xs text-[#888888]">
+          <div className="mt-1 max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--as-code-bg)] p-2 text-xs leading-5 text-[var(--as-text-muted)]">
             {result.output}
-          </pre>
+          </div>
         ) : null}
         {expanded && result.diffs?.length ? (
           <div className="mt-2 max-h-96 space-y-2 overflow-y-auto">

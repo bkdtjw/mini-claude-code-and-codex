@@ -24,14 +24,20 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
     definition = ToolDefinition(
         name="browse_web",
         description=(
-            "Open a browser and complete a multi-step web task autonomously. "
-            "Use for finding info on websites, scraping data behind login, "
-            "and interacting with web UIs. Returns text result."
+            "Run a browser automation sub-agent for a website or web application. "
+            "It can navigate pages, click and fill controls, scroll, extract visible page text, "
+            "handle website login flows, and capture evidence screenshots. Use when the task "
+            "depends on observing or interacting with web pages. Returns a text result."
         ),
         category="browser",
         parameters=ToolParameterSchema(
             properties={
-                "task": {"type": "string", "description": "High-level task in natural language"},
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "High-level task to perform in a browser on a website or web application."
+                    ),
+                },
                 "domain": {"type": "string", "description": "Optional storage_state domain"},
                 "max_steps": {"type": "integer", "description": "Default 15, max 30"},
                 "vision_provider_id": {"type": "string", "description": "Override vision provider"},

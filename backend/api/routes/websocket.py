@@ -7,10 +7,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.api.routes.providers import provider_manager
 from backend.common.errors import AgentError
+from backend.common.types import Message
 from backend.core.s01_agent_loop import AgentLoop, PlanCheckpointStore, PlanExecuteRunner, PlanState
 from backend.core.s01_agent_loop.plan_state_machine import TERMINAL_PHASES
 from backend.storage import SessionStore
 
+from .websocket_knowledge import prepare_knowledge_run
 from .websocket_plan import create_plan_runner, run_plan_loop, run_plan_resume_loop
 from .websocket_plan_resume import create_plan_resume_runner
 from .websocket_pubsub import forward_session_messages, publish_session_message
@@ -22,6 +24,7 @@ from .websocket_support import (
     parse_loop_settings,
     resolve_loop_settings,
     run_loop,
+    serialize_message_for_client,
 )
 
 router = APIRouter()
@@ -42,21 +45,27 @@ class ConnectionManager:
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_CONNECT_ERROR", str(exc)) from exc
 
-    async def disconnect(self, session_id: str, store: SessionStore | None = None) -> None:
+    async def disconnect(
+        self,
+        session_id: str,
+        *,
+        websocket: WebSocket | None = None,
+        subscriber_task: asyncio.Task[Any] | None = None,
+        store: SessionStore | None = None,
+    ) -> None:
         try:
-            loop = self._loops.pop(session_id, None)
+            loop = self._loops.get(session_id)
             if loop is not None:
                 await self._sync_messages(session_id, loop, store)
-                loop.abort()
-            self._plan_runners.pop(session_id, None)
-            self._loop_settings.pop(session_id, None)
-            task = self._tasks.pop(session_id, None)
-            if task and not task.done():
-                task.cancel()
-            subscriber_task = self._subscriber_tasks.pop(session_id, None)
+            active_subscriber = self._subscriber_tasks.get(session_id)
+            if subscriber_task is None:
+                subscriber_task = active_subscriber
+            if active_subscriber is subscriber_task:
+                self._subscriber_tasks.pop(session_id, None)
             if subscriber_task and not subscriber_task.done():
                 subscriber_task.cancel()
-            self._connections.pop(session_id, None)
+            if websocket is None or self._connections.get(session_id) is websocket:
+                self._connections.pop(session_id, None)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_DISCONNECT_ERROR", str(exc)) from exc
 
@@ -124,10 +133,8 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     store = get_store(websocket)
     await manager.connect(session_id, websocket)
     await _send_resume_available(websocket, session_id)
-    manager.set_subscriber_task(
-        session_id,
-        asyncio.create_task(forward_session_messages(session_id, websocket)),
-    )
+    subscriber_task = asyncio.create_task(forward_session_messages(session_id, websocket))
+    manager.set_subscriber_task(session_id, subscriber_task)
     try:
         while True:
             data = await websocket.receive_json()
@@ -171,7 +178,9 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                         )
                         continue
                     if not user_message and not settings.spec_id:
-                        await websocket.send_json({"type": "error", "message": "message is required"})
+                        await websocket.send_json(
+                            {"type": "error", "message": "message is required"}
+                        )
                         continue
                     try:
                         runner = await create_plan_runner(
@@ -206,6 +215,19 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                         {"type": "error", "message": "Plan is already running"}
                     )
                     continue
+                knowledge_run = await prepare_knowledge_run(settings, user_message)
+                if knowledge_run.empty_reply:
+                    answer = Message(role="assistant", content=knowledge_run.empty_reply)
+                    if store is not None:
+                        await store.add_messages(
+                            session_id,
+                            [Message(role="user", content=user_message), answer],
+                        )
+                    await send_message({"type": "message", "content": answer.content})
+                    await send_message(
+                        {"type": "done", "message": serialize_message_for_client(answer)}
+                    )
+                    continue
                 current_settings = manager.get_loop_settings(session_id)
                 if (
                     loop is None
@@ -237,7 +259,8 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                     run_loop(
                         RunLoopInput(
                             loop=loop,
-                            message=user_message,
+                            message=knowledge_run.message,
+                            display_message=knowledge_run.display_message,
                             send_message=send_message,
                             session_id=session_id,
                             store=store,
@@ -261,7 +284,9 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 runner.reject(reason)
             elif msg_type == "plan_resume":
                 if manager._plan_runners.get(session_id):
-                    await websocket.send_json({"type": "error", "message": "Plan is already running"})
+                    await websocket.send_json(
+                        {"type": "error", "message": "Plan is already running"}
+                    )
                     continue
                 settings = await resolve_loop_settings(parse_loop_settings(data), provider_manager)
                 state = websocket.app.state
@@ -329,13 +354,23 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
             else:
                 await websocket.send_json({"type": "error", "message": "Unsupported message type"})
     except WebSocketDisconnect:
-        await manager.disconnect(session_id, store)
+        await manager.disconnect(
+            session_id,
+            websocket=websocket,
+            subscriber_task=subscriber_task,
+            store=store,
+        )
     except Exception as exc:  # noqa: BLE001
         try:
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
             return
-        await manager.disconnect(session_id, store)
+        await manager.disconnect(
+            session_id,
+            websocket=websocket,
+            subscriber_task=subscriber_task,
+            store=store,
+        )
 
 
 async def _send_resume_available(websocket: WebSocket, session_id: str) -> None:

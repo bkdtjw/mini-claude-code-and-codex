@@ -64,7 +64,7 @@ def test_skill_loader_loads_prompt_tools_and_sub_agents(tmp_path: Path) -> None:
     assert spec.id == "tech-research"
     assert spec.description == "这是一个描述文本。"
     assert spec.system_prompt == "你是技术调研 agent。"
-    assert spec.tools.allowed_tools == ["Read", "Bash"]
+    assert spec.tools.allowed_tools == ["Read", "Bash", "read_history"]
     assert spec.tools.tool_overrides["Bash"]["timeout"] == 60
     assert spec.sub_agents.allowed_specs == ["code-reviewer"]
     assert spec.timeout_seconds == 600

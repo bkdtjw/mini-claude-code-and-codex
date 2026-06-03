@@ -80,6 +80,20 @@ async def test_fetch_brand_products_parses_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_brand_products_treats_empty_301_as_no_results() -> None:
+    fake_client = FakeClient({"status": 301, "content": "无符合条件的数据"})
+
+    result = await fetch_brand_products(
+        ZhetaokeBrandCredentials(appkey="app-key", sid="sid", pid="pid"),
+        ZhetaokeBrandRequest(pinpai_name="不存在品牌"),
+        fake_client,  # type: ignore[arg-type]
+    )
+
+    assert result.products == []
+    assert result.total_count == 0
+
+
+@pytest.mark.asyncio
 async def test_zhetaoke_brand_tool_returns_report(monkeypatch: pytest.MonkeyPatch) -> None:
     fetch_mock = AsyncMock(
         return_value=ZhetaokeBrandResult(

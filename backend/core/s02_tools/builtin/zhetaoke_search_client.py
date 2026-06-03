@@ -6,6 +6,7 @@ import httpx
 from pydantic import BaseModel, Field, field_validator
 
 from backend.config.http_client import load_http_client_config
+from backend.core.s02_tools.commerce_tool_guidance import is_zhetaoke_no_result
 from backend.core.s02_tools.builtin.youtube_log_filter import install_httpx_api_key_redaction
 
 ZHETAOKE_SEARCH_URL = "https://api.zhetaoke.com:10003/api/api_quanwang.ashx"
@@ -162,7 +163,11 @@ async def _request_json_from_url(
         raise ZhetaokeSearchError("折淘客全网搜索返回不是 JSON object")
     status = int(payload.get("status") or 0)
     if status != 200:
-        raise ZhetaokeSearchError(f"折淘客全网搜索错误 {status}")
+        message = str(payload.get("content") or payload.get("msg") or payload.get("message") or "").strip()
+        if is_zhetaoke_no_result(status, message):
+            return {"status": 200, "content": []}
+        suffix = f"：{message}" if message else ""
+        raise ZhetaokeSearchError(f"折淘客全网搜索错误 {status}{suffix}")
     return payload
 
 

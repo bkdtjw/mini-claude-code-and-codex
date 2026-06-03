@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.api.middleware.auth import verify_token
 from backend.common.log_search import LogSearchError, LogSearchQuery, LogSearchSourceError
-from backend.common.log_search.service import get_trace_events, search_logs
-from backend.schemas.observability import LogSearchResponse, TraceResponse
+from backend.common.log_search.service import get_trace_events, get_trace_spans, search_logs
+from backend.schemas.observability import LogSearchResponse, TraceResponse, TraceSpansResponse
 
 router = APIRouter(
     prefix="/api/logs",
@@ -60,6 +60,19 @@ async def trace_events(trace_id: str) -> TraceResponse:
         raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail={"code": "TRACE_SEARCH_ERROR", "message": str(exc)}) from exc
+
+
+@router.get("/trace/{trace_id}/spans", response_model=TraceSpansResponse)
+async def trace_spans(trace_id: str) -> TraceSpansResponse:
+    try:
+        spans = await get_trace_spans(trace_id.strip())
+        return TraceSpansResponse(trace_id=trace_id.strip(), spans=spans)
+    except LogSearchSourceError as exc:
+        raise HTTPException(status_code=502, detail={"code": exc.code, "message": exc.message}) from exc
+    except LogSearchError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail={"code": "TRACE_SPAN_SEARCH_ERROR", "message": str(exc)}) from exc
 
 
 __all__ = ["router"]

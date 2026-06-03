@@ -53,7 +53,7 @@ class Message(BaseModel):
 
 
 class StreamChunk(BaseModel):
-    type: Literal["text", "tool_call", "tool_result", "done"]
+    type: Literal["text", "reasoning", "tool_call", "tool_result", "done"]
     data: Any = None
 
 

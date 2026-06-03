@@ -34,6 +34,22 @@ services:
       - ./observability/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
 
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.7.3}
+    container_name: agent-studio-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - app
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
   alloy:
     image: ${ALLOY_IMAGE:-grafana/alloy:v1.15.1}
     container_name: agent-studio-alloy
@@ -57,6 +73,7 @@ services:
       - "3000:3000"
     depends_on:
       - loki
+      - prometheus
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -68,4 +85,5 @@ services:
 
 volumes:
   loki_data:
+  prometheus_data:
   grafana_data:

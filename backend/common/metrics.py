@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
+import math
 from typing import Any
 
 from backend.config import get_redis
 from backend.config.settings import settings
+from backend.common.prometheus_metrics import record_business_metric
 
 _SECONDS_PER_DAY = 86400
+_MAX_LATENCY_SAMPLES_PER_DAY = 2000
 METRIC_NAMES = (
     "llm_calls",
     "llm_errors",
@@ -24,6 +28,13 @@ METRIC_NAMES = (
     "plan_step_results_persisted",
     "plan_step_resumed_from_disk",
 )
+LATENCY_METRICS = {
+    "http": "HTTP 请求",
+    "agent_run": "Agent 执行",
+    "llm_request": "LLM 请求",
+    "tool_call": "工具调用",
+    "sub_agent_task": "子 Agent",
+}
 _collector: MetricsCollector | None = None
 
 
@@ -51,9 +62,43 @@ class MetricsCollector:
             values[bucket.isoformat()] = await self.get(metric, bucket.isoformat())
         return values
 
+    async def record_latency(self, metric: str, duration_ms: float) -> None:
+        if metric not in LATENCY_METRICS or duration_ms < 0:
+            return
+        key = self._latency_key(metric, date.today())
+        total = await self._redis.lpush(key, str(round(duration_ms, 2)))
+        if int(total) == 1:
+            await self._redis.expire(key, self._ttl_seconds)
+        await self._redis.ltrim(key, 0, _MAX_LATENCY_SAMPLES_PER_DAY - 1)
+
+    async def get_latency_summary(self, days: int = 1) -> dict[str, dict[str, Any]]:
+        summary: dict[str, dict[str, Any]] = {}
+        for metric, name in LATENCY_METRICS.items():
+            samples = await self._latency_samples(metric, days)
+            if samples:
+                summary[metric] = _latency_stats(name, samples)
+        return summary
+
+    async def _latency_samples(self, metric: str, days: int) -> list[float]:
+        today = date.today()
+        samples: list[float] = []
+        for offset in range(max(days, 1) - 1, -1, -1):
+            bucket = today - timedelta(days=offset)
+            raw_values = await self._redis.lrange(self._latency_key(metric, bucket), 0, -1)
+            for raw in raw_values:
+                try:
+                    samples.append(float(raw))
+                except (TypeError, ValueError):
+                    continue
+        return samples
+
     @staticmethod
     def _key(metric: str, bucket_date: date) -> str:
         return f"metrics:{metric}:{bucket_date.isoformat()}"
+
+    @staticmethod
+    def _latency_key(metric: str, bucket_date: date) -> str:
+        return f"metrics:latency:{metric}:{bucket_date.isoformat()}"
 
 
 async def init_metrics() -> None:
@@ -80,9 +125,54 @@ async def get_metrics() -> MetricsCollector:
 
 async def incr(metric: str, value: int = 1) -> None:
     try:
+        record_business_metric(metric, value)
+    except Exception:
+        pass
+    try:
         await (await get_metrics()).increment(metric, value)
     except Exception:
         return
 
 
-__all__ = ["METRIC_NAMES", "MetricsCollector", "close_metrics", "get_metrics", "incr", "init_metrics"]
+async def record_latency_sample(metric: str, duration_ms: float) -> None:
+    try:
+        await (await get_metrics()).record_latency(metric, duration_ms)
+    except Exception:
+        return
+
+
+def record_latency_sample_nowait(metric: str, duration_ms: float) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(record_latency_sample(metric, duration_ms))
+
+
+def _latency_stats(name: str, samples: list[float]) -> dict[str, Any]:
+    items = sorted(samples)
+    return {
+        "name": name,
+        "count": len(items),
+        "p50_ms": _percentile(items, 50),
+        "p95_ms": _percentile(items, 95),
+        "max_ms": round(items[-1], 2),
+    }
+
+
+def _percentile(items: list[float], percentile: int) -> float:
+    index = max(math.ceil((percentile / 100) * len(items)) - 1, 0)
+    return round(items[index], 2)
+
+
+__all__ = [
+    "LATENCY_METRICS",
+    "METRIC_NAMES",
+    "MetricsCollector",
+    "close_metrics",
+    "get_metrics",
+    "incr",
+    "init_metrics",
+    "record_latency_sample",
+    "record_latency_sample_nowait",
+]

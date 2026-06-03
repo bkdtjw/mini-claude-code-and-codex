@@ -45,6 +45,7 @@ class LLMRequest(BaseModel):
     tool_choice: str | dict[str, Any] | None = None
     temperature: float = 0.7
     max_tokens: int = 16384
+    thinking: bool = False
     prompt_cache_key: str = ""
     prompt_cache_retention: Literal["in_memory", "24h"] | None = None
 

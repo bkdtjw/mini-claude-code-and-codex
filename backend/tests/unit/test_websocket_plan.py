@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from typing import Any
 
 import pytest
@@ -109,15 +110,67 @@ async def test_exit_summary_injected_to_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_disconnect_cleans_plan_runner() -> None:
+async def test_disconnect_keeps_plan_runner_for_background_execution() -> None:
     manager = ConnectionManager()
     runner = FakeRunner()
     manager._plan_runners["session-1"] = runner  # noqa: SLF001
 
     await manager.disconnect("session-1")
 
-    assert "session-1" not in manager._plan_runners  # noqa: SLF001
+    assert manager._plan_runners["session-1"] is runner  # noqa: SLF001
     assert runner.cancelled is False
+
+
+@pytest.mark.asyncio
+async def test_disconnect_keeps_running_loop_and_task() -> None:
+    manager = ConnectionManager()
+
+    async def sleeper() -> None:
+        await asyncio.sleep(30)
+
+    task = asyncio.create_task(sleeper())
+    manager._loops["session-1"] = object()  # type: ignore[assignment]  # noqa: SLF001
+    manager._tasks["session-1"] = task  # noqa: SLF001
+
+    await manager.disconnect("session-1")
+
+    assert "session-1" in manager._loops  # noqa: SLF001
+    assert manager._tasks["session-1"] is task  # noqa: SLF001
+    assert not task.cancelled()
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_disconnect_only_removes_matching_connection_and_subscriber() -> None:
+    manager = ConnectionManager()
+
+    async def sleeper() -> None:
+        await asyncio.sleep(30)
+
+    old_ws = object()
+    new_ws = object()
+    old_subscriber = asyncio.create_task(sleeper())
+    new_subscriber = asyncio.create_task(sleeper())
+    manager._connections["session-1"] = new_ws  # type: ignore[assignment]  # noqa: SLF001
+    manager._subscriber_tasks["session-1"] = new_subscriber  # noqa: SLF001
+
+    await manager.disconnect(
+        "session-1",
+        websocket=old_ws,  # type: ignore[arg-type]
+        subscriber_task=old_subscriber,
+    )
+
+    assert manager._connections["session-1"] is new_ws  # noqa: SLF001
+    assert manager._subscriber_tasks["session-1"] is new_subscriber  # noqa: SLF001
+    assert not new_subscriber.cancelled()
+    with suppress(asyncio.CancelledError):
+        await old_subscriber
+    assert old_subscriber.cancelled()
+    new_subscriber.cancel()
+    with suppress(asyncio.CancelledError):
+        await new_subscriber
 
 
 def test_plan_cancel_message_cancels_runner(monkeypatch: pytest.MonkeyPatch) -> None:

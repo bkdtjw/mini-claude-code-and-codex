@@ -1,74 +1,52 @@
-import type { ReactNode } from "react";
-
+import MarkdownContent from "@/components/chat/MarkdownContent";
+import ReasoningBlock from "@/components/chat/ReasoningBlock";
 import ToolCallLine from "@/components/chat/ToolCallLine";
 import type { Message, ToolResult } from "@/types";
 
 interface MessageBubbleProps {
   message: Message;
   isRunning?: boolean;
+  isStreaming?: boolean;
 }
-
-const renderInline = (text: string): ReactNode[] =>
-  text.split(/(`[^`]+`)/g).map((part, index) =>
-    part.startsWith("`") && part.endsWith("`") ? (
-      <code key={index} className="rounded bg-[#1a1a1a] px-1 py-0.5 text-xs text-[#e0e0e0]">
-        {part.slice(1, -1)}
-      </code>
-    ) : (
-      <span key={index}>{part}</span>
-    ),
-  );
-
-const renderMarkdown = (content: string): ReactNode[] => {
-  const blocks = content.split(/```([\s\S]*?)```/g);
-  return blocks.map((block, index) => {
-    if (index % 2 === 1) {
-      const match = block.match(/^([a-zA-Z0-9_-]+)\n([\s\S]*)$/);
-      const code = match ? match[2] : block;
-      return (
-        <pre key={index} className="my-2 overflow-x-auto rounded-xl bg-[#1a1a1a] p-3 text-xs text-[#e0e0e0]">
-          <code>{code}</code>
-        </pre>
-      );
-    }
-    return (
-      <p key={index} className="whitespace-pre-wrap text-sm leading-7 text-[#e0e0e0]">
-        {renderInline(block)}
-      </p>
-    );
-  });
-};
 
 const resultForCall = (results: ToolResult[] | undefined, callId: string, index: number): ToolResult | undefined => {
   if (!results?.length) return undefined;
   return results.find((item) => item.toolCallId && item.toolCallId === callId) ?? results[index];
 };
 
-export default function MessageBubble({ message, isRunning = false }: MessageBubbleProps) {
+export default function MessageBubble({ message, isRunning = false, isStreaming = false }: MessageBubbleProps) {
   if (message.role === "tool") return null;
 
   const isUser = message.role === "user";
 
   return (
     <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[85%] ${isUser ? "rounded-2xl bg-[#1a1a1a] px-4 py-3" : ""}`}>
-        {message.content ? renderMarkdown(message.content) : null}
-        {!isUser && message.toolCalls?.length ? (
-          <div className="mt-1 space-y-0.5">
-            {message.toolCalls.map((call, index) => {
-              const result = resultForCall(message.toolResults, call.id, index);
-              return (
-                <ToolCallLine
-                  key={call.id || index}
-                  call={call}
-                  result={result}
-                  pending={isRunning && !result}
-                />
-              );
-            })}
+      {isUser ? (
+        <div className="max-w-[380px] rounded-[13px] rounded-tr bg-[#1e3a6e] px-4 py-2.5 text-sm text-[var(--as-text)] shadow-[var(--as-user-shadow)] ring-1 ring-[#2a4a86]">
+          <MarkdownContent content={message.content} />
+        </div>
+      ) : (
+        <div className="grid max-w-[640px] grid-cols-[26px_minmax(0,1fr)] gap-3">
+          <div className="h-[26px] w-[26px] rounded-md bg-[linear-gradient(135deg,#3b82f6,#8b5cf6)]" />
+          <div className="max-w-[600px] border-l-2 border-[#1f1f26] pl-4">
+            <ReasoningBlock
+              content={message.reasoningContent ?? ""}
+              durationMs={message.reasoningDurationMs}
+              streaming={isStreaming && Boolean(message.reasoningContent)}
+            />
+            {message.content ? <MarkdownContent content={message.content} /> : null}
+            {isStreaming && message.content ? <span className="as-stream-cursor ml-1 inline-block h-4 w-2 align-[-2px]" /> : null}
+            {message.toolCalls?.length ? (
+              <div className="mt-2 space-y-1">
+                {message.toolCalls.map((call, index) => {
+                  const result = resultForCall(message.toolResults, call.id, index);
+                  return <ToolCallLine key={call.id || index} call={call} result={result} pending={isRunning && !result} />;
+                })}
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

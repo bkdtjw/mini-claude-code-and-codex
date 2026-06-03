@@ -7,10 +7,23 @@ interface MessageListProps {
   messages: Message[];
   status: AgentStatus;
   streamingText: string;
+  streamingReasoning: string;
 }
 
-export default function MessageList({ messages, status, streamingText }: MessageListProps) {
+const runningStatuses: AgentStatus[] = ["thinking", "compacting", "tool_calling", "waiting_approval"];
+
+export default function MessageList({ messages, status, streamingText, streamingReasoning }: MessageListProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
+  const streamingMessage = useMemo<Message | null>(() => {
+    if (!streamingText && !streamingReasoning) return null;
+    return {
+      id: "streaming-assistant",
+      role: "assistant",
+      content: streamingText,
+      reasoningContent: streamingReasoning || undefined,
+      timestamp: new Date().toISOString(),
+    };
+  }, [streamingReasoning, streamingText]);
   const lastAssistantWithTools = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -21,11 +34,11 @@ export default function MessageList({ messages, status, streamingText }: Message
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, status, streamingText]);
+  }, [messages, status, streamingText, streamingReasoning]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-5">
-      <div className="mx-auto w-full max-w-5xl space-y-5">
+    <div className="flex-1 overflow-y-auto px-5 pb-56 pt-6">
+      <div className="mx-auto w-full max-w-[760px] space-y-[22px]">
         {messages.map((message) => (
           <MessageBubble
             key={message.id}
@@ -33,19 +46,14 @@ export default function MessageList({ messages, status, streamingText }: Message
             isRunning={Boolean(
               lastAssistantWithTools &&
                 message.id === lastAssistantWithTools &&
-                (status === "thinking" || status === "tool_calling"),
+                runningStatuses.includes(status),
             )}
           />
         ))}
-        {streamingText ? (
-          <div className="max-w-[90%] text-sm text-[#e0e0e0]">
-            <p className="whitespace-pre-wrap leading-7">{streamingText}</p>
-            <span className="inline-block h-4 w-2 animate-pulse bg-[#e0e0e0]" />
-          </div>
-        ) : null}
-        {(status === "thinking" || status === "tool_calling") && !streamingText ? (
+        {streamingMessage ? <MessageBubble message={streamingMessage} isRunning isStreaming /> : null}
+        {runningStatuses.includes(status) && !streamingText && !streamingReasoning ? (
           <div className="tool-shimmer py-1 text-sm">
-            {status === "thinking" ? "正在思考" : "正在执行工具"}
+            {status === "tool_calling" ? "正在执行工具" : "正在生成"}
           </div>
         ) : null}
         <div ref={endRef} />

@@ -81,7 +81,7 @@ class OllamaAdapter(OpenAICompatAdapter):
                 return result
             except LLMError as exc:
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at)
                 raise
             except httpx.RequestError as exc:
                 if self._is_retryable_request_error(exc) and attempt < self._max_retries:
@@ -95,11 +95,11 @@ class OllamaAdapter(OpenAICompatAdapter):
                     await self._backoff(attempt, type(exc).__name__)
                     continue
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at)
                 raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
             except Exception as exc:
                 await incr_llm_error()
-                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc)
+                log_llm_request_error(logger, model=model, provider=self._provider, request_type="complete", exc=exc, started_at=started_at)
                 raise LLMError("COMPLETE_ERROR", str(exc), self._provider, None) from exc
         raise LLMError("COMPLETE_ERROR", "Completion failed without response", self._provider, None)
 
@@ -117,6 +117,8 @@ class OllamaAdapter(OpenAICompatAdapter):
                             continue
                         data = json.loads(raw)
                         message = data.get("message", {})
+                        if message.get("reasoning_content"):
+                            yield StreamChunk(type="reasoning", data=message["reasoning_content"])
                         if message.get("content"):
                             yield StreamChunk(type="text", data=message["content"])
                         for tool_call in message.get("tool_calls", []) or []:
@@ -144,15 +146,15 @@ class OllamaAdapter(OpenAICompatAdapter):
                     yield StreamChunk(type="done")
         except LLMError as exc:
             await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
+            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc, started_at=started_at)
             raise
         except httpx.RequestError as exc:
             await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
+            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc, started_at=started_at)
             raise LLMError("NETWORK_ERROR", str(exc), self._provider, None) from exc
         except Exception as exc:
             await incr_llm_error()
-            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc)
+            log_llm_request_error(logger, model=model, provider=self._provider, request_type="stream", exc=exc, started_at=started_at)
             raise LLMError("STREAM_ERROR", str(exc), self._provider, None) from exc
 
     def _build_payload(self, request: LLMRequest, stream: bool) -> dict[str, Any]:

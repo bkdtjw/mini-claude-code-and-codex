@@ -73,5 +73,8 @@ async def test_feishu_agent_loop_skips_hint_when_tool_missing(
 
 
 def test_base_system_prompt_does_not_include_browse_web_hint() -> None:
-    assert "browse_web" not in build_system_prompt("/tmp")
-    assert "product_coupon_lookup" not in build_system_prompt("/tmp")
+    prompt = build_system_prompt("/tmp")
+
+    assert "你可以调用 browse_web 工具来自动完成多步骤的网页任务" not in prompt
+    assert "调用方式：browse_web" not in prompt
+    assert "product_coupon_lookup" not in prompt

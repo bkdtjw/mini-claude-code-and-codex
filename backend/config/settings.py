@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     mihomo_work_dir: str = ""
     mihomo_sub_path: str = ""
     mihomo_custom_nodes_path: str = ""
+    zhipu_web_search_api_key: str = ""
+    zhipu_api_key: str = ""
+    zhipu_embedding_model: str = "embedding-3"
+    zhipu_embedding_dimensions: int = 2048
+    knowledge_upload_dir: str = "data/knowledge_uploads"
     youtube_api_key: str = ""
     youtube_proxy_url: str = ""
     twitter_username: str = ""
@@ -61,6 +66,7 @@ class Settings(BaseSettings):
     twitter_password: str = ""
     twitter_proxy_url: str = ""
     twitter_cookies_file: str = "twitter_cookies.json"
+    workspace_roots: str = ""
     notion_api_key: str = ""
     llm_fallback_provider_ids: str = ""
     llm_fallback_error_codes: str = (

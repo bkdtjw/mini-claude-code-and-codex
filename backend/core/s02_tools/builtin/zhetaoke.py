@@ -34,17 +34,23 @@ def create_zhetaoke_product_detail_tool(appkey: str = "") -> tuple[ToolDefinitio
         name="zhetaoke_product_detail",
         description=(
             "Fetch Zhetaoke Taobao affiliate product detail and coupon information. "
-            "Use when a Taobao item URL is known; numeric-only item ids may be rejected by the API."
+            "Only use when the user provided an exact Taobao item URL or item id, "
+            "or when an exact item id came from a previous product search result. "
+            "Do not use for pure keyword/title searches; use product_search or "
+            "zhetaoke_taobao_search first."
         ),
         category="search",
         parameters=ToolParameterSchema(
             properties={
-                "tao_id": {"type": "string", "description": "单个淘宝商品链接，优先传完整 URL"},
+                "tao_id": {
+                    "type": "string",
+                    "description": "必填，单个淘宝商品链接或精确商品 ID；不能传纯关键词",
+                },
                 "num_iids": {"type": "string", "description": "多个站内商品 ID，逗号分隔，最多 40 个"},
                 "code": {"type": "string", "description": "可选折淘客编号，需与 tao_id 对应"},
                 "detail_type": {"type": "string", "description": "0 返回 S/G 券全部；1 返回单条，默认 1"},
             },
-            required=[],
+            required=["tao_id"],
         ),
     )
 

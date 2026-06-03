@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 from typing import Any
@@ -96,7 +97,7 @@ def parse_plan_response(content: str) -> ExecutionPlan:
     errors: list[str] = []
     for candidate in _json_candidates(content):
         try:
-            data = json.loads(candidate)
+            data = _load_plan_candidate(candidate)
             return _validate_plan(data)
         except PlanParseError as exc:
             errors.append(exc.message)
@@ -130,6 +131,16 @@ def _extract_first_json_object(content: str) -> str:
             return block
         start = content.find("{", start + 1)
     return ""
+
+
+def _load_plan_candidate(candidate: str) -> Any:
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError as json_exc:
+        try:
+            return ast.literal_eval(candidate)
+        except (SyntaxError, ValueError) as literal_exc:
+            raise json_exc from literal_exc
 
 
 def _balanced_object_at(content: str, start: int) -> str:

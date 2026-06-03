@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronDown, ChevronRight, MessageSquare, Trash2 } from "lucide-react";
 
 import type { Session } from "@/types";
 
@@ -35,31 +36,41 @@ const formatModel = (model: string): string => {
   return clean || "默认模型";
 };
 
-const getSessionTitle = (session: Session): string => clamp(session.title.trim() || `新对话 · ${formatModel(session.model)}`, 26);
+const getSessionTitle = (session: Session): string => clamp(session.title.trim() || "新对话", 28);
 
-const getWorkspaceLabel = (workspace: string): string => {
-  if (!workspace.trim()) return "未分组";
-  const parts = workspace.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts[parts.length - 1] || workspace;
+const DAY_MS = 86_400_000;
+const TIME_GROUPS = [
+  { key: "today", label: "今天" },
+  { key: "yesterday", label: "昨天" },
+  { key: "last7", label: "最近 7 天" },
+  { key: "older", label: "更早" },
+];
+
+const startOfDay = (date: Date): number => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+const getTimeGroupKey = (iso: string): string => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "older";
+  const diffDays = Math.floor((startOfDay(new Date()) - startOfDay(date)) / DAY_MS);
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return "last7";
+  return "older";
 };
 
 const groupSessions = (sessions: Session[]): SessionGroup[] => {
   const sorted = [...sessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-  const groups = new Map<string, Session[]>();
+  const groups = new Map<string, Session[]>(TIME_GROUPS.map((group) => [group.key, []]));
   for (const session of sorted) {
-    const key = session.workspace.trim();
+    const key = getTimeGroupKey(session.createdAt);
     const list = groups.get(key) ?? [];
     list.push(session);
     groups.set(key, list);
   }
-  return [...groups.entries()].map(([workspace, items]) => ({
-    key: workspace || "__ungrouped__",
-    label: getWorkspaceLabel(workspace),
-    sessions: items,
-  }));
+  return TIME_GROUPS.map((group) => ({ ...group, sessions: groups.get(group.key) ?? [] })).filter((group) => group.sessions.length);
 };
 
-function WorkspaceGroup({
+function TimeGroup({
   group,
   currentSessionId,
   collapsed,
@@ -77,58 +88,59 @@ function WorkspaceGroup({
   const hasActive = group.sessions.some((session) => session.id === currentSessionId);
 
   return (
-    <div className="mb-1">
+    <div className="mb-0.5">
       <button
         type="button"
         onClick={onToggle}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition hover:bg-[#1a1a1a] ${
-          hasActive ? "text-[#d9d9d9]" : "text-[#8a8a8a]"
+        className={`flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs transition hover:bg-[var(--as-hover)] ${
+          hasActive ? "text-[var(--as-text)]" : "text-[var(--as-text-secondary)]"
         }`}
       >
-        <span className="w-3 text-center text-[10px]">{collapsed ? ">" : "v"}</span>
+        {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
         <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-        <span className="text-[10px] text-[#555555]">{group.sessions.length}</span>
+        <span className="rounded-full bg-[var(--as-surface)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--as-text-subtle)] ring-1 ring-[var(--as-border)]">
+          {group.sessions.length}
+        </span>
       </button>
 
       {!collapsed ? (
-        <div className="ml-3 border-l border-[#1a1a1a] pl-2">
+        <div className="ml-2.5 border-l border-[var(--as-border)] pl-1.5">
           {group.sessions.map((session) => {
             const active = session.id === currentSessionId;
             return (
-              <button
+              <div
                 key={session.id}
-                type="button"
-                onClick={() => onSelect(session.id)}
-                className={`group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
-                  active ? "bg-[#1a1a1a] text-[#e0e0e0]" : "text-[#999999] hover:bg-[#1a1a1a] hover:text-[#e0e0e0]"
+                className={`group relative flex w-full items-center rounded-md transition ${
+                  active ? "bg-[var(--as-active)] text-[var(--as-text)]" : "text-[var(--as-text-secondary)] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
                 }`}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{getSessionTitle(session)}</div>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[#666666]">
-                    <span>{formatRelativeTime(session.createdAt)}</span>
-                    <span>{formatModel(session.model)}</span>
+                {active ? <span className="absolute left-0 top-1/2 h-[18px] w-[2.5px] -translate-y-1/2 rounded-full bg-[var(--as-accent)]" /> : null}
+                <button
+                  type="button"
+                  onClick={() => onSelect(session.id)}
+                  className="flex min-w-0 flex-1 items-start gap-1.5 rounded-md px-2 py-1.5 text-left"
+                >
+                  <MessageSquare size={13} className="mt-0.5 shrink-0 text-[var(--as-text-subtle)]" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] leading-[17px]">{getSessionTitle(session)}</div>
+                    <div className="flex min-w-0 items-center gap-1.5 truncate font-mono text-[10px] leading-3 text-[var(--as-text-subtle)]">
+                      <span>{formatRelativeTime(session.createdAt)}</span>
+                      <span className="hidden min-w-0 truncate group-hover:inline">{formatModel(session.model)}</span>
+                    </div>
                   </div>
-                </div>
-                <span
-                  role="button"
-                  tabIndex={0}
+                </button>
+                <button
+                  type="button"
+                  aria-label="删除会话"
                   onClick={(event) => {
                     event.stopPropagation();
                     onDelete(session.id);
                   }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onDelete(session.id);
-                    }
-                  }}
-                  className="shrink-0 text-[11px] text-[#666666] opacity-0 transition hover:text-[#e0e0e0] group-hover:opacity-100"
+                  className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--as-text-subtle)] opacity-0 hover:bg-[var(--as-surface)] hover:text-[var(--as-text)] group-hover:opacity-100"
                 >
-                  删除
-                </span>
-              </button>
+                  <Trash2 size={13} />
+                </button>
+              </div>
             );
           })}
         </div>
@@ -141,7 +153,7 @@ export default function SessionList({ sessions, currentSessionId, onSelect, onDe
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   if (!sessions.length) {
-    return <div className="px-3 py-6 text-sm text-[#666666]">暂无会话</div>;
+    return <div className="px-3 py-6 text-xs text-[var(--as-text-subtle)]">暂无会话</div>;
   }
 
   const groups = groupSessions(sessions);
@@ -149,7 +161,7 @@ export default function SessionList({ sessions, currentSessionId, onSelect, onDe
   return (
     <div className="space-y-0.5">
       {groups.map((group) => (
-        <WorkspaceGroup
+        <TimeGroup
           key={group.key}
           group={group}
           currentSessionId={currentSessionId}

@@ -14,6 +14,15 @@ def test_create_bash_tool_keeps_30_second_timeout_default() -> None:
     assert timeout == 30
 
 
+def test_bash_tool_description_covers_local_project_inspection() -> None:
+    definition, _ = create_bash_tool(str(Path.cwd()))
+
+    description = definition.description.lower()
+    assert "local shell command" in description
+    assert "current workspace" in description
+    assert "project inspection" in description
+
+
 def test_bash_tool_rejects_mihomo_launch() -> None:
     workspace = str(Path.cwd())
     _, execute = create_bash_tool(workspace)

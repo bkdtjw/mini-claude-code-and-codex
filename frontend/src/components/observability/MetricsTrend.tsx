@@ -13,7 +13,7 @@ export default function MetricsTrend({ labels, agentRuns, llmCalls }: MetricsTre
     <section className="rounded-3xl border border-[#252525] bg-[#0b0b0b] p-5">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-[#f0f6fc]">每日趋势</h3>
+          <h3 className="text-lg font-medium text-[#f0f6fc]">每日趋势</h3>
           <p className="mt-1 text-sm text-[#7d8590]">蓝色是 Agent 执行，金色是 LLM 调用。</p>
         </div>
         <div className="flex gap-4 text-xs text-[#7d8590]">
