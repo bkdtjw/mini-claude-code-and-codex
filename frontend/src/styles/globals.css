@@ -5,16 +5,16 @@
 @tailwind utilities;
 
 :root {
-  --as-bg: #0d0d0f;
-  --as-sidebar: #08080a;
-  --as-surface-low: #121216;
-  --as-surface: #141417;
-  --as-active: #16161a;
-  --as-surface-raised: #18181c;
-  --as-hover: #1a1a1e;
-  --as-code-bg: #08080a;
-  --as-border: #1c1c20;
-  --as-border-strong: #232327;
+  --as-bg: #1d1d1b;
+  --as-sidebar: #181817;
+  --as-surface-low: #20201e;
+  --as-surface: #222220;
+  --as-active: #252522;
+  --as-surface-raised: #282825;
+  --as-hover: #2b2b28;
+  --as-code-bg: #171716;
+  --as-border: #2b2b28;
+  --as-border-strong: #343431;
   --as-text-bright: #e8e8ec;
   --as-text: #e4e4e7;
   --as-text-secondary: #8a8a92;
@@ -29,7 +29,7 @@
   --as-success: #22c55e;
   --as-shadow: 0 2px 12px rgb(0 0 0 / 20%);
   --as-user-shadow: 0 8px 22px rgb(30 58 110 / 20%);
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-sans: "Source Han Sans SC", "Noto Sans SC", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --as-font-mono: var(--font-mono);
   color-scheme: dark;
@@ -47,6 +47,7 @@ body {
   color: var(--as-text);
   font-family: var(--font-sans);
   font-weight: 400;
+  font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -157,6 +158,10 @@ select:not(:disabled) {
 
   .as-primary-btn {
     @apply inline-flex items-center justify-center rounded-lg bg-[var(--as-accent)] font-medium text-white transition hover:bg-[var(--as-accent-hover)] active:brightness-90;
+  }
+
+  .as-input {
+    @apply rounded-lg border border-[var(--as-border)] bg-[var(--as-surface)] px-3 text-sm text-[var(--as-text)] outline-none placeholder:text-[var(--as-text-muted)] focus:border-[var(--as-accent)];
   }
 
   .as-link-btn {

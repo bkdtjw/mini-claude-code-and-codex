@@ -16,6 +16,8 @@ from backend.common.types import (
     ToolDefinition,
     ToolResult,
 )
+from backend.core.s06_context_compression.summary_helpers import is_summary_message
+from backend.core.system_prompt import build_runtime_context
 
 def _cache_key_part(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip())[:40]
@@ -68,12 +70,14 @@ def build_llm_request(
     memory_messages = _coerce_zone_messages(
         memory_index.match(latest_text, limit=5) if memory_index else []
     )
+    runtime_messages = _runtime_messages(config.workspace, tools)
     prefix_hash = build_cache_prefix_hash(system_prompt, tools)
     legacy_system = system_msg or (Message(role="system", content=system_prompt) if system_prompt else None)  # noqa: E501
     legacy_messages = [
         *([legacy_system] if legacy_system else []),
         *skill_messages,
         *memory_messages,
+        *runtime_messages,
         *([summary] if summary else []),
         *recent,
     ]
@@ -83,10 +87,13 @@ def build_llm_request(
         tools=tools or None,
         skill_messages=skill_messages,
         memory_messages=memory_messages,
+        runtime_messages=runtime_messages,
         summary_message=summary,
         recent_messages=recent,
         cache_prefix_hash=prefix_hash,
         messages=legacy_messages,
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
         thinking=config.thinking_enabled,
         prompt_cache_key=build_prompt_cache_key(
             PromptCachePrefix(config.provider, config.model, system_prompt, tools)
@@ -97,18 +104,30 @@ def build_llm_request(
 def _split_history(messages: list[Message]) -> tuple[Message | None, Message | None, list[Message]]:
     system_msg = next((message for message in messages if message.role == "system"), None)
     non_system = [message for message in messages if message.role != "system"]
-    summary = next((_ for _ in reversed(non_system) if _is_summary_message(_)), None)
-    recent = [message for message in non_system if message is not summary]
+    summaries = [message for message in non_system if is_summary_message(message)]
+    summary = _combine_summaries(summaries)
+    recent = [message for message in non_system if not is_summary_message(message)]
     return system_msg, summary, recent
 
 
-def _is_summary_message(message: Message) -> bool:
-    content = message.content.lstrip()
-    return content.startswith("[对话历史摘要]") or content.startswith("[压缩摘要]")
+def _combine_summaries(messages: list[Message]) -> Message | None:
+    if not messages:
+        return None
+    content = "\n\n".join(message.content.strip() for message in messages if message.content.strip())
+    return Message(role="user", kind="summary", content=content)
 
 
 def _latest_user_text(messages: list[Message]) -> str:
-    return next((message.content for message in reversed(messages) if message.role == "user"), "")
+    return next(
+        (
+            message.content
+            for message in reversed(messages)
+            if message.role == "user"
+            and message.kind == "user_request"
+            and not message.ephemeral
+        ),
+        "",
+    )
 
 
 def _coerce_zone_messages(items: Any) -> list[Message]:
@@ -119,7 +138,7 @@ def _coerce_zone_messages(items: Any) -> list[Message]:
         elif hasattr(item, "lesson"):
             result.append(_memory_entry_to_message(item))
         elif isinstance(item, str) and item.strip():
-            result.append(Message(role="system", content=item.strip()))
+            result.append(_skill_text_message(item.strip()))
     return result
 
 
@@ -127,7 +146,32 @@ def _memory_entry_to_message(entry: Any) -> Message:
     trigger = str(getattr(entry, "trigger", "")).strip()
     lesson = str(getattr(entry, "lesson", "")).strip()
     content = f"[长期记忆]\n触发: {trigger}\n经验: {lesson}".strip()
-    return Message(role="system", content=content)
+    return Message(
+        role="user",
+        kind="memory_context",
+        content=f"<memory_context>\n{content}\n</memory_context>",
+    )
+
+
+def _skill_text_message(content: str) -> Message:
+    return Message(
+        role="user",
+        kind="skill_context",
+        content=f"<skill_context>\n{content}\n</skill_context>",
+    )
+
+
+def _runtime_messages(workspace: str, tools: list[ToolDefinition]) -> list[Message]:
+    content = build_runtime_context(workspace, tools).strip()
+    if not content:
+        return []
+    return [
+        Message(
+            role="user",
+            kind="runtime_context",
+            content=f"<runtime_context>\n{content}\n</runtime_context>",
+        )
+    ]
 
 
 def response_content(response: LLMResponse) -> str:

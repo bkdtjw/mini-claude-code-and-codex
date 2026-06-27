@@ -32,8 +32,9 @@ def test_cache_prefix_hash_is_stable_across_recent_messages() -> None:
     assert first.cache_prefix_hash == second.cache_prefix_hash
     assert first.system_prompt == "stable"
     assert first.summary_message is not None
+    assert first.runtime_messages[0].kind == "runtime_context"
     assert [message.role for message in first.recent_messages] == ["user"]
-    assert [message.role for message in first.messages] == ["system", "user", "user"]
+    assert [message.role for message in first.messages] == ["system", "user", "user", "user"]
 
 
 def test_cache_prefix_hash_changes_when_tools_change() -> None:
@@ -44,3 +45,22 @@ def test_cache_prefix_hash_changes_when_tools_change() -> None:
     second = build_llm_request(config, history, [_tool("file_write")])
 
     assert first.cache_prefix_hash != second.cache_prefix_hash
+
+
+def test_cache_prefix_hash_is_stable_across_workspace_runtime_context() -> None:
+    history = [Message(role="system", content="stable"), Message(role="user", content="hi")]
+
+    first = build_llm_request(
+        AgentConfig(model="model", provider="provider", system_prompt="stable", workspace="/a"),
+        history,
+        [_tool()],
+    )
+    second = build_llm_request(
+        AgentConfig(model="model", provider="provider", system_prompt="stable", workspace="/b"),
+        history,
+        [_tool()],
+    )
+
+    assert first.cache_prefix_hash == second.cache_prefix_hash
+    assert "当前工作目录: /a" in first.runtime_messages[0].content
+    assert "当前工作目录: /b" in second.runtime_messages[0].content

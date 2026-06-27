@@ -8,6 +8,10 @@ from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSch
 from backend.core.s07_task_system import TaskExecutionError
 from backend.core.s07_task_system.executor import TaskExecutor
 from backend.core.s07_task_system.models import NotifyConfig, OutputConfig, ScheduledTask
+from backend.core.s07_task_system.output_preview import (
+    build_task_output_preview,
+    render_task_output_preview,
+)
 from backend.core.s07_task_system.store import TaskStore
 
 
@@ -204,12 +208,24 @@ def _create_run_task_now(
             task = await store.get_task(task_id)
             if task is None:
                 return ToolResult(output=f"任务 {task_id} 不存在", is_error=True)
-            result = await executor.execute(task)
-            await store.update_run_status(task_id, "success", result[:500])
-            preview = result[:1000] + ("..." if len(result) > 1000 else "")
-            return ToolResult(output=f"任务 {task.name} 执行完成：\n{preview}")
+            result = await executor.execute_with_result(task)
+            status_output = render_task_output_preview(
+                build_task_output_preview(
+                    result.content,
+                    content_ref=result.report_path,
+                    limit=1000,
+                )
+            )
+            await store.update_run_status(task_id, "success", status_output)
+            return ToolResult(output=f"任务 {task.name} 执行完成：\n{status_output}")
         except TaskExecutionError as exc:
-            await store.update_run_status(task_id, "error", (exc.output or exc.message)[:500])
+            await store.update_run_status(
+                task_id,
+                "error",
+                render_task_output_preview(
+                    build_task_output_preview(exc.output or exc.message)
+                ),
+            )
             return ToolResult(output=f"执行任务失败：{exc.message}", is_error=True)
         except Exception as exc:
             return ToolResult(output=f"执行任务失败：{exc}", is_error=True)

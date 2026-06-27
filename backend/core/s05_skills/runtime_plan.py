@@ -19,6 +19,7 @@ from backend.core.task_queue import TaskQueue
 
 from .mcp_requirements import extract_required_mcp_servers
 from .models import AgentCategory, AgentSpec, ToolConfig
+from .runtime_plan_patch import patch_plan_runner
 from .runtime_support import FilteredBridge, allowed_tools_with_defaults
 
 if TYPE_CHECKING:
@@ -26,7 +27,6 @@ if TYPE_CHECKING:
 
 _DIRECT_MODE = "direct"
 _PLAN_MODE = "plan_execute"
-
 
 async def create_runtime_runner(
     runtime: AgentRuntime,
@@ -162,10 +162,12 @@ async def _create_plan_runner(
         resolved_workspace,
         adapter,
         resolved_model,
+        resolved_provider.id,
         session_id,
         task_queue,
         event_handler,
         is_sub_agent,
+        sub_agent_policy=spec.sub_agents if spec is not None else None,
     )
     raw_bridge = bridge_cls(runtime._deps.mcp_manager, registry)  # noqa: SLF001
     if spec is None:
@@ -192,29 +194,7 @@ async def _create_plan_runner(
         system_prompt=stable_prompt,
         skill_prompt=skill_prompt,
     )
-    _patch_plan_runner(runner, runtime, spec, resolved_workspace, event_handler)
+    patch_plan_runner(runner, spec, event_handler)
     return runner
-
-
-def _patch_plan_runner(
-    runner: PlanExecuteRunner,
-    runtime: AgentRuntime,
-    spec: AgentSpec | None,
-    workspace: str,
-    event_handler: AgentEventHandler | None,
-) -> None:
-    original_loop = runner._build_step_loop  # noqa: SLF001
-
-    def build_step_loop(todo_step: object, context: object) -> AgentLoop:
-        loop = original_loop(todo_step, context)
-        if spec is not None:
-            loop._config.max_iterations = spec.max_iterations  # noqa: SLF001
-            loop._config.timeout_seconds = spec.timeout_seconds  # noqa: SLF001
-        if event_handler is not None:
-            loop.on(event_handler)
-        return loop
-
-    runner._build_step_loop = build_step_loop  # noqa: SLF001
-
 
 __all__ = ["create_runtime_runner"]

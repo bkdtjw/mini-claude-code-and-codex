@@ -20,9 +20,10 @@ from backend.core.system_prompt import build_system_prompt
 from backend.storage.session_store import SessionStore
 
 from .executor_errors import TaskExecutionError
-from .executor_models import TaskExecutorDeps
+from .executor_models import TaskExecutionResult, TaskExecutorDeps
 from .executor_support import build_card_meta, save_markdown, save_report
 from .models import ScheduledTask
+from .output_preview import build_task_output_preview, render_task_output_preview
 
 logger = get_logger(component="task_executor")
 _BEIJING = ZoneInfo("Asia/Shanghai")
@@ -34,6 +35,9 @@ class TaskExecutor:
         self._deps = deps
 
     async def execute(self, task: ScheduledTask) -> str:
+        return (await self.execute_with_result(task)).content
+
+    async def execute_with_result(self, task: ScheduledTask) -> TaskExecutionResult:
         with bound_log_context(trace_id=new_trace_id(), session_id=f"scheduled-task:{task.id}"):
             run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             checkpoint_session_id = f"task-{task.id}-{run_id}"
@@ -50,7 +54,12 @@ class TaskExecutor:
                 spec_id=task.spec_id or "",
             )
             try:
-                result = await agent.run(task.prompt)
+                dated_prompt = (
+                    f"【今天是 {started_at:%Y年%m月%d日}（北京时间）】"
+                    "报告中的日期和年份一律以此为准，不要凭记忆推断。\n\n"
+                    f"{task.prompt}"
+                )
+                result = await agent.run(dated_prompt)
                 content = getattr(result, "content", "") or str(result)
                 status = "success"
                 await incr("task_successes")
@@ -122,7 +131,11 @@ class TaskExecutor:
                     )
             if status != "success":
                 raise TaskExecutionError(error_message or "Task execution failed", content)
-            return content
+            return TaskExecutionResult(
+                content=content,
+                report_path=str(report_path),
+                status=status,
+            )
 
     async def _create_loop(self, task: ScheduledTask, checkpoint_session_id: str) -> tuple[AgentLoop, Any]:
         if task.spec_id:
@@ -147,16 +160,18 @@ class TaskExecutor:
     async def _create_prompt_loop(self, task: ScheduledTask, checkpoint_session_id: str) -> tuple[AgentLoop, Any]:
         provider_id, adapter = await self._get_adapter()
         registry = ToolRegistry()
-        self._register_tools(registry, adapter)
+        self._register_tools(registry, adapter, f"scheduled-task:{task.id}")
         bridge = MCPToolBridge(self._deps.mcp_manager, registry)
         await bridge.sync_all()
-        system_prompt = build_system_prompt(os.getcwd())
+        workspace = os.getcwd()
+        system_prompt = build_system_prompt()
         store = SessionStore()
         agent = AgentLoop(
             config=AgentConfig(
                 model=app_settings.default_model,
                 provider=provider_id,
                 system_prompt=system_prompt,
+                workspace=workspace,
                 session_id=f"scheduled-task:{task.id}",
             ),
             adapter=adapter,
@@ -173,7 +188,12 @@ class TaskExecutor:
         default = next((provider for provider in providers if provider.is_default), providers[0])
         return default.id, await self._deps.provider_manager.get_adapter(default.id)
 
-    def _register_tools(self, registry: ToolRegistry, adapter: Any) -> None:
+    def _register_tools(
+        self,
+        registry: ToolRegistry,
+        adapter: Any,
+        parent_task_id: str,
+    ) -> None:
         register_builtin_tools(
             registry,
             workspace=os.getcwd(),
@@ -192,6 +212,7 @@ class TaskExecutor:
             twitter_cookies_file=app_settings.twitter_cookies_file or None,
             spec_registry=self._spec_registry(),
             task_queue=self._deps.task_queue,
+            parent_task_id=parent_task_id,
         )
 
     def _spec_registry(self) -> Any:
@@ -296,16 +317,19 @@ class TaskExecutor:
         )
         if sent:
             return True
-        return await self._send_feishu_text(task, content)
+        return await self._send_feishu_text(task, content, str(report_path))
 
-    async def _send_feishu_text(self, task: ScheduledTask, content: str) -> bool:
+    async def _send_feishu_text(self, task: ScheduledTask, content: str, report_path: str) -> bool:
         webhook_url = task.notify.feishu_webhook_url or app_settings.feishu_webhook_url
         if not webhook_url:
             return False
         from backend.core.s02_tools.builtin.feishu_notify import _build_request_body
 
+        preview = render_task_output_preview(
+            build_task_output_preview(content, content_ref=report_path, limit=3600)
+        )
         body = _build_request_body(
-            content=content[:4000],
+            content=preview[:4000],
             title=task.notify.feishu_title or task.name,
             secret=app_settings.feishu_webhook_secret or None,
         )

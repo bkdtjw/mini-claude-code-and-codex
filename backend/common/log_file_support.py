@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -56,13 +57,20 @@ def get_current_log_file(worker_id: str = "") -> Path:
 
 def ensure_log_file_dir() -> Path:
     preferred = get_log_file_dir()
-    try:
-        preferred.mkdir(parents=True, exist_ok=True)
+    if _can_write_log_dir(preferred):
         return preferred
+    fallback = Path(os.getenv("LOG_FILE_FALLBACK_DIR", DEFAULT_LOG_FALLBACK_DIR)).expanduser()
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def _can_write_log_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(prefix=".write-test-", dir=path):
+            return True
     except OSError:
-        fallback = Path(os.getenv("LOG_FILE_FALLBACK_DIR", DEFAULT_LOG_FALLBACK_DIR)).expanduser()
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback
+        return False
 
 
 def build_file_handler(formatter: logging.Formatter, worker_id: str = "") -> logging.Handler:

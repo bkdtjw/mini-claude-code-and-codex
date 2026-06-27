@@ -87,7 +87,7 @@ class TaskConfigStore:
                 task_id,
                 last_run_at=datetime.now(),
                 last_run_status=status,
-                last_run_output=output[:500],
+                last_run_output=output,
             )
         except Exception as exc:
             raise AgentError("TASK_STORE_RUN_STATUS_ERROR", str(exc)) from exc

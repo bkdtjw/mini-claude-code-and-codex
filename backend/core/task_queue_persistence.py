@@ -8,6 +8,12 @@ from backend.core.task_queue_types import TaskPayload
 class TaskPersistence(Protocol):
     async def save_payload(self, payload: TaskPayload) -> None: ...
 
+    async def save_many_with_capacity(
+        self,
+        payloads: list[TaskPayload],
+        max_active: int,
+    ) -> list[TaskPayload]: ...
+
     async def claim(self, task_id: str, worker_id: str) -> TaskPayload | None: ...
 
     async def complete(

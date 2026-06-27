@@ -14,33 +14,38 @@ def render_evidence(
     config: PipelineConfig,
 ) -> tuple[str, list[str], list[str], int]:
     sections = _summary(tweet_counts, len(videos), len(clusters))
+    youtube_line = len(sections) - 1
     selected_urls: list[str] = []
     selected_signatures: list[str] = []
-    card_count = 0
+    reserve = int(config.max_output_chars * config.video_char_reserve_ratio) if videos else 0
+    tweet_limit = config.max_output_chars - reserve
+    tweet_cards = 0
     for cluster in clusters:
-        if card_count >= config.max_evidence_cards:
+        if tweet_cards >= config.max_evidence_cards:
             break
         card = _tweet_card(cluster, config)
-        if _would_exceed(sections, card, config.max_output_chars):
+        if _would_exceed(sections, card, tweet_limit):
             break
         sections.extend(["", card])
         _append_url(selected_urls, cluster.items[0].url)
         selected_signatures.append(cluster.signature)
         for item in cluster.items[1:4]:
             _append_url(selected_urls, item.url)
-        card_count += 1
+        tweet_cards += 1
+    video_cards = 0
     for video in _rank_videos(videos):
-        if card_count >= config.max_evidence_cards:
+        if tweet_cards + video_cards >= config.max_evidence_cards:
             break
         card = _video_card(video, config)
         if _would_exceed(sections, card, config.max_output_chars):
             break
         sections.extend(["", card])
         _append_url(selected_urls, video.url)
-        card_count += 1
-    if card_count == 0:
+        video_cards += 1
+    sections[youtube_line] = f"YouTube videos: {video_cards}"
+    if tweet_cards + video_cards == 0:
         sections.extend(["", "No evidence cards generated from current raw data."])
-    return "\n".join(sections).strip(), selected_urls, selected_signatures, card_count
+    return "\n".join(sections).strip(), selected_urls, selected_signatures, tweet_cards + video_cards
 
 
 def _summary(tweet_counts: dict[str, int], video_count: int, cluster_count: int) -> list[str]:
@@ -84,7 +89,7 @@ def _video_card(video: RawVideo, config: PipelineConfig) -> str:
 
 
 def _rank_videos(videos: list[RawVideo]) -> list[RawVideo]:
-    return sorted(videos, key=lambda item: item.view_count, reverse=True)
+    return sorted(videos, key=lambda item: (item.upload_date, item.view_count), reverse=True)
 
 
 def _would_exceed(sections: list[str], card: str, limit: int) -> bool:

@@ -54,6 +54,8 @@ class AgentRuntime:
         event_handler: AgentEventHandler | None = None,
         is_sub_agent: bool = False,
         checkpoint_fn: CheckpointFn | None = None,
+        max_tokens: int = 16384,
+        temperature: float = 0.7,
     ) -> AgentLoop:
         try:
             resolved_provider = await self._resolve_provider(provider or spec.provider)
@@ -73,11 +75,13 @@ class AgentRuntime:
                 resolved_workspace,
                 adapter,
                 resolved_model,
+                resolved_provider.id,
                 session_id,
                 task_queue,
                 event_handler,
                 is_sub_agent,
                 skill_loader,
+                sub_agent_policy=spec.sub_agents,
             )
             bridge = FilteredBridge(
                 MCPToolBridge(self._deps.mcp_manager, registry),
@@ -91,10 +95,13 @@ class AgentRuntime:
                     model=resolved_model,
                     provider=resolved_provider.id,
                     system_prompt=stable_prompt,
+                    workspace=resolved_workspace,
                     session_id=session_id,
                     tools=sorted(tool.name for tool in registry.list_definitions()),
                     max_iterations=spec.max_iterations,
                     timeout_seconds=spec.timeout_seconds,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
                 ),
                 adapter=adapter,
                 tool_registry=registry,
@@ -123,6 +130,8 @@ class AgentRuntime:
         event_handler: AgentEventHandler | None = None,
         is_sub_agent: bool = False,
         checkpoint_fn: CheckpointFn | None = None,
+        max_tokens: int = 16384,
+        temperature: float = 0.7,
     ) -> AgentLoop:
         try:
             spec = self._deps.spec_registry.get(spec_id)
@@ -140,6 +149,8 @@ class AgentRuntime:
                 event_handler=event_handler,
                 is_sub_agent=is_sub_agent,
                 checkpoint_fn=checkpoint_fn,
+                max_tokens=max_tokens,
+                temperature=temperature,
             )
         except AgentError:
             raise
@@ -152,12 +163,15 @@ class AgentRuntime:
         system_prompt: str,
         tools: list[str],
         model: str = "",
+        provider: str = "",
         workspace: str = "",
         task_queue: TaskQueue | None = None,
         event_handler: AgentEventHandler | None = None,
         is_sub_agent: bool = False,
         session_id: str = "",
         checkpoint_fn: CheckpointFn | None = None,
+        max_tokens: int = 16384,
+        temperature: float = 0.7,
     ) -> AgentLoop:
         try:
             slug = re.sub(r"[^A-Za-z0-9_-]+", "-", role or "inline-agent")
@@ -176,10 +190,14 @@ class AgentRuntime:
                 spec,
                 workspace=workspace,
                 session_id=session_id,
+                model=model,
+                provider=provider,
                 task_queue=task_queue,
                 event_handler=event_handler,
                 is_sub_agent=is_sub_agent,
                 checkpoint_fn=checkpoint_fn,
+                max_tokens=max_tokens,
+                temperature=temperature,
             )
         except AgentError:
             raise
@@ -227,11 +245,13 @@ class AgentRuntime:
         workspace: str,
         adapter: LLMAdapter,
         model: str,
+        provider: str,
         session_id: str,
         task_queue: TaskQueue | None,
         event_handler: AgentEventHandler | None,
         is_sub_agent: bool,
         skill_loader: OnDemandSkillLoader | None = None,
+        sub_agent_policy: object | None = None,
     ) -> ToolRegistry:
         return build_runtime_registry(
             register_builtin_tools,
@@ -240,6 +260,7 @@ class AgentRuntime:
             workspace,
             adapter,
             model,
+            provider,
             session_id,
             task_queue,
             event_handler,
@@ -248,6 +269,7 @@ class AgentRuntime:
             is_sub_agent,
             skill_loader,
             zhipu_web_search_api_key=self._deps.settings.zhipu_web_search_api_key,
+            sub_agent_policy=sub_agent_policy,
         )
 
     async def _resolve_provider(self, requested: str) -> ProviderConfig:
@@ -264,7 +286,7 @@ class AgentRuntime:
 
     @staticmethod
     def _compose_layered_prompt(workspace: str, spec_prompt: str) -> tuple[str, str]:
-        return build_system_prompt(workspace), spec_prompt.strip()
+        return build_system_prompt(), spec_prompt.strip()
 
     @staticmethod
     def _compose_system_prompt(workspace: str, spec_prompt: str) -> str:
@@ -280,4 +302,12 @@ __all__ = ["AgentRuntime", "AgentRuntimeDeps"]
 
 
 def _skill_messages(prompt: str) -> list[Message]:
-    return [Message(role="system", content=prompt)] if prompt else []
+    if not prompt:
+        return []
+    return [
+        Message(
+            role="user",
+            kind="skill_context",
+            content=f"<skill_context>\n{prompt}\n</skill_context>",
+        )
+    ]

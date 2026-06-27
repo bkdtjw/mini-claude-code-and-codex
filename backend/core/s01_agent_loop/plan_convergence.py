@@ -36,7 +36,20 @@ class ConvergenceMonitor:
 
     def _flush_pending_prompts(self) -> None:
         self._loop.message_history.extend(
-            [Message(role="user", content=prompt) for prompt in self._pending_prompts]
+            [
+                Message(
+                    role="user",
+                    kind="runtime_guard",
+                    ephemeral=True,
+                    content=(
+                        "<system_directive>\n"
+                        f"{prompt}\n"
+                        "这是系统注入的运行时指令，不是用户的新任务。\n"
+                        "</system_directive>"
+                    ),
+                )
+                for prompt in self._pending_prompts
+            ]
         )
         self._pending_prompts.clear()
 

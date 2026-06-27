@@ -18,7 +18,7 @@ def _build_sub_agent_system_prompt(run: IsolatedAgentRun, workspace: str) -> str
     }
     description = run.description or f"围绕 {run.task.role} 角色完成分配任务。"
     parts = [
-        build_system_prompt(workspace),
+        build_system_prompt(),
         f'你是一个专注于"{run.task.role}"的子 Agent。',
         f"职责：{description}",
         f"权限：{permission_desc[run.task.permission]}",
@@ -60,6 +60,7 @@ async def run_isolated_agent(
             config=AgentConfig(
                 model=run.model or runtime.config.default_model,
                 system_prompt=_build_sub_agent_system_prompt(run, runtime.config.workspace),
+                workspace=runtime.config.workspace,
                 max_iterations=run.max_iterations,
                 max_consecutive_tool_failures=5,
             ),

@@ -1,5 +1,11 @@
 import { mapFileDiffs } from "@/lib/tool-diffs";
-import type { AgentStatus, Message, ToolCall, WsIncoming } from "@/types";
+import type { AgentStatus, Message, SubAgentEventType, ToolCall, WsIncoming } from "@/types";
+
+const SUB_AGENT_TYPES = new Set(["sub_agent_spawned", "sub_agent_completed", "sub_agent_failed"]);
+
+const numberOrUndefined = (value: unknown): number | undefined => (
+  typeof value === "number" ? value : undefined
+);
 
 export const normalizeWsIncoming = (raw: Record<string, unknown>): WsIncoming => {
   const type = String(raw.type ?? "error");
@@ -36,6 +42,20 @@ export const normalizeWsIncoming = (raw: Record<string, unknown>): WsIncoming =>
   }
   if (type === "text") return { type: "text", content: String(raw.content ?? "") };
   if (type === "reasoning") return { type: "reasoning", content: String(raw.content ?? "") };
+  if (SUB_AGENT_TYPES.has(type)) {
+    return {
+      type: type as SubAgentEventType,
+      taskId: String(raw.task_id ?? ""),
+      specId: String(raw.spec_id ?? ""),
+      completed: numberOrUndefined(raw.completed),
+      total: numberOrUndefined(raw.total),
+      submitted: numberOrUndefined(raw.submitted),
+      reused: numberOrUndefined(raw.reused),
+      specs: Array.isArray(raw.specs) ? raw.specs.map(String) : undefined,
+      error: String(raw.error ?? ""),
+      message: String(raw.message ?? ""),
+    };
+  }
   if (type === "done") return { type: "done", message: raw.message as Message };
   return { type: "error", message: String(raw.message ?? "Unknown websocket error") };
 };

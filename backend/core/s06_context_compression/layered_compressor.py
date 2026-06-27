@@ -20,6 +20,7 @@ class LayeredCompressionError(AgentError):
 class LayeredCompressorConfig:
     threshold_l2: float = 0.5
     threshold_l3: float = 0.7
+    threshold_final: float = 0.9
     artifacts_dir: str = "data/artifacts"
     sessions_dir: str = "data/sessions"
     session_id: str = ""
@@ -38,6 +39,7 @@ class LayeredCompressor:
         self._model = model
         self._threshold_l2 = config.threshold_l2
         self._threshold_l3 = config.threshold_l3
+        self._threshold_final = config.threshold_final
         self._artifacts_dir = config.artifacts_dir
         self._sessions_dir = config.sessions_dir
         self._session_id = config.session_id
@@ -71,6 +73,17 @@ class LayeredCompressor:
         except Exception:
             return list(messages)
 
+    async def compress(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> list[Message]:
+        compacted = await self.check_and_compact(messages, tools)
+        summarized = await self.summarize_and_archive(compacted, tools)
+        if self._current_usage_pct(summarized, tools) <= self._threshold_final:
+            return summarized
+        return await self._summarize(summarized)
+
     async def summarize_and_archive(
         self,
         messages: list[Message],
@@ -79,19 +92,22 @@ class LayeredCompressor:
         try:
             if self._current_usage_pct(messages, tools) <= self._threshold_l3:
                 return list(messages)
-            return await summarize_archive(
-                SummaryArchiveRequest(
-                    messages=messages,
-                    adapter=self._adapter,
-                    model=self._model,
-                    sessions_dir=self._sessions_dir,
-                    session_id=self._session_id,
-                )
-            )
+            return await self._summarize(messages)
         except Level3SummaryError:
             return list(messages)
         except Exception:
             return list(messages)
+
+    async def _summarize(self, messages: list[Message]) -> list[Message]:
+        return await summarize_archive(
+            SummaryArchiveRequest(
+                messages=messages,
+                adapter=self._adapter,
+                model=self._model,
+                sessions_dir=self._sessions_dir,
+                session_id=self._session_id,
+            )
+        )
 
     def _current_usage_pct(
         self,

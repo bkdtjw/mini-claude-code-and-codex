@@ -27,6 +27,14 @@ METRIC_NAMES = (
     "agent_runs",
     "plan_step_results_persisted",
     "plan_step_resumed_from_disk",
+    "sub_agent_final_reviews",
+    "sub_agent_reuses",
+    "sub_agent_result_fallbacks",
+    "sub_agent_result_parsed",
+    "sub_agent_result_repaired",
+    "sub_agent_tasks_submitted",
+    "sub_agent_wait_detached",
+    "sub_agent_wait_failures",
 )
 LATENCY_METRICS = {
     "http": "HTTP 请求",

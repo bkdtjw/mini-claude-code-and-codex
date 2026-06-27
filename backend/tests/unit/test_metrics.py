@@ -4,7 +4,14 @@ from datetime import date
 
 import pytest
 
-from backend.common.metrics import close_metrics, get_metrics, incr, init_metrics, record_latency_sample
+from backend.common.metrics import (
+    METRIC_NAMES,
+    close_metrics,
+    get_metrics,
+    incr,
+    init_metrics,
+    record_latency_sample,
+)
 
 from .redis_test_support import use_fake_redis
 
@@ -56,3 +63,9 @@ async def test_latency_summary_uses_redis_samples(monkeypatch: pytest.MonkeyPatc
     assert summary["tool_call"]["count"] == 2
     assert summary["tool_call"]["p95_ms"] == 300
     assert "sub_agent_task" not in summary
+
+
+def test_multi_agent_metric_names_are_registered() -> None:
+    assert "sub_agent_reuses" in METRIC_NAMES
+    assert "sub_agent_wait_detached" in METRIC_NAMES
+    assert "sub_agent_result_repaired" in METRIC_NAMES

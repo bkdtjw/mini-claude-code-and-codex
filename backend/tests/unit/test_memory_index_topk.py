@@ -59,6 +59,9 @@ def test_build_llm_request_injects_memory_messages() -> None:
     )
 
     assert len(request.memory_messages) == 1
+    assert request.memory_messages[0].role == "user"
+    assert request.memory_messages[0].kind == "memory_context"
+    assert "<memory_context>" in request.memory_messages[0].content
     assert "[长期记忆]" in request.memory_messages[0].content
     assert "淘口令要先展开短链" in request.memory_messages[0].content
 

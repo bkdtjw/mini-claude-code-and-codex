@@ -37,6 +37,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend:/app/backend
+      - ./data/artifacts:/app/data/artifacts
       - ./data/logs:/app/data/logs
       - ./data/storage_state:/app/data/storage_state
       - ./reports:/app/reports
@@ -83,6 +84,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend:/app/backend
+      - ./data/artifacts:/app/data/artifacts
       - ./data/logs:/app/data/logs
       - ./data/storage_state:/app/data/storage_state
       - ./reports:/app/reports

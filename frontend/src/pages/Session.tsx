@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Code2, Search, WandSparkles, type LucideIcon } from "lucide-react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 
 import InputBar from "@/components/chat/InputBar";
 import MessageList from "@/components/chat/MessageList";
@@ -21,6 +21,7 @@ export default function Session() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
   const initialPromptSent = useRef(false);
   const sessionId = id ?? "";
   const { messages, status, streamingText, streamingReasoning, sendMessage } = useSession(sessionId);
@@ -34,7 +35,7 @@ export default function Session() {
   const providers = useAgentStore((state) => state.providers);
   const workspace = useAgentStore((state) => state.workspace);
 
-  const activeSession = sessions.find((item) => item.id === (currentSessionId ?? sessionId));
+  const activeSession = sessions.find((item) => item.id === sessionId) ?? sessions.find((item) => item.id === currentSessionId);
   const workspaceName = (workspace || activeSession?.workspace || "").split(/[/\\]/).filter(Boolean).pop();
   const currentProvider = providers.find((provider) => provider.id === currentProviderId);
   const modelLabel = [currentProvider?.name, currentModel].filter(Boolean).join(" · ");
@@ -43,14 +44,29 @@ export default function Session() {
     currentProviderId && currentModel && !["thinking", "tool_calling", "compacting", "waiting_approval"].includes(status),
   );
 
+  const sendInSession = useCallback(
+    (text: string, options?: ChatRunOptions) =>
+      sendMessage(text, { ...options, sessionId } as ChatRunOptions & { sessionId: string }),
+    [sendMessage, sessionId],
+  );
+
+  useEffect(() => {
+    initialPromptSent.current = false;
+  }, [sessionId]);
+
   useEffect(() => {
     const state = location.state as ({ initialPrompt?: string } & ChatRunOptions) | null;
     const prompt = state?.initialPrompt?.trim();
-    if (!sessionId || !prompt || initialPromptSent.current) return;
+    // 仅在应用内 PUSH 跳转（如首页发起新对话）时自动发送首条消息。
+    // 刷新 / 前进后退是 POP，浏览器会从 history.state 恢复 location.state，
+    // 必须在此拦住，否则刷新会反复自动重发首条消息。
+    if (!sessionId || !prompt || navigationType !== "PUSH" || initialPromptSent.current) return;
     initialPromptSent.current = true;
-    void sendMessage(prompt, { thinking: state?.thinking, thinkingLevel: state?.thinkingLevel });
-    navigate(`/session/${sessionId}`, { replace: true, state: null });
-  }, [location.state, navigate, sendMessage, sessionId]);
+    void (async () => {
+      await sendInSession(prompt, { thinking: state?.thinking, thinkingLevel: state?.thinkingLevel });
+      navigate(`/session/${sessionId}`, { replace: true, state: null });
+    })();
+  }, [location.state, navigate, navigationType, sendInSession, sessionId]);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-[var(--as-bg)]">
@@ -70,10 +86,10 @@ export default function Session() {
       {hasMessages ? (
         <MessageList messages={messages} status={status} streamingText={streamingText} streamingReasoning={streamingReasoning} />
       ) : (
-        <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendMessage(prompt)} />
+        <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendInSession(prompt)} />
       )}
       <div className="absolute bottom-10 left-0 right-0 px-6">
-        <InputBar status={status} onSend={sendMessage} onAbort={abortRun} compact />
+        <InputBar status={status} onSend={(text, options) => void sendInSession(text, options)} onAbort={abortRun} compact />
       </div>
     </div>
   );

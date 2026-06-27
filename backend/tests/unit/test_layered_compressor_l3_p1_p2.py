@@ -36,7 +36,9 @@ async def test_level3_summarizes_and_archives_p1_p2(tmp_path: Path) -> None:
     )
 
     summary = compacted[1].content
+    assert compacted[1].kind == "summary"
+    assert "<conversation_summary>" in summary
     assert "item_id=item-9" in summary
     assert "用户决定排除高价商品" in summary
-    archive_path = summary.rsplit("[无损备份]\n", 1)[1]
+    archive_path = summary.rsplit("无损备份: ", 1)[1].splitlines()[0]
     assert Path(archive_path).exists()

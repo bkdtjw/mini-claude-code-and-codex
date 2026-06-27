@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -129,7 +128,7 @@ async def answer_with_knowledge(context: KbContext, question: str) -> None:
         session_id=f"feishu-kb:{context.chat_id}:{context.message_id}",
         model=model,
         provider=provider.id,
-        system_prompt=f"{build_system_prompt(os.getcwd())}\n\n{prompt}",
+        system_prompt=f"{build_system_prompt()}\n\n{prompt}",
         agent_runtime=context.handler._agent_runtime,  # noqa: SLF001
         spec_registry=context.handler._spec_registry,  # noqa: SLF001
         task_queue=context.handler._task_queue,  # noqa: SLF001

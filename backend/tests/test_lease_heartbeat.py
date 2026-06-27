@@ -5,12 +5,15 @@ from time import time
 
 import pytest
 
-from backend.api.task_queue_consumer import _build_sub_agent_loop, _heartbeat_loop
+from backend.api.task_queue_consumer import _build_sub_agent_loop
+from backend.api.task_queue_consumer_helpers import _heartbeat_loop
 from backend.common.types import AgentEvent, Message
 from backend.config import get_redis
 from backend.core.s02_tools.builtin.spawn_agent import create_spawn_agent_tool
 from backend.core.s02_tools.builtin.spawn_agent_support import SpawnAgentDeps
+from backend.core.s05_skills.models import SubAgentPolicy
 from backend.core.task_queue import TaskQueue
+from backend.core.task_queue_support import WAIT_DETACHED_ERROR, WAIT_TIMEOUT_ERROR
 from backend.core.task_queue_types import TaskStatus
 from backend.storage import SessionStore, SubAgentTaskStore
 from backend.storage.database import SessionFactory
@@ -81,6 +84,40 @@ async def test_lease_guard_rejects_old_worker_after_recovery(queue: TaskQueue) -
 
 
 @pytest.mark.asyncio
+async def test_parent_wait_timeout_does_not_fail_active_lease(queue: TaskQueue) -> None:
+    await queue.submit("detach-active", {"input": "work"}, timeout_seconds=60)
+    claimed = await queue.claim("worker-a")
+    assert claimed is not None
+
+    statuses = await queue.wait_for_tasks(["detach-active"], poll_interval=0.01, global_timeout=0.01)
+    current = await status(queue, "detach-active")
+
+    assert statuses[0].status == TaskStatus.RUNNING
+    assert statuses[0].error == WAIT_DETACHED_ERROR
+    assert current.status == TaskStatus.RUNNING
+    assert current.error == ""
+
+
+@pytest.mark.asyncio
+async def test_persistent_late_complete_repairs_wait_timeout_failure(queue: TaskQueue) -> None:
+    await queue.submit("late-persisted", {"input": "work"}, timeout_seconds=60)
+    claimed = await queue.claim("worker-a")
+    assert claimed is not None
+    assert await queue.fail("late-persisted", WAIT_TIMEOUT_ERROR, worker_id=claimed.worker_id)
+
+    completed = await queue.complete(
+        "late-persisted",
+        {"content": "late success"},
+        worker_id=claimed.worker_id,
+    )
+    current = await status(queue, "late-persisted")
+
+    assert completed is True
+    assert current.status == TaskStatus.SUCCEEDED
+    assert current.result == {"content": "late success"}
+
+
+@pytest.mark.asyncio
 async def test_recovery_with_checkpoint_restores_messages(
     queue: TaskQueue,
     db_session_factory: SessionFactory,
@@ -122,6 +159,7 @@ async def test_spawn_agent_reuses_completed_children() -> None:
             workspace="/workspace",
             event_handler=events.append,
             parent_task_id="parent-1",
+            sub_agent_policy=SubAgentPolicy(allowed_specs=["code-reviewer"]),
         )
     )[1]
     result = await execute(
@@ -133,9 +171,10 @@ async def test_spawn_agent_reuses_completed_children() -> None:
         }
     )
     assert result.is_error is False
-    assert len(queue.submitted) == 1
+    assert len(queue.submitted) == 2
     assert "old result" in result.output
     assert "new result" in result.output
+    assert events[0].data["submitted"] == 1
     assert events[0].data["reused"] == 1
 
 

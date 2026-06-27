@@ -49,11 +49,12 @@ def write_artifact(request: ArtifactWriteRequest) -> str:
     safe_sid = _safe_name(request.session_id)
     safe_call = _safe_name(request.tool_call_id or "tool")
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
-    directory = Path(request.artifacts_dir) / safe_sid
+    root = Path(request.artifacts_dir).expanduser()
+    directory = (root if root.is_absolute() else Path.cwd() / root) / safe_sid
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{safe_call}_{timestamp}.json"
     path.write_text(_artifact_payload(request.output), encoding="utf-8")
-    return path.as_posix()
+    return path.resolve().as_posix()
 
 
 def extract_brief(result: ToolResult) -> str:

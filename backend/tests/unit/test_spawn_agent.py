@@ -9,6 +9,7 @@ from backend.common.types import AgentEvent
 from backend.core.s02_tools.builtin.spawn_agent import create_spawn_agent_tool
 from backend.core.s02_tools.builtin.spawn_agent_support import SpawnAgentDeps
 from backend.core.s05_skills import AgentCategory, AgentSpec, SpecRegistry
+from backend.core.s05_skills.models import SubAgentPolicy
 from backend.core.task_queue import TaskPayload, TaskStatus
 
 
@@ -87,6 +88,13 @@ def _tool(
             spec_registry=_registry(),
             workspace="/workspace",
             event_handler=(lambda event: events.append(event)) if events is not None else None,
+            sub_agent_policy=SubAgentPolicy(
+                allowed_specs=["code-reviewer", "missing"],
+                allow_inline_roles=True,
+                allowed_inline_templates=["test-strategist"],
+                allowed_inline_tools=["Read", "Bash"],
+                max_concurrent=5,
+            ),
         )
     )[1]
 
@@ -178,8 +186,10 @@ async def test_spawn_agent_inline_mode_submits_role_prompt_and_tools() -> None:
             "tasks": [
                 {
                     "role": "security-reviewer",
+                    "template": "test-strategist",
                     "system_prompt": "review carefully",
                     "tools": ["Read", "Bash"],
+                    "permission": "writable",
                     "input": "check auth",
                 }
             ]
@@ -188,7 +198,8 @@ async def test_spawn_agent_inline_mode_submits_role_prompt_and_tools() -> None:
 
     assert result.is_error is False
     assert queue.submitted[0]["input_data"]["role"] == "security-reviewer"
-    assert queue.submitted[0]["input_data"]["system_prompt"] == "review carefully"
+    assert "测试设计员" in str(queue.submitted[0]["input_data"]["system_prompt"])
+    assert "补充约束：review carefully" in str(queue.submitted[0]["input_data"]["system_prompt"])
     assert queue.submitted[0]["input_data"]["tools"] == ["Read", "Bash"]
     assert queue.submitted[0]["input_data"]["workspace"] == "/workspace"
 

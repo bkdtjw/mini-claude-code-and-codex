@@ -4,10 +4,11 @@ import asyncio
 
 import pytest
 
-import backend.core.task_queue_support as task_queue_support
+import backend.core.task_queue_recovery as task_queue_recovery
 from backend.common.logging import bound_log_context
 from backend.config import get_redis
 from backend.core.task_queue import TaskQueue
+from backend.core.task_queue_support import WAIT_DETACHED_ERROR, WAIT_TIMEOUT_ERROR
 from backend.core.task_queue_types import TaskStatus
 
 from .redis_test_support import use_fake_redis
@@ -71,7 +72,7 @@ async def test_empty_stale_scan_logs_at_debug(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_logger = FakeLogger()
-    monkeypatch.setattr(task_queue_support, "logger", fake_logger)
+    monkeypatch.setattr(task_queue_recovery, "logger", fake_logger)
 
     recovered = await queue.recover_stale_tasks()
 
@@ -135,16 +136,39 @@ async def test_wait_for_tasks_returns_terminal_states(queue: TaskQueue) -> None:
 
 
 @pytest.mark.asyncio
-async def test_wait_for_tasks_global_timeout_marks_running_tasks_failed(queue: TaskQueue) -> None:
+async def test_wait_for_tasks_global_timeout_detaches_active_running_task(queue: TaskQueue) -> None:
     await queue.submit("task-6", {"prompt": "hang"})
     claimed = await queue.claim("worker-1")
     assert claimed is not None
 
     statuses = await queue.wait_for_tasks(["task-6"], poll_interval=0.01, global_timeout=0.02)
+    current = await queue.get_status("task-6")
 
     assert len(statuses) == 1
-    assert statuses[0].status == TaskStatus.FAILED
-    assert "等待超时" in statuses[0].error
+    assert statuses[0].status == TaskStatus.RUNNING
+    assert statuses[0].error == WAIT_DETACHED_ERROR
+    assert current is not None
+    assert current.status == TaskStatus.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_late_complete_repairs_wait_timeout_failure(queue: TaskQueue) -> None:
+    await queue.submit("task-late", {"prompt": "late"})
+    claimed = await queue.claim("worker-1")
+    assert claimed is not None
+    await queue.fail("task-late", WAIT_TIMEOUT_ERROR, worker_id=claimed.worker_id)
+
+    completed = await queue.complete(
+        "task-late",
+        {"output": "late ok"},
+        worker_id=claimed.worker_id,
+    )
+    status = await queue.get_status("task-late")
+
+    assert completed is True
+    assert status is not None
+    assert status.status == TaskStatus.SUCCEEDED
+    assert status.result == {"output": "late ok"}
 
 
 @pytest.mark.asyncio

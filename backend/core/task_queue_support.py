@@ -5,11 +5,13 @@ from time import time
 from typing import Any, Protocol
 
 from backend.common.logging import get_logger
+from backend.common.metrics import incr
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 
 logger = get_logger(component="task_queue")
 TERMINAL_TASK_STATUSES = {TaskStatus.SUCCEEDED, TaskStatus.FAILED}
 WAIT_TIMEOUT_ERROR = "等待超时，主 agent 放弃等待"
+WAIT_DETACHED_ERROR = "等待超时，子 agent 仍在执行，主 agent 已停止等待"
 
 
 class TaskQueueStore(Protocol):
@@ -44,82 +46,6 @@ async def wait_for_task_payloads(
         await asyncio.sleep(poll_interval)
 
 
-async def recover_stale_task_payloads(queue: TaskQueueStore) -> int:
-    checked = 0
-    recovered = 0
-    failed = 0
-    now = time()
-    for task_id in await queue._task_ids():
-        payload = await queue.get_status(task_id)
-        checked += 1
-        if payload is None:
-            await queue._redis.srem(queue._index_key, task_id)
-            continue
-        if payload.status != TaskStatus.RUNNING or not _lease_expired(payload, now):
-            continue
-        if payload.retry_count < payload.max_retries:
-            has_checkpoint = await queue.has_checkpoint(payload.task_id)
-            pending = payload.model_copy(
-                update={
-                    "status": TaskStatus.PENDING,
-                    "worker_id": "",
-                    "started_at": 0.0,
-                    "lease_expires_at": 0.0,
-                    "result": None,
-                    "error": "",
-                    "retry_count": payload.retry_count + 1,
-                }
-            )
-            await queue._save_payload(pending)
-            await queue._redis.lpush(queue._queue_key, payload.task_id)
-            await queue._redis.expire(queue._queue_key, queue._task_ttl_seconds)
-            recovered += 1
-            logger.warning(
-                "stale_task_recovered",
-                namespace=queue.namespace,
-                task_id=payload.task_id,
-                retry_count=pending.retry_count,
-                worker_id=payload.worker_id,
-                has_checkpoint=has_checkpoint,
-            )
-            continue
-        await _expire_stale_task(queue, payload)
-        refreshed = await queue.get_status(payload.task_id)
-        if refreshed is not None and refreshed.status == TaskStatus.FAILED:
-            failed += 1
-            logger.warning(
-                "stale_task_expired",
-                namespace=queue.namespace,
-                task_id=payload.task_id,
-                max_retries=payload.max_retries,
-            )
-    if failed:
-        logger.warning(
-            "stale_task_scan",
-            namespace=queue.namespace,
-            checked=checked,
-            recovered=recovered,
-            failed=failed,
-        )
-    elif recovered:
-        logger.info(
-            "stale_task_scan",
-            namespace=queue.namespace,
-            checked=checked,
-            recovered=recovered,
-            failed=failed,
-        )
-    else:
-        logger.debug(
-            "stale_task_scan",
-            namespace=queue.namespace,
-            checked=checked,
-            recovered=recovered,
-            failed=failed,
-        )
-    return recovered
-
-
 async def update_terminal_payload_state(
     queue: TaskQueueStore,
     task_id: str,
@@ -131,7 +57,7 @@ async def update_terminal_payload_state(
     payload = await queue.get_status(task_id)
     if payload is None:
         raise RuntimeError(f"Task not found: {task_id}")
-    if payload.status != TaskStatus.RUNNING:
+    if not _can_update_terminal(payload, status, worker_id):
         logger.warning(
             "task_terminal_update_skipped",
             namespace=queue.namespace,
@@ -153,6 +79,20 @@ async def update_terminal_payload_state(
     return True
 
 
+def _can_update_terminal(
+    payload: TaskPayload,
+    target_status: TaskStatus,
+    worker_id: str,
+) -> bool:
+    if payload.status == TaskStatus.RUNNING:
+        return not worker_id or payload.worker_id == worker_id
+    if target_status == TaskStatus.FAILED and payload.status == TaskStatus.PENDING:
+        return not worker_id
+    if target_status == TaskStatus.SUCCEEDED and payload.status == TaskStatus.FAILED:
+        return bool(worker_id) and payload.error == WAIT_TIMEOUT_ERROR and payload.worker_id == worker_id
+    return False
+
+
 def _lease_expired(payload: TaskPayload, now: float) -> bool:
     expires_at = payload.lease_expires_at or (payload.started_at + payload.timeout_seconds)
     return expires_at > 0 and now > expires_at
@@ -164,13 +104,19 @@ async def _fail_stuck_tasks(
     statuses: list[TaskPayload | None],
 ) -> list[TaskPayload]:
     final_statuses: list[TaskPayload] = []
+    now = time()
     for task_id, status in zip(task_ids, statuses, strict=False):
         if status is None:
             continue
         if status.status in TERMINAL_TASK_STATUSES:
             final_statuses.append(status)
             continue
+        if _should_detach(status, now):
+            await incr("sub_agent_wait_detached")
+            final_statuses.append(status.model_copy(update={"error": WAIT_DETACHED_ERROR}))
+            continue
         await _safe_fail(queue, task_id, WAIT_TIMEOUT_ERROR)
+        await incr("sub_agent_wait_failures")
         refreshed = await queue.get_status(task_id)
         final_statuses.append(
             refreshed
@@ -180,12 +126,8 @@ async def _fail_stuck_tasks(
     return final_statuses
 
 
-async def _expire_stale_task(queue: TaskQueueStore, payload: TaskPayload) -> None:
-    await _safe_fail(
-        queue,
-        payload.task_id,
-        f"超时重试 {payload.max_retries} 次后仍未完成",
-    )
+def _should_detach(payload: TaskPayload, now: float) -> bool:
+    return payload.status == TaskStatus.RUNNING and not _lease_expired(payload, now)
 
 
 async def _safe_fail(queue: TaskQueueStore, task_id: str, error: str) -> None:

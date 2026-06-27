@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .config import PipelineConfig
+from .curation import curate_candidates
 from .models import (
     CollectAndProcessPipelineError,
     PipelineResult,
@@ -20,7 +21,8 @@ async def process_raw_data(
 ) -> PipelineResult:
     try:
         tweet_counts = {keyword: len(items) for keyword, items in tweets.items()}
-        candidates = build_tweet_candidates(tweets, config, memory)
+        scored = build_tweet_candidates(tweets, config, memory)
+        candidates = curate_candidates(scored, config)
         clusters = build_clusters(candidates, config)
         evidence_text, reported_ids, reported_signatures, evidence_cards = render_evidence(
             tweet_counts,
@@ -33,6 +35,7 @@ async def process_raw_data(
             stats={
                 "tweet_counts_by_keyword": tweet_counts,
                 "tweet_candidates": len(candidates),
+                "tweet_dropped_by_curation": len(scored) - len(candidates),
                 "tweet_clusters": len(clusters),
                 "video_count": len(videos),
                 "evidence_cards": evidence_cards,

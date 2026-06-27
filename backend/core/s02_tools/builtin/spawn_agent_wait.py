@@ -6,7 +6,7 @@ from time import monotonic
 
 from backend.common.logging import get_logger, get_worker_id
 from backend.core.task_queue import TaskPayload, TaskStatus
-from backend.core.task_queue_support import WAIT_TIMEOUT_ERROR
+from backend.core.task_queue_support import WAIT_DETACHED_ERROR, WAIT_TIMEOUT_ERROR
 
 from .spawn_agent_support import (
     PreparedTask,
@@ -63,7 +63,11 @@ def _log_wait_result(
     task_ids = [item.task_id for item in prepared]
     succeeded = sum(1 for status in statuses if status.status == TaskStatus.SUCCEEDED)
     failed = sum(1 for status in statuses if status.status == TaskStatus.FAILED)
-    stuck_tasks = [status.task_id for status in statuses if status.error == WAIT_TIMEOUT_ERROR]
+    stuck_tasks = [
+        status.task_id
+        for status in statuses
+        if status.error in {WAIT_TIMEOUT_ERROR, WAIT_DETACHED_ERROR}
+    ]
     if stuck_tasks:
         logger.error(
             "sub_agent_wait_timeout",

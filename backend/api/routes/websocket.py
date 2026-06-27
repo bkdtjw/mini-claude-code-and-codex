@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from backend.common.logging import get_logger
 from backend.api.routes.providers import provider_manager
 from backend.common.errors import AgentError
 from backend.common.types import Message
@@ -28,20 +29,21 @@ from .websocket_support import (
 )
 
 router = APIRouter()
+logger = get_logger(component="websocket_route")
 
 
 class ConnectionManager:
     def __init__(self) -> None:
-        self._connections: dict[str, WebSocket] = {}
+        self._connections: dict[str, set[WebSocket]] = {}
         self._loops: dict[str, AgentLoop] = {}
         self._plan_runners: dict[str, PlanExecuteRunner] = {}
         self._loop_settings: dict[str, LoopSettings] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
-        self._subscriber_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._subscriber_tasks: dict[str, dict[WebSocket, asyncio.Task[Any]]] = {}
 
     async def connect(self, session_id: str, ws: WebSocket) -> None:
         try:
-            self._connections[session_id] = ws
+            self._connections.setdefault(session_id, set()).add(ws)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_CONNECT_ERROR", str(exc)) from exc
 
@@ -57,15 +59,15 @@ class ConnectionManager:
             loop = self._loops.get(session_id)
             if loop is not None:
                 await self._sync_messages(session_id, loop, store)
-            active_subscriber = self._subscriber_tasks.get(session_id)
-            if subscriber_task is None:
-                subscriber_task = active_subscriber
-            if active_subscriber is subscriber_task:
-                self._subscriber_tasks.pop(session_id, None)
-            if subscriber_task and not subscriber_task.done():
-                subscriber_task.cancel()
-            if websocket is None or self._connections.get(session_id) is websocket:
+            self._remove_subscriber_task(session_id, websocket, subscriber_task)
+            if websocket is None:
                 self._connections.pop(session_id, None)
+            else:
+                sockets = self._connections.get(session_id)
+                if sockets is not None:
+                    sockets.discard(websocket)
+                    if not sockets:
+                        self._connections.pop(session_id, None)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_DISCONNECT_ERROR", str(exc)) from exc
 
@@ -82,9 +84,10 @@ class ConnectionManager:
             task = self._tasks.pop(session_id, None)
             if task and not task.done():
                 task.cancel()
-            subscriber_task = self._subscriber_tasks.pop(session_id, None)
-            if subscriber_task and not subscriber_task.done():
-                subscriber_task.cancel()
+            subscriber_tasks = self._subscriber_tasks.pop(session_id, {})
+            for subscriber_task in subscriber_tasks.values():
+                if not subscriber_task.done():
+                    subscriber_task.cancel()
             self._connections.pop(session_id, None)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_CLEAR_SESSION_ERROR", str(exc)) from exc
@@ -105,23 +108,65 @@ class ConnectionManager:
     def get_loop_settings(self, session_id: str) -> LoopSettings | None:
         return self._loop_settings.get(session_id)
 
-    def set_subscriber_task(self, session_id: str, task: asyncio.Task[Any]) -> None:
-        existing = self._subscriber_tasks.get(session_id)
+    def set_subscriber_task(
+        self, session_id: str, websocket: WebSocket, task: asyncio.Task[Any]
+    ) -> None:
+        tasks = self._subscriber_tasks.setdefault(session_id, {})
+        existing = tasks.get(websocket)
         if existing and not existing.done():
             existing.cancel()
-        self._subscriber_tasks[session_id] = task
+        tasks[websocket] = task
 
     async def broadcast(self, session_id: str, payload: dict[str, Any]) -> None:
         try:
-            ws = self._connections.get(session_id)
-            if ws is not None:
+            sockets = list(self._connections.get(session_id, set()))
+            failed: list[WebSocket] = []
+            for ws in sockets:
                 try:
                     await ws.send_json(payload)
-                except Exception:
-                    self._connections.pop(session_id, None)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("ws_send_failed", session_id=session_id, error=str(exc))
+                    failed.append(ws)
+            if failed:
+                active = self._connections.get(session_id)
+                if active is not None:
+                    for ws in failed:
+                        active.discard(ws)
+                        self._remove_subscriber_task(session_id, ws, None)
+                    if not active:
+                        self._connections.pop(session_id, None)
             await publish_session_message(session_id, payload)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_BROADCAST_ERROR", str(exc)) from exc
+
+    def _remove_subscriber_task(
+        self,
+        session_id: str,
+        websocket: WebSocket | None,
+        subscriber_task: asyncio.Task[Any] | None,
+    ) -> None:
+        tasks = self._subscriber_tasks.get(session_id)
+        if not tasks:
+            pending: list[asyncio.Task[Any]] = [subscriber_task] if subscriber_task else []
+        elif websocket is None and subscriber_task is None:
+            pending = list(tasks.values())
+            self._subscriber_tasks.pop(session_id, None)
+        elif websocket is not None:
+            task = tasks.pop(websocket, None) or subscriber_task
+            pending = [task] if task else []
+            if not tasks:
+                self._subscriber_tasks.pop(session_id, None)
+        else:
+            pending = []
+            for ws, task in list(tasks.items()):
+                if task is subscriber_task:
+                    tasks.pop(ws, None)
+                    pending.append(task)
+            if not tasks:
+                self._subscriber_tasks.pop(session_id, None)
+        for task in pending:
+            if not task.done():
+                task.cancel()
 
 
 manager = ConnectionManager()
@@ -132,9 +177,10 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     store = get_store(websocket)
     await manager.connect(session_id, websocket)
+    logger.info("ws_connected", session_id=session_id)
     await _send_resume_available(websocket, session_id)
     subscriber_task = asyncio.create_task(forward_session_messages(session_id, websocket))
-    manager.set_subscriber_task(session_id, subscriber_task)
+    manager.set_subscriber_task(session_id, websocket, subscriber_task)
     try:
         while True:
             data = await websocket.receive_json()
@@ -153,6 +199,14 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 settings = await resolve_loop_settings(parse_loop_settings(data), provider_manager)
                 state = websocket.app.state
                 user_message = str(data.get("message", "")).strip()
+                logger.info(
+                    "ws_run_received",
+                    session_id=session_id,
+                    message_length=len(user_message),
+                    model=settings.model,
+                    provider_id=settings.provider_id,
+                    mode=settings.mode,
+                )
 
                 async def send_message(message: dict[str, Any]) -> None:
                     await manager.broadcast(session_id, message)
@@ -326,7 +380,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 state = _latest_incomplete_checkpoint(PlanCheckpointStore(), session_id, session_id)
                 if state is not None:
                     PlanCheckpointStore().delete(state.session_id, state.plan_name)
-                await websocket.send_json({"type": "status", "status": "idle"})
+                await manager.broadcast(session_id, {"type": "status", "status": "idle"})
             elif msg_type in {"tool_approve", "tool_reject"}:
                 tool_call_id = str(data.get("tool_call_id", "")).strip()
                 approved = msg_type == "tool_approve"
@@ -339,7 +393,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 runner = manager._plan_runners.get(session_id)
                 if runner is not None:
                     runner.cancel()
-                await websocket.send_json({"type": "status", "status": "idle"})
+                await manager.broadcast(session_id, {"type": "status", "status": "idle"})
             elif msg_type == "abort":
                 loop = manager.get_loop(session_id)
                 if loop:
@@ -350,10 +404,11 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 task = manager._tasks.get(session_id)
                 if task and not task.done():
                     task.cancel()
-                await websocket.send_json({"type": "status", "status": "idle"})
+                await manager.broadcast(session_id, {"type": "status", "status": "idle"})
             else:
                 await websocket.send_json({"type": "error", "message": "Unsupported message type"})
     except WebSocketDisconnect:
+        logger.info("ws_disconnected", session_id=session_id)
         await manager.disconnect(
             session_id,
             websocket=websocket,

@@ -70,4 +70,8 @@ class OnDemandSkillLoader:
                 "SKILL_INJECT_PROMPT_TOO_LONG",
                 f"Skill {spec.id} inject prompt exceeds {spec.inject_max_chars} chars.",
             )
-        return Message(role="system", content=prompt)
+        return Message(
+            role="user",
+            kind="skill_context",
+            content=f"<skill_context>\n{prompt}\n</skill_context>",
+        )

@@ -74,6 +74,21 @@ async def test_run_without_tool_calls_returns_assistant_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_passes_configured_generation_budget_to_llm_request() -> None:
+    adapter = MockAdapter([LLMResponse(content="hello")])
+    loop = AgentLoop(
+        AgentConfig(model="test-model", max_tokens=32768, temperature=0.2),
+        adapter,
+        ToolRegistry(),
+    )
+
+    await loop.run("hi")
+
+    assert adapter.requests[0].max_tokens == 32768
+    assert adapter.requests[0].temperature == 0.2
+
+
+@pytest.mark.asyncio
 async def test_run_with_tool_calls_then_final_answer() -> None:
     async def echo_tool(_: dict[str, object]) -> ToolResult:
         return ToolResult(tool_call_id="tc_1", output="tool-ok")

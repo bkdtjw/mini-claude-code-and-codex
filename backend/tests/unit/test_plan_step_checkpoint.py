@@ -134,11 +134,10 @@ async def test_execute_step_restores_existing_checkpoint_messages(tmp_path, monk
 
     await runner._execute_step(step2)
 
-    assert [message.role for message in runner._adapter.request_messages[:3]] == [
-        "system",
-        "user",
-        "assistant",
-    ]
+    request_messages = runner._adapter.request_messages
+    assert request_messages[0].role == "system"
+    assert any(message.kind == "skill_context" for message in request_messages)
+    assert any(message.role == "assistant" and message.content == "partial" for message in request_messages)
     assert events and events[0][0] == "plan_step_checkpoint_restored"
 
 

@@ -110,7 +110,7 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> AgentRuntime:
     )
     monkeypatch.setattr("backend.core.s05_skills.runtime.MCPToolBridge", FakeBridge)
     monkeypatch.setattr(
-        "backend.core.s05_skills.runtime.build_system_prompt", lambda workspace: f"base:{workspace}"
+        "backend.core.s05_skills.runtime.build_system_prompt", lambda: "base"
     )
     return AgentRuntime(
         AgentRuntimeDeps.model_construct(
@@ -220,6 +220,7 @@ async def test_plan_runner_uses_spec_tools_and_prompt(runtime: AgentRuntime) -> 
     system_prompt, _ = runner._build_step_prompt(context)  # noqa: SLF001
     loop = runner._build_step_loop(TodoStep(id=1, title="t"), context)  # noqa: SLF001
     assert "spec prompt" not in system_prompt
-    assert "base:" in runner._system_prompt  # noqa: SLF001
-    assert loop._static_skill_messages[0].content == "spec prompt"  # noqa: SLF001
+    assert runner._system_prompt == "base"  # noqa: SLF001
+    assert loop._static_skill_messages[0].kind == "skill_context"  # noqa: SLF001
+    assert "spec prompt" in loop._static_skill_messages[0].content  # noqa: SLF001
     assert loop._config.max_iterations == 7  # noqa: SLF001

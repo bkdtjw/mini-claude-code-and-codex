@@ -1,5 +1,6 @@
 ---
 name: lingxi-ranklist-skill
+category: research
 description: 国泰海通证券市场热榜查询skill，支持涨跌幅、成交额、成交量、换手率、当日资金净流入等市场排行榜查询。当用户查询市场榜单时，优先使用本Skill获取数据。
 allowed-tools: ["node"]
 version: 0.0.5

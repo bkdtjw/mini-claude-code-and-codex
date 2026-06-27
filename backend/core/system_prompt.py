@@ -17,7 +17,21 @@ P6 可删：日常寒暄、确认语句
 """.strip()
 
 
-def build_system_prompt(workspace: str | None = None) -> str:
+COMMERCE_TOOL_KEYWORDS = (
+    "taobao",
+    "tmall",
+    "jd",
+    "jingdong",
+    "pinduoduo",
+    "coupon",
+    "zhetaoke",
+    "product_coupon",
+    "product_search",
+    "product_source_health_check",
+)
+
+
+def build_system_prompt() -> str:
     os_name = platform.system()
     if os_name == "Windows":
         shell_info = (
@@ -43,30 +57,42 @@ def build_system_prompt(workspace: str | None = None) -> str:
             "原因、当前限制和下一步建议。"
         ),
     ]
-    if workspace:
-        parts.append(f"当前工作目录: {workspace}")
-        parts.append(
-            "本地项目相关任务（目录结构、入口文件、模块、代码搜索、文件读取、命令执行）"
-            "使用已提供的本地工具完成；browse_web 是浏览器自动化工具，用于观察和操作网页。"
-        )
-    else:
-        parts.append(
-            "当前没有选择本地工作目录。涉及当前项目、本地文件、代码、目录结构或入口文件的"
-            "请求无法直接完成，应先让用户选择工作区或提供文件内容；不要调用网页、商品、"
-            "金融等无关工具来替代本地项目工具。"
-        )
     parts.extend(
         [
             "你有 spawn_agent 工具可以派生子 agent 并行执行任务。",
             "多个子任务互不依赖、可以同时进行时，用 spawn_agent 一次传多个任务并行执行。",
             "子任务之间有先后依赖，或任务简单到你自己几步就能完成时，不要派子 agent。",
             "子 agent 执行完成后你会收到全部结果，请汇总后再回复用户。",
-            COMMERCE_TOOL_RESULT_RULES,
         ]
     )
     parts.append("回复使用中文。")
-    parts.append(COMPRESSION_RETENTION_TEMPLATE)
     return "\n".join(part for part in parts if part)
 
 
-__all__ = ["COMPRESSION_RETENTION_TEMPLATE", "build_system_prompt"]
+def build_runtime_context(workspace: str | None = None, tools: list[object] | None = None) -> str:
+    parts: list[str] = []
+    if workspace:
+        parts.append(f"当前工作目录: {workspace}")
+        parts.append("本地项目相关任务使用已提供的本地工具完成。")
+        parts.append("browse_web 是浏览器自动化工具，用于观察和操作网页。")
+    else:
+        parts.append("当前没有选择工作目录。涉及本地文件的请求应先让用户选择工作区。")
+    if tools and _has_commerce_tools(tools):
+        parts.append(COMMERCE_TOOL_RESULT_RULES)
+    return "\n".join(parts)
+
+
+def _has_commerce_tools(tools: list[object]) -> bool:
+    for tool in tools:
+        name = str(getattr(tool, "name", "")).lower()
+        if any(keyword in name for keyword in COMMERCE_TOOL_KEYWORDS):
+            return True
+    return False
+
+
+__all__ = [
+    "COMMERCE_TOOL_KEYWORDS",
+    "COMPRESSION_RETENTION_TEMPLATE",
+    "build_runtime_context",
+    "build_system_prompt",
+]

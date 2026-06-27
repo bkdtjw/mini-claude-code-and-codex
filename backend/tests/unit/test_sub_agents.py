@@ -11,6 +11,7 @@ from backend.common.types import LLMRequest, LLMResponse, StreamChunk
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s04_sub_agents import AgentDefinitionLoader
+from backend.core.s05_skills.models import SubAgentPolicy
 
 
 class FakeAdapter(LLMAdapter):
@@ -101,6 +102,22 @@ async def test_register_builtin_tools_adds_sub_agent_tools_when_adapter_exists()
     definition, _ = orchestrate_tool
     assert definition.parameters.required == ["tasks"]
     assert definition.parameters.properties["tasks"]["items"]["required"] == ["role", "task"]
+
+
+@pytest.mark.asyncio
+async def test_register_builtin_tools_can_hide_legacy_sub_agent_tools() -> None:
+    registry = ToolRegistry()
+    register_builtin_tools(
+        registry,
+        _make_workspace(),
+        mode="auto",
+        adapter=FakeAdapter(),
+        default_model="test-model",
+        sub_agent_policy=SubAgentPolicy(enable_legacy_tools=False),
+    )
+
+    assert not registry.has("dispatch_agent")
+    assert not registry.has("orchestrate_agents")
 
 
 @pytest.mark.asyncio

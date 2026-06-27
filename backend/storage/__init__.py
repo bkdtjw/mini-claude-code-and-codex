@@ -6,6 +6,7 @@ from backend.storage.database import init_db
 from backend.storage.session_store import SessionStore
 
 if TYPE_CHECKING:
+    from backend.storage.hook_config_store import HookConfigStore
     from backend.storage.memory_store import MemoryStore
     from backend.storage.mcp_server_store import MCPServerStore
     from backend.storage.provider_store import ProviderStore
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from backend.storage.task_config_store import TaskConfigStore
 
 __all__ = [
+    "HookConfigStore",
     "MCPServerStore",
     "MemoryStore",
     "ProviderStore",
@@ -24,6 +26,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name == "HookConfigStore":
+        from backend.storage.hook_config_store import HookConfigStore
+
+        return HookConfigStore
     if name == "MCPServerStore":
         from backend.storage.mcp_server_store import MCPServerStore
 

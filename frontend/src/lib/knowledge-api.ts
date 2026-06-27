@@ -1,8 +1,7 @@
 import type { KnowledgeBase, KnowledgeDocument, KnowledgeSystemStatus, KnowledgeUploadResult } from "@/types/knowledge";
+import { authorizedFetchJson, getApiErrorMessage } from "@/lib/api-auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
-const API_AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
-const AUTH_STORAGE_KEY = "agent-studio.auth-token";
 
 interface BaseResponse {
   id: string;
@@ -26,20 +25,10 @@ interface DocumentResponse {
   created_at: string;
 }
 
-const getAuthToken = (): string => API_AUTH_TOKEN || window.localStorage.getItem(AUTH_STORAGE_KEY)?.trim() || "change-me-in-production";
-
 const request = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
-  const headers = new Headers(options.headers);
-  headers.set("Authorization", `Bearer ${getAuthToken()}`);
-  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  const { response, data } = await authorizedFetchJson(`${API_BASE}${path}`, options);
   if (!response.ok) {
-    const message = data?.detail?.message ?? data?.message ?? `Request failed: ${response.status}`;
-    throw new Error(message);
+    throw new Error(getApiErrorMessage(data, response.status));
   }
   return data as T;
 };

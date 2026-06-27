@@ -12,6 +12,7 @@ from backend.api.routes.feishu_handler_support import (
     parse_slash_command,
     resolve_reply_text,
     resolve_session_model,
+    split_feishu_reply_text,
 )
 from backend.api.routes.feishu_runtime import (
     FeishuEventDeduplicator,
@@ -431,7 +432,8 @@ class FeishuMessageHandler:
     async def _reply_loop_result(self, loop: AgentLoop, message_id: str, content: str) -> None:
         if await self._try_reply_card(loop, message_id, content):
             return
-        await self._reply(message_id, json.dumps({"text": content[:4000]}, ensure_ascii=False))
+        for chunk in split_feishu_reply_text(content):
+            await self._reply(message_id, json.dumps({"text": chunk}, ensure_ascii=False))
 
     def _available_specs_text(self) -> str:
         if self._spec_registry is None:

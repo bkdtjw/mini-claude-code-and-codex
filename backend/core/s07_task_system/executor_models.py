@@ -19,4 +19,10 @@ class TaskExecutorDeps(BaseModel):
     feishu_client: FeishuClient | None = None
 
 
-__all__ = ["TaskExecutorDeps"]
+class TaskExecutionResult(BaseModel):
+    content: str
+    report_path: str = ""
+    status: str = "success"
+
+
+__all__ = ["TaskExecutionResult", "TaskExecutorDeps"]

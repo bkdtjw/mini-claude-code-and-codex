@@ -8,7 +8,9 @@ from backend.common.metrics import incr
 
 from .executor import TaskExecutor
 from .executor_errors import TaskExecutionError
+from .executor_models import TaskExecutionResult
 from .models import ScheduledTask
+from .output_preview import build_task_output_preview, render_task_output_preview
 from .runtime_state import SchedulerRuntimeState
 from .schedule_utils import get_next_run_at, get_scheduled_minute_key
 from .store import TaskStore
@@ -96,18 +98,23 @@ class TaskScheduler:
             logger.exception("task_running_lock_failed", task_id=task.id, task_name=task.name)
             return
         try:
-            result = await asyncio.wait_for(
-                self._executor.execute(task),
-                timeout=600.0,
+            result = await asyncio.wait_for(self._execute_task_result(task), timeout=600.0)
+            await self._store.update_run_status(
+                task.id,
+                "success",
+                _status_output(result.content, result.report_path),
             )
-            await self._store.update_run_status(task.id, "success", result[:500])
             logger.info("task_trigger_completed", task_id=task.id, task_name=task.name, trigger_type=trigger_type, trigger_minute=trigger_minute or "")
         except asyncio.TimeoutError:
             await self._store.update_run_status(task.id, "error", "Execution timed out (10min)")
             await incr("task_failures")
             logger.error("task_execute_timeout", task_id=task.id, task_name=task.name, timeout_seconds=600)
         except TaskExecutionError as exc:
-            await self._store.update_run_status(task.id, "error", (exc.output or exc.message)[:500])
+            await self._store.update_run_status(
+                task.id,
+                "error",
+                _status_output(exc.output or exc.message),
+            )
             logger.error("task_execute_failed", task_id=task.id, task_name=task.name, error=exc.message)
         except Exception:
             import traceback
@@ -119,6 +126,12 @@ class TaskScheduler:
                 await self._runtime_state.release_running(task.id)
             except Exception:
                 logger.exception("task_running_release_failed", task_id=task.id, task_name=task.name)
+
+    async def _execute_task_result(self, task: ScheduledTask) -> TaskExecutionResult:
+        if type(self._executor) is TaskExecutor:
+            return await self._executor.execute_with_result(task)
+        content = await self._executor.execute(task)
+        return TaskExecutionResult(content=str(content))
 
     async def _recover_missed_tasks(self) -> None:
         try:
@@ -140,3 +153,9 @@ class TaskScheduler:
 
 
 __all__ = ["TaskScheduler"]
+
+
+def _status_output(content: str, report_path: str = "") -> str:
+    return render_task_output_preview(
+        build_task_output_preview(content, content_ref=report_path)
+    )

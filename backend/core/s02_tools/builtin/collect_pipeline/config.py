@@ -69,6 +69,9 @@ class PipelineConfig(BaseModel):
     event_time_window_hours: int = Field(default=12, ge=1, le=168)
     min_text_length: int = Field(default=20, ge=1, le=200)
     max_age_hours: int = Field(default=48, ge=1, le=720)
+    curated: bool = True
+    min_keep_score: float = Field(default=0.0, ge=0, le=100)
+    video_char_reserve_ratio: float = Field(default=0.3, ge=0, le=0.9)
     retweet_weight: float = 3.0
     reply_weight: float = 1.5
     like_weight: float = 1.0

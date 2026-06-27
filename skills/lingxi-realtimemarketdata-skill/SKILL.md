@@ -1,5 +1,6 @@
 ---
 name: lingxi-realtimemarketdata-skill
+category: research
 description:
   国泰海通证券实时行情 Skill（lingxi-realtimemarketdata-skill）：标的覆盖 A 股、港股、美股、ETF与指数；支持单只或多只标的的实时行情，数据维度包括最新价、涨跌幅、涨跌额、成交量、成交额、换手率、当日资金净流入、量比等。
   当用户询问股价、涨跌幅、行情走势、资金流向或相关证券行情时使用；须优先通过本 Skill 取数。

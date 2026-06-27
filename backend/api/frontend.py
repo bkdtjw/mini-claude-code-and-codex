@@ -12,6 +12,11 @@ from backend.common.logging import get_logger
 logger = get_logger(component="api_frontend")
 _FRONTEND_DIR = Path(os.getenv("FRONTEND_DIST_DIR", "/app/dist/frontend"))
 _RESERVED_FRONTEND_PATHS = {"api", "assets", "health", "metrics", "reports", "v1", "ws"}
+_INDEX_HEADERS = {"Cache-Control": "no-store"}
+
+
+def _index_response(index_path: Path) -> FileResponse:
+    return FileResponse(index_path, headers=_INDEX_HEADERS)
 
 
 def mount_frontend(app: FastAPI) -> None:
@@ -25,14 +30,14 @@ def mount_frontend(app: FastAPI) -> None:
 
     @app.get("/", include_in_schema=False)
     async def frontend_index() -> FileResponse:
-        return FileResponse(index_path)
+        return _index_response(index_path)
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def frontend_spa(full_path: str) -> FileResponse:
         root_segment = full_path.split("/", 1)[0]
         if root_segment in _RESERVED_FRONTEND_PATHS:
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(index_path)
+        return _index_response(index_path)
 
 
 __all__ = ["mount_frontend"]

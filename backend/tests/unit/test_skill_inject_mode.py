@@ -42,7 +42,10 @@ def test_inject_skill_matches_into_zone2() -> None:
         skill_loader=loader,
     )
 
-    assert [message.content for message in request.skill_messages] == ["card format rules"]
+    assert request.skill_messages[0].role == "user"
+    assert request.skill_messages[0].kind == "skill_context"
+    assert "<skill_context>" in request.skill_messages[0].content
+    assert "card format rules" in request.skill_messages[0].content
     assert request.system_prompt == "stable"
 
 
@@ -66,7 +69,8 @@ async def test_load_skill_injects_once_on_next_request() -> None:
     )
 
     assert json.loads(result.output)["injected"] is True
-    assert [message.content for message in request.skill_messages] == ["card format rules"]
+    assert request.skill_messages[0].kind == "skill_context"
+    assert "card format rules" in request.skill_messages[0].content
     assert next_request.skill_messages == []
 
 

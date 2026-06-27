@@ -12,7 +12,12 @@ import pytest
 import backend.config.redis_client as redis_client
 
 from backend.config.settings import settings
-from backend.core.s07_task_system import TaskExecutionError, TaskExecutor, TaskExecutorDeps
+from backend.core.s07_task_system import (
+    TaskExecutionError,
+    TaskExecutionResult,
+    TaskExecutor,
+    TaskExecutorDeps,
+)
 from backend.core.s07_task_system.models import (
     NotifyConfig,
     OutputConfig,
@@ -84,7 +89,7 @@ class InMemoryTaskStore:
             return
         task.last_run_at = datetime.now()
         task.last_run_status = status
-        task.last_run_output = output[:500]
+        task.last_run_output = output
 
 
 async def _temp_store(_tmp_path: Path) -> InMemoryTaskStore:
@@ -443,6 +448,33 @@ class TestDedup:
         await scheduler._execute_task(task, None)
 
         assert await fake.client.exists(f"task:running:{task.id}") == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_task_records_preview_with_report_path(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = await _temp_store(tmp_path)
+        task = _make_task()
+        await store.add_task(task)
+        await use_fake_redis(monkeypatch)
+        executor = object.__new__(TaskExecutor)
+        executor.execute_with_result = AsyncMock(
+            return_value=TaskExecutionResult(
+                content="x" * 600,
+                report_path="reports/scheduled_tasks/task.md",
+            )
+        )
+        scheduler = TaskScheduler(store, executor, check_interval=30.0)
+
+        await scheduler._execute_task(task, None)
+
+        saved = await store.get_task(task.id)
+        assert saved is not None
+        assert saved.last_run_status == "success"
+        assert "完整输出: reports/scheduled_tasks/task.md" in saved.last_run_output
+        assert "已截断: 显示前 500 / 600 字符" in saved.last_run_output
 
     @pytest.mark.asyncio
     async def test_execute_task_running_key_blocks_concurrent_execution(

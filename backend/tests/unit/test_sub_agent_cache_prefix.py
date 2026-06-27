@@ -98,7 +98,9 @@ def test_plan_step_loop_keeps_step_prompt_in_zone2(tmp_path) -> None:
     )
 
     assert request.system_prompt == "stable prefix"
-    assert request.skill_messages[0].content == "spec skill"
+    assert request.skill_messages[0].kind == "skill_context"
+    assert "spec skill" in request.skill_messages[0].content
+    assert request.skill_messages[1].kind == "skill_context"
     assert "计划执行者" in request.skill_messages[1].content
 
 

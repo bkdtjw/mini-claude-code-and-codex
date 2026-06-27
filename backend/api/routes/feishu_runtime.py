@@ -16,6 +16,12 @@ from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
 
+from .feishu_multi_agent_policy import (
+    FEISHU_INLINE_SUB_AGENT_TOOLS,
+    FEISHU_MULTI_AGENT_HINT,
+    build_feishu_sub_agent_policy,
+)
+
 if TYPE_CHECKING:
     from backend.core.s05_skills import AgentRuntime, SpecRegistry
     from backend.core.task_queue import TaskQueue
@@ -42,10 +48,9 @@ PRODUCT_COUPON_HINT = """
 - 需要先展开短链、识别平台、提取商品 ID，再查券
 
 关键词找商品用 product_search；具体链接/文案查券用 product_coupon_lookup。
+判断淘宝商品源是否超时/波动用 product_source_health_check。
 不要为了查商品优惠券先打开浏览器。工具查不到时，明确说明当前数据源未查到，不要自行推断。
 """
-
-
 async def build_agent_loop(
     adapter: Any,
     session_id: str = "",
@@ -58,7 +63,8 @@ async def build_agent_loop(
     owner_id: str = "",
 ) -> AgentLoop:
     resolved_model = model or app_settings.default_model
-    resolved_system_prompt = system_prompt or build_system_prompt(os.getcwd())
+    workspace = os.getcwd()
+    resolved_system_prompt = system_prompt or build_system_prompt()
     registry = ToolRegistry()
     register_builtin_tools(
         registry,
@@ -66,6 +72,7 @@ async def build_agent_loop(
         mode="auto",
         adapter=adapter,
         default_model=resolved_model,
+        default_provider=provider or "anthropic",
         feishu_webhook_url=app_settings.feishu_webhook_url or None,
         feishu_secret=app_settings.feishu_webhook_secret or None,
         zhipu_web_search_api_key=app_settings.zhipu_web_search_api_key or None,
@@ -79,21 +86,28 @@ async def build_agent_loop(
         agent_runtime=agent_runtime,
         spec_registry=spec_registry,
         task_queue=task_queue,
+        parent_task_id=session_id or owner_id,
+        sub_agent_policy=build_feishu_sub_agent_policy(),
         include_internal_product_tools=False,
         owner_id=owner_id,
         set_current_kb=FeishuMenuState().set_current_kb,
     )
+    for tool_name in FEISHU_INLINE_SUB_AGENT_TOOLS:
+        registry.remove(tool_name)
     bridge = MCPToolBridge(MCPServerManager(), registry)
     await bridge.sync_all()
     if registry.has("browse_web"):
         resolved_system_prompt += BROWSE_WEB_HINT
     if registry.has("product_coupon_lookup"):
         resolved_system_prompt += PRODUCT_COUPON_HINT
+    if registry.has("spawn_agent"):
+        resolved_system_prompt += FEISHU_MULTI_AGENT_HINT
     return AgentLoop(
         config=AgentConfig(
             model=resolved_model,
             provider=provider or "anthropic",
             system_prompt=resolved_system_prompt,
+            workspace=workspace,
             session_id=session_id,
         ),
         adapter=adapter,

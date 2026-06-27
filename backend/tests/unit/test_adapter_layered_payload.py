@@ -66,9 +66,10 @@ def test_openai_payload_orders_layered_messages_with_system_first() -> None:
     request = LLMRequest(
         model="gpt",
         system_prompt="stable",
-        skill_messages=[Message(role="system", content="skill")],
-        memory_messages=[Message(role="system", content="memory")],
-        summary_message=Message(role="user", content="[对话历史摘要]\nsummary"),
+        skill_messages=[Message(role="user", kind="skill_context", content="<skill_context>\nskill\n</skill_context>")],
+        memory_messages=[Message(role="user", kind="memory_context", content="<memory_context>\nmemory\n</memory_context>")],
+        runtime_messages=[Message(role="user", kind="runtime_context", content="<runtime_context>\nworkspace\n</runtime_context>")],
+        summary_message=Message(role="user", kind="summary", content="<conversation_summary>\nsummary\n</conversation_summary>"),
         recent_messages=[Message(role="user", content="latest")],
     )
 
@@ -76,11 +77,29 @@ def test_openai_payload_orders_layered_messages_with_system_first() -> None:
 
     assert payload["messages"] == [
         {"role": "system", "content": "stable"},
-        {"role": "system", "content": "skill"},
-        {"role": "system", "content": "memory"},
-        {"role": "user", "content": "[对话历史摘要]\nsummary"},
+        {"role": "user", "content": "<skill_context>\nskill\n</skill_context>"},
+        {"role": "user", "content": "<memory_context>\nmemory\n</memory_context>"},
+        {"role": "user", "content": "<runtime_context>\nworkspace\n</runtime_context>"},
+        {"role": "user", "content": "<conversation_summary>\nsummary\n</conversation_summary>"},
         {"role": "user", "content": "latest"},
     ]
+
+
+def test_anthropic_payload_keeps_skill_memory_user_context() -> None:
+    request = LLMRequest(
+        model="claude",
+        system_prompt="stable",
+        skill_messages=[Message(role="user", kind="skill_context", content="<skill_context>\nskill\n</skill_context>")],
+        memory_messages=[Message(role="user", kind="memory_context", content="<memory_context>\nmemory\n</memory_context>")],
+        recent_messages=[Message(role="user", content="latest")],
+    )
+
+    payload = build_anthropic_payload(request, "claude", stream=False)
+    texts = [item["content"][0]["text"] for item in payload["messages"]]
+
+    assert "<skill_context>" in texts[0]
+    assert "<memory_context>" in texts[1]
+    assert texts[-1] == "latest"
 
 
 def test_anthropic_parse_response_records_cache_read_tokens() -> None:

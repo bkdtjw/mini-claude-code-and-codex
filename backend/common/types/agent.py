@@ -48,8 +48,11 @@ class AgentConfig(BaseModel):
     model: str
     provider: str = "anthropic"
     system_prompt: str = ""
+    workspace: str = ""
     session_id: str = ""
     thinking_enabled: bool = False
+    max_tokens: int = 16384
+    temperature: float = 0.7
     tools: list[str] = Field(default_factory=list)
     max_iterations: int = 20
     max_consecutive_tool_failures: int = 5

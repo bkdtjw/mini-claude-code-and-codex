@@ -52,6 +52,7 @@ async def create_plan_resume_runner(
             spec_registry=spec_registry,
             task_queue=task_queue,
             event_sender=send_message,
+            parent_task_id=session_id,
         )
     )
     runner = PlanExecuteRunner.resume_from_checkpoint(

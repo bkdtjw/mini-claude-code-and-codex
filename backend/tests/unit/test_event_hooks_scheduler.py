@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from backend.core.s07_task_system import event_hooks as eh
+from backend.core.s07_task_system.event_hooks_runtime import HookRuntime
+from backend.core.s07_task_system.event_hooks_runtime.scheduler import (
+    HookScheduler,
+    is_due,
+    scan_due_hooks,
+)
+
+pytestmark = pytest.mark.asyncio
+NOW = "2026-06-27T02:00:00Z"
+
+
+@pytest.fixture(autouse=True)
+def bind_test_database() -> None:
+    return None
+
+
+def _hook(enabled: bool = True, cadence_minutes: int = 45) -> eh.EventHook:
+    return eh.EventHook(
+        id="hook-1",
+        name="Launch Watch",
+        twitter=eh.HookTwitterConfig(accounts=["newsdesk"]),
+        sources=eh.HookSources(),
+        cadence_minutes=cadence_minutes,
+        materiality=60,
+        enabled=enabled,
+        created_at="2026-06-27T00:00:00Z",
+    )
+
+
+def _summary(
+    *,
+    enabled: bool = True,
+    status: eh.HookStatus = "developing",
+    last_scanned: str = "",
+) -> eh.HookSummary:
+    state = eh.HookState(hook_id="hook-1", status=status, last_scanned=last_scanned)
+    return eh.HookSummary(hook=_hook(enabled=enabled), state=state)
+
+
+def _draft(name: str, enabled: bool = True) -> eh.HookDraft:
+    return eh.HookDraft(
+        name=name,
+        twitter=eh.HookTwitterConfig(accounts=["newsdesk"]),
+        sources=eh.HookSources(),
+        cadence_minutes=45,
+        materiality=60,
+        enabled=enabled,
+    )
+
+
+def _tweet(author: str = "newsdesk") -> SimpleNamespace:
+    return SimpleNamespace(
+        author_name=author,
+        author_handle=author,
+        text="Launch window moved",
+        likes=40,
+        retweets=5,
+        created_at="2026-06-27T01:00:00Z",
+        url=f"https://x.com/{author}/status/1",
+    )
+
+
+def _runtime(calls: list[str]) -> HookRuntime:
+    async def twitter_search_fn(query: eh.TwitterQuery) -> list[SimpleNamespace]:
+        calls.append(f"search:{query.query}")
+        return [_tweet()]
+
+    async def assess_fn(request: eh.AssessRequest) -> eh.Assessment:
+        calls.append(f"assess:{request.hook.name}")
+        if request.hook.name == "Bad Due":
+            raise RuntimeError("assessment failed")
+        return eh.Assessment(
+            materiality=90,
+            summary="Confirmed",
+            developments=[
+                eh.Development(
+                    text="Launch window moved",
+                    ts="2026-06-27T01:00:00Z",
+                    source="twitter",
+                )
+            ],
+        )
+
+    async def push_fn(hook: eh.EventHook, verdict: eh.HookVerdict) -> None:
+        calls.append(f"push:{hook.name}:{verdict.decision}")
+
+    async def exa_search_fn(query: eh.ExaQuery) -> list[SimpleNamespace]:
+        calls.append(f"exa:{query.query}")
+        return []
+
+    return HookRuntime(
+        twitter_search_fn=twitter_search_fn,
+        assess_fn=assess_fn,
+        push_fn=push_fn,
+        exa_search_fn=exa_search_fn,
+    )
+
+
+async def _set_state(
+    store: eh.HookStore,
+    summary: eh.HookSummary,
+    *,
+    status: eh.HookStatus = "developing",
+    last_scanned: str,
+) -> None:
+    state = await store.get_state(summary.hook.id)
+    assert state is not None
+    await store.save_state(
+        summary.hook.id,
+        state.model_copy(update={"status": status, "last_scanned": last_scanned}),
+    )
+
+
+async def test_is_due_branches() -> None:
+    assert is_due(_summary(last_scanned=""), NOW) is True
+    assert is_due(_summary(last_scanned="2026-06-27T01:50:00Z"), NOW) is False
+    assert is_due(_summary(status="resolved", last_scanned=""), NOW) is False
+    assert is_due(_summary(enabled=False, last_scanned=""), NOW) is False
+    assert is_due(_summary(last_scanned="2026-06-27T01:00:00Z"), NOW) is True
+
+
+async def test_scan_due_hooks_isolates_hook_failures(tmp_path: Path) -> None:
+    store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
+    good = await store.create(_draft("Good Due"))
+    recent = await store.create(_draft("Recent"))
+    bad = await store.create(_draft("Bad Due"))
+    later = await store.create(_draft("Later Due"))
+    await _set_state(store, good, last_scanned="2026-06-27T01:00:00Z")
+    await _set_state(store, recent, last_scanned="2026-06-27T01:50:00Z")
+    await _set_state(store, bad, last_scanned="2026-06-27T01:00:00Z")
+    await _set_state(store, later, last_scanned="2026-06-27T01:00:00Z")
+    calls: list[str] = []
+
+    outcomes = await scan_due_hooks(store, _runtime(calls), now_fn=lambda: NOW)
+
+    assert [outcome.hook_id for outcome in outcomes] == [good.hook.id, later.hook.id]
+    assert all(outcome.decision == "push" for outcome in outcomes)
+    assert f"assess:{recent.hook.name}" not in calls
+    assert f"assess:{bad.hook.name}" in calls
+    assert f"exa:{later.hook.name}" in calls
+    assert f"push:{later.hook.name}:push" in calls
+
+
+async def test_hook_scheduler_starts_and_stops(tmp_path: Path) -> None:
+    store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
+    scheduler = HookScheduler(store, _runtime([]), tick_seconds=0.01)
+
+    await scheduler.start()
+    await asyncio.sleep(0)
+    await scheduler.stop()

@@ -194,6 +194,6 @@ def test_handle_message_renders_header_and_bold(
 
 
 def test_build_system_prompt_allows_markdown_bold() -> None:
-    prompt = build_system_prompt("C:/repo")
+    prompt = build_system_prompt()
 
     assert "加粗星号" not in prompt

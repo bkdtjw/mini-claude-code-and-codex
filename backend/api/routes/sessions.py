@@ -26,11 +26,13 @@ def _get_store(request: Request) -> SessionStore:
 
 
 def _to_summary(session: Session) -> SessionResponse:
+    config = session.config.model_dump(mode="json")
+    config.pop("system_prompt", None)
     return SessionResponse(
         id=session.id,
         title=session.title,
         workspace=session.workspace,
-        config=session.config.model_dump(mode="json"),
+        config=config,
         status=session.status,
         created_at=session.created_at.isoformat(),
         message_count=len(session.messages),
@@ -43,7 +45,13 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
         session = Session(
             title=body.title.strip(),
             workspace=body.workspace or "",
-            config=SessionConfig(model=body.model, provider=body.provider_id or "default", system_prompt=body.system_prompt),
+            config=SessionConfig(
+                model=body.model,
+                provider=body.provider_id or "default",
+                system_prompt=body.system_prompt,
+                max_tokens=body.max_tokens,
+                temperature=body.temperature,
+            ),
             created_at=datetime.utcnow(),
         )
         saved = await _get_store(request).create(session, title=body.title.strip(), workspace=body.workspace or "")

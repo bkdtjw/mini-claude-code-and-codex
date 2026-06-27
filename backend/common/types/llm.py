@@ -38,6 +38,7 @@ class LLMRequest(BaseModel):
     tools: list[ToolDefinition] | None = None
     skill_messages: list[Message] = Field(default_factory=list)
     memory_messages: list[Message] = Field(default_factory=list)
+    runtime_messages: list[Message] = Field(default_factory=list)
     summary_message: Message | None = None
     recent_messages: list[Message] = Field(default_factory=list)
     cache_prefix_hash: str = ""

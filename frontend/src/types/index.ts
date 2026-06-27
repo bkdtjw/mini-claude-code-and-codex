@@ -1,6 +1,8 @@
 export interface Message {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
+  kind?: "user_request" | "summary" | "runtime_guard" | "runtime_context" | "skill_context" | "memory_context";
+  ephemeral?: boolean;
   content: string;
   reasoningContent?: string;
   reasoningDurationMs?: number;
@@ -183,6 +185,21 @@ export interface TraceSpanResult {
   spans: TraceSpan[];
 }
 
+export type SubAgentEventType = "sub_agent_spawned" | "sub_agent_completed" | "sub_agent_failed";
+
+export interface SubAgentProgress {
+  type: SubAgentEventType;
+  taskId?: string;
+  specId?: string;
+  completed?: number;
+  total?: number;
+  submitted?: number;
+  reused?: number;
+  specs?: string[];
+  error?: string;
+  message?: string;
+}
+
 export type WsIncoming =
   | { type: "status"; status: AgentStatus }
   | { type: "message"; content: string; reasoningContent?: string; toolCalls?: ToolCall[] }
@@ -191,5 +208,6 @@ export type WsIncoming =
   | { type: "security_reject"; toolCallId: string; output: string; isError: boolean; diffs?: FileDiff[] }
   | { type: "text"; content: string }
   | { type: "reasoning"; content: string }
+  | SubAgentProgress
   | { type: "done"; message: Message }
   | { type: "error"; message: string };

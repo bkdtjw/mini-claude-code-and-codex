@@ -142,7 +142,11 @@ class PlanExecuteRunnerStepsMixin:
         todo_step.checkpoint_session_id = step_session_id
         step_prompt, _ = self._build_step_prompt(context, include_instruction=False)
         skill_messages = [
-            Message(role="system", content=prompt)
+            Message(
+                role="user",
+                kind="skill_context",
+                content=f"<skill_context>\n{prompt}\n</skill_context>",
+            )
             for prompt in [self._skill_prompt, step_prompt]
             if prompt
         ]

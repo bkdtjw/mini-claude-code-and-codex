@@ -9,6 +9,8 @@ class CreateSessionRequest(BaseModel):
     model: str
     provider_id: str | None = None
     system_prompt: str = ""
+    max_tokens: int = 16384
+    temperature: float = 0.7
     workspace: str | None = None
     title: str = ""
 

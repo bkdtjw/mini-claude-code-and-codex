@@ -7,6 +7,8 @@ from backend.common.types import Message, ProviderConfig, Session
 from backend.common.logging import bound_log_context, get_log_context, new_trace_id
 from backend.core.s02_tools.builtin.browser_agent.provider_errors import is_provider_rejection
 
+FEISHU_REPLY_CHUNK_BYTES = 3900
+
 
 def build_feishu_log_context(chat_id: str) -> Any:
     current = get_log_context()
@@ -58,6 +60,25 @@ def resolve_reply_text(result: Any) -> str:
     return str(result)
 
 
+def split_feishu_reply_text(text: str, limit_bytes: int = FEISHU_REPLY_CHUNK_BYTES) -> list[str]:
+    if not text:
+        return [""]
+    chunks: list[str] = []
+    current: list[str] = []
+    current_size = 0
+    for char in text:
+        char_size = len(char.encode("utf-8"))
+        if current and current_size + char_size > limit_bytes:
+            chunks.append("".join(current))
+            current = []
+            current_size = 0
+        current.append(char)
+        current_size += char_size
+    if current:
+        chunks.append("".join(current))
+    return chunks
+
+
 def is_provider_rejection_error(exc: Exception) -> bool:
     return is_provider_rejection(exc)
 
@@ -72,6 +93,7 @@ def resolve_error_reply(exc: Exception) -> str:
 
 
 __all__ = [
+    "FEISHU_REPLY_CHUNK_BYTES",
     "build_feishu_log_context",
     "extract_text",
     "is_provider_rejection_error",
@@ -79,4 +101,5 @@ __all__ = [
     "resolve_error_reply",
     "resolve_reply_text",
     "resolve_session_model",
+    "split_feishu_reply_text",
 ]

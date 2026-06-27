@@ -9,7 +9,9 @@ from pathlib import Path
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
 
 # 灵犀Skills基础路径
-LINGXI_SKILLS_BASE = Path(__file__).parent.parent.parent.parent.parent.parent / "skills"
+# lingxi.py 位于 backend/core/s02_tools/builtin/ 下，向上 5 级即项目根目录
+# parents[4]: builtin -> s02_tools -> core -> backend -> <项目根>
+LINGXI_SKILLS_BASE = Path(__file__).resolve().parents[4] / "skills"
 LINGXI_SHARED_PATH = LINGXI_SKILLS_BASE / "gtht-skill-shared" / "gtht-entry.json"
 
 

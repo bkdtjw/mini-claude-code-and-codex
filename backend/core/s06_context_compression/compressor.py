@@ -7,17 +7,25 @@ from backend.common.errors import AgentError
 from backend.common.types import LLMRequest, Message
 from backend.core.system_prompt import COMPRESSION_RETENTION_TEMPLATE
 
+from .summary_helpers import build_summary_message, is_summary_message
 from .threshold_policy import ThresholdPolicy
 
 SUMMARY_SYSTEM_PROMPT = """
 你是对话历史压缩器。你的任务是把较早的 agent 对话压缩成继续工作的摘要。
 {retention_template}
-必须保留：
-1. 用户的核心需求与约束；
-2. 已完成的操作、执行结果与关键结论；
-3. 修改过、读取过或重点关注的文件路径；
-4. 当前进度、已做出的技术决策；
-5. 未解决的问题、风险与下一步。
+输出必须使用以下结构，字段不可省略：
+<structured_summary>
+  <goal>用户当前的最终目标</goal>
+  <constraints>
+    - 用户明确说过"不要做"的事
+    - 用户纠正过的判断
+  </constraints>
+  <identifiers>文件路径、商品ID、URL、订单号等关键标识符，原样保留</identifiers>
+  <decisions>已做出的选择和原因</decisions>
+  <failures>失败过的路径、原因、替换策略</failures>
+  <pending>还没完成的事项</pending>
+  <narrative>用 3-5 句话概述到目前为止发生了什么</narrative>
+</structured_summary>
 不要编造信息，不要重复大段原文，优先保留可执行的事实。
 """.format(retention_template=COMPRESSION_RETENTION_TEMPLATE).strip()
 
@@ -45,8 +53,13 @@ class ContextCompressor:
     async def compact(self, messages: list[Message]) -> list[Message]:
         try:
             system_messages = [message for message in messages if message.role == "system"]
+            summary_messages = [
+                message for message in messages if message.role != "system" and is_summary_message(message)
+            ]
             non_system_messages = [
-                message for message in messages if message.role != "system"
+                message
+                for message in messages
+                if message.role != "system" and not is_summary_message(message)
             ]
             reserve_count = self._policy.get_reserve_count()
             if len(non_system_messages) <= reserve_count:
@@ -55,15 +68,14 @@ class ContextCompressor:
             recent_messages = non_system_messages[-reserve_count:]
             if not old_messages:
                 return list(messages)
+            summary_error = ""
             try:
                 summary = await self._request_summary(old_messages)
-            except ContextCompressionError:
+            except ContextCompressionError as exc:
                 summary = self._build_fallback_summary(old_messages)
-            summary_message = Message(
-                role="user",
-                content=f"[对话历史摘要]\n{summary}",
-            )
-            return [*system_messages, summary_message, *recent_messages]
+                summary_error = exc.message
+            summary_message = build_summary_message(summary, error=summary_error)
+            return [*system_messages, *summary_messages, summary_message, *recent_messages]
         except Exception as exc:  # noqa: BLE001
             error = ContextCompressionError(str(exc))
             return self._build_fallback_messages(messages, error)
@@ -77,7 +89,7 @@ class ContextCompressor:
                     Message(role="user", content=self._build_summary_prompt(messages)),
                 ],
                 temperature=0.2,
-                max_tokens=1200,
+                max_tokens=5000,
             )
             response = await self._adapter.complete(request)
             summary = response.content.strip()
@@ -93,7 +105,8 @@ class ContextCompressor:
         tool_names = self._build_tool_name_index(messages)
         lines = [
             "请压缩下面的较早历史，供 agent 后续继续执行任务。",
-            "输出应简洁，但必须覆盖：已完成操作、修改/读取文件、当前进度、用户目标、未解决问题。",
+            "必须遵守 P1-P6 保留优先级，并按 system 中的 structured_summary XML 格式输出。",
+            "没有内容的字段写“无”。",
             "",
             "[历史开始]",
         ]
@@ -155,11 +168,22 @@ class ContextCompressor:
 
     def _build_fallback_summary(self, messages: list[Message]) -> str:
         tool_names = self._build_tool_name_index(messages)
-        lines = ["以下为降级摘要，基于较早消息的前 100 字符截断生成："]
+        lines = []
         for index, message in enumerate(messages, start=1):
             preview = self._clip_text(self._render_message(message, tool_names), 100)
             lines.append(f"{index}. {preview}")
-        return "\n".join(lines)
+        details = "\n".join(lines) or "无"
+        return (
+            "<structured_summary>\n"
+            "  <goal>摘要模型调用失败，需基于降级摘要继续。</goal>\n"
+            "  <constraints>无</constraints>\n"
+            "  <identifiers>降级摘要可能不完整，关键标识符需回查历史。</identifiers>\n"
+            "  <decisions>无</decisions>\n"
+            "  <failures>摘要模型调用失败，已按较早消息截断生成摘要。</failures>\n"
+            f"  <pending>{self._clip_text(details, 1800)}</pending>\n"
+            "  <narrative>较早历史已被降级压缩，继续任务前应优先确认关键约束和路径。</narrative>\n"
+            "</structured_summary>"
+        )
 
     def _build_fallback_messages(
         self,
@@ -167,16 +191,20 @@ class ContextCompressor:
         error: ContextCompressionError,
     ) -> list[Message]:
         system_messages = [message for message in messages if message.role == "system"]
-        non_system_messages = [message for message in messages if message.role != "system"]
+        summary_messages = [
+            message for message in messages if message.role != "system" and is_summary_message(message)
+        ]
+        non_system_messages = [
+            message
+            for message in messages
+            if message.role != "system" and not is_summary_message(message)
+        ]
         reserve_count = self._policy.get_reserve_count()
         recent_messages = non_system_messages[-reserve_count:] if reserve_count > 0 else []
         old_messages = non_system_messages[:-reserve_count] if reserve_count > 0 else non_system_messages
         summary = self._build_fallback_summary(old_messages)
-        summary_message = Message(
-            role="user",
-            content=f"[对话历史摘要]\n{summary}\n\n[压缩降级原因]\n{error.message}",
-        )
-        return [*system_messages, summary_message, *recent_messages]
+        summary_message = build_summary_message(summary, error=error.message)
+        return [*system_messages, *summary_messages, summary_message, *recent_messages]
 
     @staticmethod
     def _clip_text(text: str, limit: int) -> str:

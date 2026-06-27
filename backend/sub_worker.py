@@ -12,8 +12,9 @@ from backend.core import create_sub_agent_task_queue, init_agent_runtime
 from backend.core.s06_context_compression.artifact_gc import run_artifact_gc_loop
 from backend.core.s02_tools.mcp import MCPServerManager
 from backend.core.task_queue import TaskQueue
-from backend.api.task_queue_consumer import SubAgentConsumerContext, consume_next_sub_agent_task
+from backend.core.task_queue_consumer import SubAgentConsumerContext
 from backend.storage import SubAgentTaskStore, init_db
+from backend.sub_worker_scaler import WorkerPoolConfig, WorkerPoolController
 
 logger = get_logger(component="sub_worker")
 TASK_QUEUE_RECOVERY_INTERVAL_SECONDS = 30
@@ -41,6 +42,7 @@ async def main() -> None:
         logger.info(
             "sub_worker_started",
             concurrency=_consumer_concurrency(),
+            max_concurrency=settings.sub_worker_max_concurrency,
             namespace=queue.namespace,
         )
         await shutdown_event.wait()
@@ -62,13 +64,8 @@ def _create_background_tasks(
     context: SubAgentConsumerContext,
     shutdown_event: asyncio.Event,
 ) -> list[asyncio.Task[None]]:
-    tasks = [
-        asyncio.create_task(
-            _consume_loop(context, shutdown_event),
-            name=f"sub-worker-consumer-{index}",
-        )
-        for index in range(1, _consumer_concurrency() + 1)
-    ]
+    pool = WorkerPoolController(context, shutdown_event, _worker_pool_config())
+    tasks = pool.start()
     tasks.append(
         asyncio.create_task(
             _recover_loop(context.queue, shutdown_event),
@@ -87,25 +84,13 @@ def _consumer_concurrency() -> int:
     return settings.sub_worker_concurrency
 
 
-async def _consume_loop(
-    context: SubAgentConsumerContext,
-    shutdown_event: asyncio.Event,
-) -> None:
-    logger.info("task_queue_consumer_started", namespace=context.queue.namespace)
-    while not shutdown_event.is_set():
-        try:
-            processed = await consume_next_sub_agent_task(context)
-            if not processed:
-                await _wait_for_shutdown(shutdown_event, 1.0)
-        except asyncio.CancelledError:
-            return
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "consumer_loop_error",
-                namespace=context.queue.namespace,
-                error=str(exc),
-            )
-            await _wait_for_shutdown(shutdown_event, 1.0)
+def _worker_pool_config() -> WorkerPoolConfig:
+    return WorkerPoolConfig(
+        default_concurrency=_consumer_concurrency(),
+        max_concurrency=settings.sub_worker_max_concurrency,
+        idle_seconds=settings.sub_worker_scale_idle_seconds,
+        poll_seconds=settings.sub_worker_scale_poll_seconds,
+    )
 
 
 async def _recover_loop(queue: TaskQueue, shutdown_event: asyncio.Event) -> None:

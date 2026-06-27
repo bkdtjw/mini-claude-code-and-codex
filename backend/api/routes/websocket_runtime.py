@@ -39,6 +39,7 @@ class CreateLoopInput(BaseModel):
 class RuntimeComponentsInput(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    parent_task_id: str = ""
     settings: LoopSettings
     agent_runtime: AgentRuntime | None = None
     spec_registry: SpecRegistry | None = None
@@ -93,8 +94,10 @@ async def _build_loop(payload: CreateLoopInput) -> AgentLoop:
             task_queue=payload.task_queue,
             event_handler=forward_tool_event,
             checkpoint_fn=checkpoint_fn,
+            max_tokens=settings.max_tokens,
+            temperature=settings.temperature,
         )
-    system_prompt = build_system_prompt(settings.workspace)
+    system_prompt = build_system_prompt()
     components = await create_runtime_components(
         RuntimeComponentsInput(
             settings=settings,
@@ -102,14 +105,18 @@ async def _build_loop(payload: CreateLoopInput) -> AgentLoop:
             spec_registry=payload.spec_registry,
             task_queue=payload.task_queue,
             event_sender=payload.event_sender,
+            parent_task_id=payload.session_id,
         )
     )
     loop = AgentLoop(
         config=AgentConfig(
             model=settings.model,
             system_prompt=system_prompt,
+            workspace=settings.workspace or "",
             session_id=payload.session_id,
             thinking_enabled=settings.thinking,
+            max_tokens=settings.max_tokens,
+            temperature=settings.temperature,
             provider=settings.provider_id or "",
         ),
         adapter=components.adapter,
@@ -153,6 +160,7 @@ async def create_runtime_components(payload: RuntimeComponentsInput) -> RuntimeC
             spec_registry=payload.spec_registry,
             task_queue=payload.task_queue,
             event_handler=forward_tool_event,
+            parent_task_id=payload.parent_task_id,
         )
         bridge = MCPToolBridge(mcp_server_manager, registry)
         await bridge.sync_all()

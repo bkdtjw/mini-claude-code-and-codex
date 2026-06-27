@@ -16,6 +16,7 @@ def request_zone_messages(request: LLMRequest, *, include_system: bool) -> list[
     dynamic = [
         *request.skill_messages,
         *request.memory_messages,
+        *request.runtime_messages,
         *([request.summary_message] if request.summary_message else []),
         *request.recent_messages,
     ]

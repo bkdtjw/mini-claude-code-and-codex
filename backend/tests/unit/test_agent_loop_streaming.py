@@ -46,6 +46,7 @@ async def test_agent_loop_streams_text_and_reasoning_events() -> None:
 
     assert adapter.complete_called is False
     assert adapter.requests[0].thinking is True
+    assert adapter.requests[0].max_tokens == 16384
     assert result.content == "hello world"
     assert result.provider_metadata["reasoning_content"] == "step one"
     assert ("reasoning_delta", "step ") in events

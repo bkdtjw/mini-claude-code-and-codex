@@ -1,10 +1,9 @@
 import type { LogEntry, LogSearchParams, LogSearchResult, MetricDetail, MetricsSummary, Provider, Session, TraceResult, WorkspaceEntry, WorkspaceList, WorkspaceValidation } from "@/types";
+import { authorizedFetchJson, getApiErrorMessage } from "@/lib/api-auth";
 
 type JsonBody = Record<string, unknown> | unknown[];
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
-const API_AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
-const AUTH_STORAGE_KEY = "agent-studio.auth-token";
 
 interface SessionResponse {
   id: string;
@@ -137,27 +136,11 @@ const toLogEntry = (item: LogEntryResponse): LogEntry => ({
   extra: item.extra ?? {},
 });
 
-const getAuthToken = (): string => {
-  if (API_AUTH_TOKEN) return API_AUTH_TOKEN;
-  if (typeof window !== "undefined") {
-    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)?.trim();
-    if (stored) return stored;
-  }
-  return "change-me-in-production";
-};
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-  const headers = new Headers(options.headers);
-  if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${getAuthToken()}`);
-  const body = options.body;
-  if (body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(url, { ...options, headers });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  const { response, data } = await authorizedFetchJson(url, options);
   if (!response.ok) {
-    const message = data?.detail?.message ?? data?.message ?? `Request failed: ${response.status}`;
-    throw new Error(message);
+    throw new Error(getApiErrorMessage(data, response.status));
   }
   return data as T;
 }

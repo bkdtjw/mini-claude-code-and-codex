@@ -15,6 +15,8 @@ from .security_gate import SecurityGate
 MAX_TOOL_OUTPUT_CHARS = 12000
 TOOL_OUTPUT_HEAD_CHARS = 6000
 TOOL_OUTPUT_TAIL_CHARS = 6000
+AGGREGATE_TOOL_OUTPUT_CHARS = 48000
+AGGREGATE_TOOL_NAMES = {"spawn_agent", "orchestrate_agents", "dispatch_agent"}
 
 logger = get_logger(component="tool_executor")
 
@@ -25,19 +27,28 @@ class ToolExecutor:
 
     @classmethod
     def _truncate_output(cls, tool_name: str, output: str) -> str:
-        if len(output) <= MAX_TOOL_OUTPUT_CHARS:
+        max_chars = cls._max_output_chars(tool_name)
+        if len(output) <= max_chars:
             return output
-        truncated = len(output) - MAX_TOOL_OUTPUT_CHARS
-        head = output[:TOOL_OUTPUT_HEAD_CHARS]
-        tail = output[-TOOL_OUTPUT_TAIL_CHARS:]
+        truncated = len(output) - max_chars
+        head_chars = max_chars // 2
+        tail_chars = max_chars - head_chars
+        head = output[:head_chars]
+        tail = output[-tail_chars:]
         marker = f"\n...[truncated {truncated} characters]...\n"
         logger.debug(
             "tool_output_truncated",
             tool=tool_name,
             original_length=len(output),
-            truncated_to=MAX_TOOL_OUTPUT_CHARS,
+            truncated_to=max_chars,
         )
         return f"{head}{marker}{tail}"
+
+    @classmethod
+    def _max_output_chars(cls, tool_name: str) -> int:
+        if tool_name in AGGREGATE_TOOL_NAMES:
+            return AGGREGATE_TOOL_OUTPUT_CHARS
+        return MAX_TOOL_OUTPUT_CHARS
 
     @classmethod
     def _finalize_result(cls, tool_call: ToolCall, result: ToolResult) -> ToolResult:
@@ -57,6 +68,9 @@ class ToolExecutor:
 
     def list_definitions(self) -> list[ToolDefinition]:
         return self._registry.list_definitions()
+
+    def remove(self, name: str) -> bool:
+        return self._registry.remove(name)
 
     async def execute(self, tool_call: ToolCall) -> ToolResult:
         started_at = monotonic()

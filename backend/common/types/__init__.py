@@ -4,6 +4,7 @@ from .mcp import MCPServerConfig, MCPServerStatus, MCPToolInfo, MCPToolResult
 from .message import (
     FileDiff,
     Message,
+    MessageKind,
     Role,
     StreamChunk,
     ToolArtifact,
@@ -45,6 +46,7 @@ __all__ = [
     "LLMUsage",
     "LLMResponse",
     "Role",
+    "MessageKind",
     "FileDiff",
     "ToolArtifact",
     "ToolCall",

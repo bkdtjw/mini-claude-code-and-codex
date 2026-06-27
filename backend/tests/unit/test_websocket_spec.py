@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.api.routes import websocket_runtime
-from backend.api.routes.websocket_runtime import CreateLoopInput, create_loop
+from backend.api.routes.websocket_runtime import CreateLoopInput, RuntimeComponents, create_loop
 from backend.api.routes.websocket_support import (
     LoopSettings,
     event_to_ws_message,
@@ -14,6 +14,7 @@ from backend.api.routes.websocket_support import (
     resolve_loop_settings,
 )
 from backend.common.types import AgentEvent
+from backend.core.s02_tools import ToolRegistry
 
 websocket_runtime.CreateLoopInput.model_rebuild(
     _types_namespace={"AgentRuntime": object, "SpecRegistry": object}
@@ -37,6 +38,15 @@ def test_parse_loop_settings_default_mode() -> None:
     settings = parse_loop_settings({"model": "test"})
 
     assert settings.mode == "direct"
+
+
+def test_parse_loop_settings_supports_generation_options() -> None:
+    settings = parse_loop_settings(
+        {"model": "test", "max_tokens": "32768", "temperature": "0.2"}
+    )
+
+    assert settings.max_tokens == 32768
+    assert settings.temperature == 0.2
 
 
 @pytest.mark.asyncio
@@ -75,9 +85,33 @@ async def test_create_loop_uses_agent_runtime_when_spec_id_present() -> None:
     assert call_kwargs["session_id"] == "session-1"
     assert call_kwargs["model"] == ""
     assert call_kwargs["provider"] == ""
+    assert call_kwargs["max_tokens"] == 16384
+    assert call_kwargs["temperature"] == 0.7
     assert call_kwargs["task_queue"] is None
     assert callable(call_kwargs["event_handler"])
     loop.on.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_loop_normalizes_missing_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_components(_payload: object) -> RuntimeComponents:
+        return RuntimeComponents.model_construct(
+            adapter=object(),
+            registry=ToolRegistry(),
+            bridge=None,
+        )
+
+    monkeypatch.setattr(websocket_runtime, "create_runtime_components", fake_components)
+
+    loop = await create_loop(
+        CreateLoopInput.model_construct(
+            session_id="session-1",
+            settings=LoopSettings(model="kimi-k2.6", workspace=None),
+            event_sender=AsyncMock(),
+        )
+    )
+
+    assert loop._config.workspace == ""
 
 
 def test_event_to_ws_message_supports_sub_agent_events() -> None:
@@ -96,6 +130,26 @@ def test_event_to_ws_message_supports_sub_agent_events() -> None:
 
     assert payload["type"] == "sub_agent_completed"
     assert payload["completed"] == 1
+    assert payload["total"] == 3
+
+
+def test_event_to_ws_message_includes_sub_agent_spawn_counts() -> None:
+    payload = event_to_ws_message(
+        AgentEvent(
+            type="sub_agent_spawned",
+            data={
+                "total": 3,
+                "submitted": 2,
+                "reused": 1,
+                "specs": ["a", "b", "c"],
+                "message": "正在派生 2 个子 agent 并行处理...",
+            },
+        )
+    )
+
+    assert payload["type"] == "sub_agent_spawned"
+    assert payload["submitted"] == 2
+    assert payload["reused"] == 1
     assert payload["total"] == 3
 
 

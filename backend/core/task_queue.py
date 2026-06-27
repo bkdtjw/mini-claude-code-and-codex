@@ -1,11 +1,15 @@
 from __future__ import annotations
-from time import time
+import asyncio
 from typing import Any
 
 from backend.common.errors import AgentError
-from backend.common.logging import get_log_context, get_logger
+from backend.common.logging import get_logger
+from backend.core.task_queue_children import get_queue_children
+from backend.core.task_queue_claim import claim_task
 from backend.core.task_queue_persistence import TaskPersistence
-from backend.core.task_queue_support import recover_stale_task_payloads, update_terminal_payload_state, wait_for_task_payloads
+from backend.core.task_queue_recovery import recover_stale_task_payloads
+from backend.core.task_queue_support import update_terminal_payload_state, wait_for_task_payloads
+from backend.core.task_queue_submit import CapacitySubmitError, CapacitySubmitRequest, QueueSubmitSpec, build_payload, enforce_capacity, fail_saved_payloads, parent_id
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 
 logger = get_logger(component="task_queue")
@@ -22,58 +26,54 @@ class TaskQueue:
         self._task_ttl_seconds = task_ttl_seconds
         self._claim_block_seconds = claim_block_seconds
         self._persistence = persistence
+        self._capacity_lock = asyncio.Lock()
 
     async def submit(self, task_id: str, input_data: dict[str, Any], timeout_seconds: float = 60.0, max_retries: int = 1) -> TaskPayload:
         try:
-            payload_input = _with_log_context(input_data)
-            payload = TaskPayload(
+            spec = QueueSubmitSpec(
                 task_id=task_id,
-                namespace=self._namespace,
-                input_data=payload_input,
-                parent_task_id=str(payload_input.get("parent_task_id", "")),
-                created_at=time(),
+                input_data=input_data,
                 timeout_seconds=timeout_seconds,
                 max_retries=max_retries,
             )
-            await self._save_payload(payload)
-            await self._redis.sadd(self._index_key, task_id)
-            await self._redis.expire(self._index_key, self._task_ttl_seconds)
-            await self._redis.lpush(self._queue_key, task_id)
-            await self._redis.expire(self._queue_key, self._task_ttl_seconds)
-            logger.info("task_submitted", namespace=self._namespace, task_id=task_id)
+            payload = build_payload(self._namespace, spec)
+            await self._save_and_enqueue(payload)
             return payload
+        except TaskQueueError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise TaskQueueError("TASK_QUEUE_SUBMIT_ERROR", str(exc)) from exc
 
+    async def submit_many_with_capacity(
+        self,
+        request: CapacitySubmitRequest,
+    ) -> list[TaskPayload]:
+        try:
+            payloads = [build_payload(self._namespace, spec) for spec in request.specs]
+            if self._persistence is not None:
+                saved = await self._persistence.save_many_with_capacity(payloads, request.max_active)
+                try:
+                    await self._enqueue_many(saved)
+                except Exception as exc:  # noqa: BLE001
+                    await fail_saved_payloads(self._persistence, saved, str(exc))
+                    raise
+                return saved
+            async with self._capacity_lock:
+                existing = await self.get_children(parent_id(payloads))
+                enforce_capacity(payloads, existing, request.max_active)
+                for payload in payloads:
+                    await self._save_and_enqueue(payload)
+                return payloads
+        except CapacitySubmitError as exc:
+            raise TaskQueueError(exc.code, exc.message) from exc
+        except AgentError as exc:
+            raise TaskQueueError(exc.code, exc.message) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise TaskQueueError("TASK_QUEUE_CAPACITY_SUBMIT_ERROR", str(exc)) from exc
+
     async def claim(self, worker_id: str) -> TaskPayload | None:
         try:
-            while True:
-                item = await self._redis.brpop(self._queue_key, timeout=self._claim_block_seconds)
-                if item is None:
-                    return None
-                task_id = str(item[1])
-                if self._persistence is not None:
-                    claimed = await self._persistence.claim(task_id, worker_id)
-                    if claimed is None:
-                        continue
-                    await self._cache_payload(claimed)
-                    logger.info("task_claimed", namespace=self._namespace, task_id=task_id)
-                    return claimed
-                payload = await self.get_status(task_id)
-                if payload is None or payload.status != TaskStatus.PENDING:
-                    continue
-                now = time()
-                claimed = payload.model_copy(
-                    update={
-                        "status": TaskStatus.RUNNING,
-                        "worker_id": worker_id,
-                        "started_at": now,
-                        "lease_expires_at": now + payload.timeout_seconds,
-                    }
-                )
-                await self._save_payload(claimed)
-                logger.info("task_claimed", namespace=self._namespace, task_id=task_id)
-                return claimed
+            return await claim_task(self, worker_id)
         except Exception as exc:  # noqa: BLE001
             raise TaskQueueError("TASK_QUEUE_CLAIM_ERROR", str(exc)) from exc
 
@@ -141,14 +141,24 @@ class TaskQueue:
         return await self._persistence.has_checkpoint(task_id)
 
     async def get_children(self, parent_task_id: str) -> list[TaskPayload]:
-        if self._persistence is None or not parent_task_id:
-            return []
-        return await self._persistence.get_children(parent_task_id)
+        return await get_queue_children(self, parent_task_id)
 
     async def _save_payload(self, payload: TaskPayload) -> None:
         if self._persistence is not None:
             await self._persistence.save_payload(payload)
         await self._cache_payload(payload)
+
+    async def _save_and_enqueue(self, payload: TaskPayload) -> None:
+        await self._save_payload(payload)
+        await self._enqueue_many([payload])
+
+    async def _enqueue_many(self, payloads: list[TaskPayload]) -> None:
+        for payload in payloads:
+            await self._redis.sadd(self._index_key, payload.task_id)
+            await self._redis.lpush(self._queue_key, payload.task_id)
+            logger.info("task_submitted", namespace=self._namespace, task_id=payload.task_id)
+        await self._redis.expire(self._index_key, self._task_ttl_seconds)
+        await self._redis.expire(self._queue_key, self._task_ttl_seconds)
 
     async def _cache_payload(self, payload: TaskPayload) -> None:
         await self._redis.set(
@@ -185,13 +195,4 @@ class TaskQueue:
         return f"task:{self._namespace}:{task_id}"
 
 
-def _with_log_context(input_data: dict[str, Any]) -> dict[str, Any]:
-    payload_input = dict(input_data)
-    context = get_log_context()
-    trace_id = str(payload_input.get("trace_id") or context.get("trace_id") or "")
-    if trace_id:
-        payload_input["trace_id"] = trace_id
-    return payload_input
-
-
-__all__ = ["TaskPayload", "TaskQueue", "TaskQueueError", "TaskStatus"]
+__all__ = ["CapacitySubmitRequest", "QueueSubmitSpec", "TaskPayload", "TaskQueue", "TaskQueueError", "TaskStatus"]

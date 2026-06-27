@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Activity, Database, FileText, FolderOpen, LayoutDashboard, Plus, Settings, Sparkles, type LucideIcon } from "lucide-react";
+import { Activity, Database, FileText, FolderOpen, LayoutDashboard, Plus, Radar, Settings, Sparkles, type LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import SessionList from "@/components/sidebar/SessionList";
@@ -44,6 +44,7 @@ export default function Sidebar() {
 
   const navItems = [
     { path: "/", label: "总览", icon: LayoutDashboard },
+    { path: "/hooks", label: "钩子", icon: Radar },
     { path: "/metrics", label: "指标", icon: Activity },
     { path: "/logs", label: "日志", icon: FileText },
     { path: "/knowledge", label: "知识库", icon: Database },

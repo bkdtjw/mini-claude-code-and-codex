@@ -95,7 +95,7 @@ async def test_web_search_returns_formatted_results(monkeypatch: pytest.MonkeyPa
     assert call["json"]["search_engine"] == "search_pro"
     assert call["json"]["search_query"] == "Python 3.12 新特性"
     assert call["json"]["count"] == 1
-    assert call["json"]["search_recency_filter"] == "week"
+    assert call["json"]["search_recency_filter"] == "oneWeek"  # 旧 week 自动映射到生效值
     assert FakeAsyncClient.init_args[0] == {"timeout": 30.0, "trust_env": False}
 
 
@@ -137,6 +137,55 @@ async def test_web_search_api_error_returns_message(monkeypatch: pytest.MonkeyPa
     assert result.is_error is True
     assert "HTTP 401" in result.output
     assert "bad api key" in result.output
+
+
+def test_resolve_recency_and_widen() -> None:
+    from backend.core.s02_tools.builtin.web_search_support import (
+        resolve_recency,
+        widen_path,
+    )
+
+    assert resolve_recency("recent", None, "x") == "oneWeek"
+    assert resolve_recency("breaking", None, "x") == "oneDay"
+    assert resolve_recency(None, "week", "x") == "oneWeek"  # 向后兼容
+    assert resolve_recency(None, None, "最新模型有哪些") == "oneWeek"  # 关键词→recent
+    assert resolve_recency(None, None, "gpt5 怎么样") == "oneWeek"  # 实体(版本号)→recent
+    assert resolve_recency(None, None, "transformer 的历史") == "noLimit"  # 历史
+    assert resolve_recency(None, None, "什么是张量") == "oneMonth"  # 默认 general
+    assert widen_path("oneWeek") == ["oneWeek", "oneMonth", "oneYear"]
+    assert widen_path("noLimit") == ["noLimit"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_freshness_maps_to_onexxx(monkeypatch: pytest.MonkeyPatch) -> None:
+    items = [{"title": f"t{i}", "link": f"https://e/{i}", "content": "c"} for i in range(5)]
+    _install_fake_client(monkeypatch, FakeResponse(200, {"search_result": items}))
+    _, execute = create_web_search_tool("test-key")
+    result = await execute({"query": "OpenAI 进展", "freshness": "breaking"})
+    assert result.is_error is False
+    assert FakeAsyncClient.calls[0]["json"]["search_recency_filter"] == "oneDay"
+    assert len(FakeAsyncClient.calls) == 1  # 够 5 条，不扩窗
+
+
+@pytest.mark.asyncio
+async def test_web_search_auto_widens_when_too_few(monkeypatch: pytest.MonkeyPatch) -> None:
+    class WidenClient(FakeAsyncClient):
+        async def post(self, url, headers, json):  # type: ignore[override]
+            self.calls.append({"url": url, "headers": headers, "json": json})
+            recency = json["search_recency_filter"]
+            count = 6 if recency == "oneMonth" else 1
+            data = {"search_result": [{"title": f"t{i}", "link": f"https://e/{i}"} for i in range(count)]}
+            return FakeResponse(200, data)
+
+    FakeAsyncClient.calls = []
+    monkeypatch.setattr(web_search_module.httpx, "AsyncClient", WidenClient)
+    _, execute = create_web_search_tool("test-key")
+    result = await execute({"query": "冷门话题", "freshness": "recent"})
+
+    recencies = [c["json"]["search_recency_filter"] for c in FakeAsyncClient.calls]
+    assert recencies == ["oneWeek", "oneMonth"]  # oneWeek 只 1 条 → 扩到 oneMonth
+    assert result.is_error is False
+    assert "已自动放宽" in result.output
 
 
 def test_register_builtin_tools_adds_web_search_only_with_key() -> None:

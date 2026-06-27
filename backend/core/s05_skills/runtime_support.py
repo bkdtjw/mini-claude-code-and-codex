@@ -82,6 +82,7 @@ def build_runtime_registry(
     workspace: str,
     adapter: LLMAdapter,
     model: str,
+    provider: str,
     session_id: str,
     task_queue: TaskQueue | None,
     event_handler: AgentEventHandler | None,
@@ -90,6 +91,7 @@ def build_runtime_registry(
     is_sub_agent: bool,
     skill_loader: Any = None,
     zhipu_web_search_api_key: str = "",
+    sub_agent_policy: Any = None,
 ) -> ToolRegistry:
     base_registry = ToolRegistry()
     kwargs = {
@@ -104,6 +106,10 @@ def build_runtime_registry(
     }
     if _accepts_keyword(register_tools, "skill_loader"):
         kwargs["skill_loader"] = skill_loader
+    if _accepts_keyword(register_tools, "default_provider"):
+        kwargs["default_provider"] = provider
+    if _accepts_keyword(register_tools, "sub_agent_policy"):
+        kwargs["sub_agent_policy"] = sub_agent_policy
     if zhipu_web_search_api_key and _accepts_keyword(
         register_tools,
         "zhipu_web_search_api_key",

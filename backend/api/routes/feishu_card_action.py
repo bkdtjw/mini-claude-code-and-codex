@@ -14,6 +14,10 @@ from fastapi import APIRouter, Request
 from backend.common.logging import bound_log_context, get_logger, new_trace_id
 from backend.config.settings import settings as app_settings
 from backend.core.s07_task_system import TaskExecutionError
+from backend.core.s07_task_system.output_preview import (
+    build_task_output_preview,
+    render_task_output_preview,
+)
 from backend.schemas.feishu import FeishuCardActionPayload
 
 from .feishu_card_approval import (
@@ -107,13 +111,25 @@ async def _background_rerun(task_id: str, task_name: str) -> None:
         task = await store.get_task(task_id)
         if task is None:
             return
-        result = await _task_executor.execute(task)
-        await store.update_run_status(task_id, "success", result[:500])
+        result = await _task_executor.execute_with_result(task)
+        await store.update_run_status(
+            task_id,
+            "success",
+            render_task_output_preview(
+                build_task_output_preview(result.content, content_ref=result.report_path)
+            ),
+        )
         logger.info("feishu_card_rerun_completed", task_id=task_id, task_name=task_name)
     except TaskExecutionError as exc:
         logger.exception("feishu_card_rerun_failed", task_id=task_id, task_name=task_name)
         try:
-            await store.update_run_status(task_id, "error", (exc.output or exc.message)[:500])
+            await store.update_run_status(
+                task_id,
+                "error",
+                render_task_output_preview(
+                    build_task_output_preview(exc.output or exc.message)
+                ),
+            )
         except Exception:
             logger.exception("feishu_card_rerun_status_failed", task_id=task_id)
     except Exception:

@@ -10,6 +10,7 @@ from backend.common.types import LLMRequest, Message
 
 from .compressor import SUMMARY_SYSTEM_PROMPT
 from .level2_compact import RECENT_KEEP_COUNT
+from .summary_helpers import build_summary_message, is_summary_message
 
 
 class Level3SummaryError(AgentError):
@@ -29,36 +30,47 @@ class SummaryArchiveRequest:
 async def summarize_archive(request: SummaryArchiveRequest) -> list[Message]:
     try:
         system_messages = [message for message in request.messages if message.role == "system"]
-        non_system = [message for message in request.messages if message.role != "system"]
+        summary_messages = [
+            message
+            for message in request.messages
+            if message.role != "system" and is_summary_message(message)
+        ]
+        non_system = [
+            message
+            for message in request.messages
+            if message.role != "system" and not is_summary_message(message)
+        ]
         if len(non_system) <= RECENT_KEEP_COUNT:
             return list(request.messages)
         old = non_system[:-RECENT_KEEP_COUNT]
         recent = non_system[-RECENT_KEEP_COUNT:]
         archive_path = write_session_archive(old, request.sessions_dir, request.session_id)
         try:
-            summary = await request_summary(request.adapter, request.model, old)
+            summary = await request_summary(request.adapter, request.model, old, archive_path)
         except Level3SummaryError:
-            summary = fallback_summary(old)
-        summary_message = Message(
-            role="user",
-            content=f"[对话历史摘要]\n{summary}\n\n[无损备份]\n{archive_path}",
-        )
-        return [*system_messages, summary_message, *recent]
+            summary = fallback_summary(old, archive_path)
+        summary_message = build_summary_message(summary, archive_path)
+        return [*system_messages, *summary_messages, summary_message, *recent]
     except Exception as exc:  # noqa: BLE001
         raise Level3SummaryError(str(exc)) from exc
 
 
-async def request_summary(adapter: LLMAdapter, model: str, messages: list[Message]) -> str:
+async def request_summary(
+    adapter: LLMAdapter,
+    model: str,
+    messages: list[Message],
+    archive_path: str,
+) -> str:
     try:
         request = LLMRequest(
             model=model,
             system_prompt=SUMMARY_SYSTEM_PROMPT,
             messages=[
                 Message(role="system", content=SUMMARY_SYSTEM_PROMPT),
-                Message(role="user", content=_summary_prompt(messages)),
+                Message(role="user", content=_summary_prompt(messages, archive_path)),
             ],
             temperature=0.2,
-            max_tokens=1200,
+            max_tokens=5000,
         )
         response = await adapter.complete(request)
         summary = response.content.strip()
@@ -81,16 +93,33 @@ def write_session_archive(messages: list[Message], sessions_dir: str, session_id
     return path.as_posix()
 
 
-def fallback_summary(messages: list[Message]) -> str:
-    lines = ["LLM 摘要失败，以下为降级摘要，标识符和决策需必要时用 read_history 回查："]
+def fallback_summary(messages: list[Message], archive_path: str) -> str:
+    rendered = []
     for index, message in enumerate(messages, start=1):
         text = message.content or _tool_text(message)
-        lines.append(f"{index}. {message.role}: {_clip(text, 240)}")
-    return "\n".join(lines)
+        rendered.append(f"{index}. {message.role}: {_clip(text, 240)}")
+    details = "\n".join(rendered) or "无"
+    return (
+        "<structured_summary>\n"
+        "  <goal>LLM 摘要失败，需基于降级摘要继续。</goal>\n"
+        "  <constraints>无</constraints>\n"
+        "  <identifiers>详见无损备份路径，必要时调用 read_history 回查。</identifiers>\n"
+        "  <decisions>无</decisions>\n"
+        "  <failures>摘要 LLM 调用失败，已生成降级摘要。</failures>\n"
+        f"  <pending>{_clip(details, 1800)}</pending>\n"
+        "  <narrative>较早历史已写入无损备份，继续任务时优先回查关键路径和标识符。</narrative>\n"
+        "</structured_summary>\n"
+        f"无损备份: {archive_path}"
+    )
 
 
-def _summary_prompt(messages: list[Message]) -> str:
-    lines = ["请压缩以下历史。必须遵守 P1-P6 保留优先级。", "[历史开始]"]
+def _summary_prompt(messages: list[Message], archive_path: str = "") -> str:
+    lines = [
+        "请压缩以下历史。必须遵守 P1-P6 保留优先级。",
+        "必须按 system 中的 structured_summary XML 格式输出。",
+        f"无损备份路径：{archive_path or '无'}",
+        "[历史开始]",
+    ]
     for index, message in enumerate(messages, start=1):
         text = message.content or _tool_text(message)
         lines.append(f"{index}. {message.role}: {_clip(text, 1200)}")

@@ -188,6 +188,10 @@ async def handle_command(
                             TaskExecutor,
                             TaskExecutorDeps,
                         )
+                        from backend.core.s07_task_system.output_preview import (
+                            build_task_output_preview,
+                            render_task_output_preview,
+                        )
 
                         executor = TaskExecutor(
                             TaskExecutorDeps(
@@ -197,12 +201,23 @@ async def handle_command(
                                 task_queue=session.task_queue,
                             )
                         )
-                        result = await executor.execute(task)
-                        await task_store.update_run_status(task.id, "success", result[:500])
-                        printer.print_info(f"[info] 任务执行完成：\n{result[:2000]}")
+                        result = await executor.execute_with_result(task)
+                        status_output = render_task_output_preview(
+                            build_task_output_preview(
+                                result.content,
+                                content_ref=result.report_path,
+                                limit=2000,
+                            )
+                        )
+                        await task_store.update_run_status(task.id, "success", status_output)
+                        printer.print_info(f"[info] 任务执行完成：\n{status_output}")
                     except TaskExecutionError as exc:
                         await task_store.update_run_status(
-                            task.id, "error", (exc.output or exc.message)[:500]
+                            task.id,
+                            "error",
+                            render_task_output_preview(
+                                build_task_output_preview(exc.output or exc.message)
+                            ),
                         )
                         printer.print_info(f"[error] 执行失败：{exc.message}")
                     except Exception as exc:

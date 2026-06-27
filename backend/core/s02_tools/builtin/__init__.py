@@ -14,6 +14,7 @@ from backend.core.s04_sub_agents import (
     SubAgentLifecycle,
     SubAgentSpawner,
 )
+from backend.core.s05_skills.models import SubAgentPolicy
 from backend.core.s05_skills.on_demand_loader import OnDemandSkillLoader
 
 from .bash import create_bash_tool
@@ -42,6 +43,7 @@ def register_builtin_tools(
     mode: PermissionMode = "auto",
     adapter: LLMAdapter | None = None,
     default_model: str = "",
+    default_provider: str = "",
     agents_dir: str | None = None,
     feishu_webhook_url: str | None = None,
     feishu_secret: str | None = None,
@@ -60,11 +62,13 @@ def register_builtin_tools(
     event_handler: AgentEventHandler | None = None,
     is_sub_agent: bool = False,
     parent_task_id: str = "",
+    sub_agent_policy: object | None = None,
     include_internal_product_tools: bool = True,
     owner_id: str = "",
     set_current_kb: KnowledgeStateSetter | None = None,
 ) -> None:
     """根据权限模式注册不同的工具集。"""
+    policy = sub_agent_policy if isinstance(sub_agent_policy, SubAgentPolicy) else SubAgentPolicy()
     tools = (
         [create_read_tool(workspace), create_glob_tool(workspace), create_grep_tool(workspace)]
         if workspace
@@ -76,7 +80,7 @@ def register_builtin_tools(
         tools.append(create_file_edit_tool(workspace))
         tools.append(create_write_tool(workspace))
         tools.append(create_bash_tool(workspace))
-        if adapter is not None and not is_sub_agent:
+        if adapter is not None and not is_sub_agent and policy.enable_legacy_tools:
             loader = AgentDefinitionLoader(agents_dir)
             spawner = SubAgentSpawner(adapter, registry, loader, default_model)
             lifecycle = SubAgentLifecycle(timeout=120.0)
@@ -204,6 +208,10 @@ def register_builtin_tools(
             create_product_coupon_lookup_tool,
         )
         from .product_search import create_product_search_tool
+        from .product_source_health import (
+            ProductSourceHealthConfig,
+            create_product_source_health_tool,
+        )
 
         tools.append(
             create_product_search_tool(
@@ -221,6 +229,15 @@ def register_builtin_tools(
                     jd_app_key=app_settings.jd_union_app_key,
                     jd_app_secret=app_settings.jd_union_app_secret,
                     jd_access_token=app_settings.jd_union_access_token,
+                )
+            )
+        )
+        tools.append(
+            create_product_source_health_tool(
+                ProductSourceHealthConfig(
+                    zhetaoke_appkey=app_settings.zhetaoke_app_key,
+                    zhetaoke_sid=app_settings.zhetaoke_tb_sid,
+                    zhetaoke_pid=app_settings.zhetaoke_tb_pid,
                 )
             )
         )
@@ -294,8 +311,11 @@ def register_builtin_tools(
                     task_queue=task_queue,
                     spec_registry=spec_registry,
                     workspace=workspace or "",
+                    model=default_model,
+                    provider=default_provider,
                     event_handler=event_handler,
                     parent_task_id=parent_task_id,
+                    sub_agent_policy=policy,
                 )
             )
         )

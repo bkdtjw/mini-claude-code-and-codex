@@ -6,9 +6,11 @@ from time import time
 from sqlalchemy import select
 
 from backend.common.errors import AgentError
+from backend.core.task_queue_support import WAIT_TIMEOUT_ERROR
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 from backend.storage.database import SessionFactory, get_db_session
 from backend.storage.models import MessageRecord, SubAgentTaskRecord
+from backend.storage.sub_agent_capacity_store import save_payloads_with_capacity
 from backend.storage.sub_agent_task_codec import apply_payload, to_payload, to_record
 
 
@@ -27,6 +29,17 @@ class SubAgentTaskStore:
                 await db.commit()
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SUB_AGENT_TASK_SAVE_ERROR", str(exc)) from exc
+
+    async def save_many_with_capacity(
+        self,
+        payloads: list[TaskPayload],
+        max_active: int,
+    ) -> list[TaskPayload]:
+        return await save_payloads_with_capacity(
+            self._session_factory,
+            payloads,
+            max_active,
+        )
 
     async def claim(self, task_id: str, worker_id: str) -> TaskPayload | None:
         try:
@@ -62,9 +75,7 @@ class SubAgentTaskStore:
         try:
             async with get_db_session(self._session_factory) as db:
                 row = await db.get(SubAgentTaskRecord, task_id)
-                if row is None or row.status != TaskStatus.RUNNING.value:
-                    return False
-                if worker_id and row.worker_id != worker_id:
+                if row is None or not _can_complete(row, worker_id):
                     return False
                 row.status = TaskStatus.SUCCEEDED.value
                 row.result_json = json.dumps(result, ensure_ascii=False)
@@ -78,7 +89,10 @@ class SubAgentTaskStore:
         try:
             async with get_db_session(self._session_factory) as db:
                 row = await db.get(SubAgentTaskRecord, task_id)
-                if row is None or row.status != TaskStatus.RUNNING.value:
+                if row is None or row.status not in {
+                    TaskStatus.PENDING.value,
+                    TaskStatus.RUNNING.value,
+                }:
                     return False
                 if worker_id and row.worker_id != worker_id:
                     return False
@@ -135,14 +149,19 @@ class SubAgentTaskStore:
             async with get_db_session(self._session_factory) as db:
                 statement = select(SubAgentTaskRecord).where(
                     SubAgentTaskRecord.parent_task_id == parent_task_id,
-                    SubAgentTaskRecord.status.in_(
-                        [TaskStatus.SUCCEEDED.value, TaskStatus.FAILED.value]
-                    ),
                 )
                 rows = (await db.execute(statement)).scalars().all()
                 return [to_payload(row) for row in rows]
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SUB_AGENT_TASK_CHILDREN_ERROR", str(exc)) from exc
+
+
+def _can_complete(row: SubAgentTaskRecord, worker_id: str) -> bool:
+    if row.status == TaskStatus.RUNNING.value:
+        return not worker_id or row.worker_id == worker_id
+    if row.status != TaskStatus.FAILED.value or row.error != WAIT_TIMEOUT_ERROR:
+        return False
+    return bool(worker_id) and row.worker_id == worker_id
 
 
 __all__ = ["SubAgentTaskStore"]

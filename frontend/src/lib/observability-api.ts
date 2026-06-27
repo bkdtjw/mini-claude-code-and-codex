@@ -1,8 +1,7 @@
 import type { LatencySummary, TraceSpanResult } from "@/types";
+import { authorizedFetchJson, getApiErrorMessage } from "@/lib/api-auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
-const API_AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
-const AUTH_STORAGE_KEY = "agent-studio.auth-token";
 
 interface LatencySummaryResponse {
   latencies: LatencySummary["latencies"];
@@ -26,24 +25,10 @@ interface TraceSpansResponse {
   spans: TraceSpanResponse[];
 }
 
-const getAuthToken = (): string => {
-  if (API_AUTH_TOKEN) return API_AUTH_TOKEN;
-  if (typeof window !== "undefined") {
-    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)?.trim();
-    if (stored) return stored;
-  }
-  return "change-me-in-production";
-};
-
 const request = async <T>(path: string): Promise<T> => {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  const { response, data } = await authorizedFetchJson(`${API_BASE}${path}`);
   if (!response.ok) {
-    const message = data?.detail?.message ?? data?.message ?? `Request failed: ${response.status}`;
-    throw new Error(message);
+    throw new Error(getApiErrorMessage(data, response.status));
   }
   return data as T;
 };

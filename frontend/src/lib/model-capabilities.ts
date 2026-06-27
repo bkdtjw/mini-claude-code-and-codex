@@ -13,5 +13,10 @@ export const supportsThinking = (provider: Provider | null | undefined, model: s
   const marker = `${provider.name} ${provider.baseUrl} ${model}`.toLowerCase();
   const isKimi = marker.includes("kimi") || marker.includes("moonshot");
   const modelName = model.toLowerCase();
-  return isKimi && (modelName.includes("thinking") || modelName.includes("k2.5") || modelName.includes("k2.6"));
+  return isKimi && (
+    modelName.includes("thinking") ||
+    modelName.includes("k2.5") ||
+    modelName.includes("k2.6") ||
+    modelName.includes("k2.7")
+  );
 };

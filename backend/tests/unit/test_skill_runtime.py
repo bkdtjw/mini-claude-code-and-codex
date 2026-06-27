@@ -153,7 +153,7 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> AgentRuntime:
     monkeypatch.setattr("backend.core.s05_skills.runtime.MCPToolBridge", FakeBridge)
     monkeypatch.setattr(
         "backend.core.s05_skills.runtime.build_system_prompt",
-        lambda workspace: f"base:{workspace}",
+        lambda: "base",
     )
     registry = SpecRegistry()
     return AgentRuntime(
@@ -185,9 +185,10 @@ async def test_create_loop_from_id_uses_prompt_and_tool_whitelist(runtime: Agent
 
     assert loop._config.model == "provider-model"  # noqa: SLF001
     assert loop._config.provider == "provider-1"  # noqa: SLF001
-    assert "base:" in loop._config.system_prompt  # noqa: SLF001
+    assert loop._config.system_prompt == "base"  # noqa: SLF001
     assert "spec prompt" not in loop._config.system_prompt  # noqa: SLF001
-    assert loop._static_skill_messages[0].content == "spec prompt"  # noqa: SLF001
+    assert loop._static_skill_messages[0].kind == "skill_context"  # noqa: SLF001
+    assert "spec prompt" in loop._static_skill_messages[0].content  # noqa: SLF001
     assert sorted(tool.name for tool in loop._executor.list_definitions()) == [  # noqa: SLF001
         "Read",
         "read_history",
@@ -284,6 +285,24 @@ async def test_max_depth_zero_removes_recursive_tools(runtime: AgentRuntime) -> 
         title="代码审查",
         category=AgentCategory.CODING,
         system_prompt="review",
+        tools=ToolConfig(),
+    )
+    spec.sub_agents.max_depth = 0
+
+    loop = await runtime.create_loop(spec, workspace="workspace")
+    tool_names = [tool.name for tool in loop._executor.list_definitions()]  # noqa: SLF001
+
+    assert "dispatch_agent" not in tool_names
+    assert "orchestrate_agents" not in tool_names
+    assert "spawn_agent" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_max_depth_enforced(runtime: AgentRuntime) -> None:
+    spec = AgentSpec(
+        id="depth-limited",
+        title="Depth Limited",
+        category=AgentCategory.ASSISTANT,
         tools=ToolConfig(),
     )
     spec.sub_agents.max_depth = 0

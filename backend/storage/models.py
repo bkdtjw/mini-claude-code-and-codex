@@ -121,6 +121,15 @@ class ScheduledTaskRecord(Base):
     last_run_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
 
+class HookRecord(Base):
+    __tablename__ = "event_hooks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hook_json: Mapped[str] = mapped_column(Text, nullable=False)
+    state_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class RunTraceRecord(Base):
     __tablename__ = "run_traces"
 
@@ -158,6 +167,7 @@ except ImportError:
 
 __all__ = [
     "Base",
+    "HookRecord",
     "MCPServerRecord",
     "MessageRecord",
     "ProviderRecord",

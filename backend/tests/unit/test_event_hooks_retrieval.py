@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+
+import pytest
+
+from backend.core.s07_task_system.event_hooks import (
+    EventHook,
+    HookSources,
+    HookTwitterConfig,
+    TwitterQuery,
+    build_account_query,
+    build_topic_query,
+    retrieve_twitter,
+)
+
+
+@pytest.fixture(autouse=True)
+def bind_test_database() -> None:
+    return None
+
+
+@dataclass
+class FakeTweet:
+    author_name: str = "News Desk"
+    author_handle: str = "NewsDesk"
+    text: str = "Fable 5 unlock window moved"
+    likes: int = 0
+    retweets: int = 0
+    created_at: str = "2026-06-27T00:00:00Z"
+    url: str = "https://x.com/newsdesk/status/1"
+
+
+@dataclass
+class FakeSearch:
+    account_posts: Sequence[FakeTweet] = ()
+    topic_posts: Sequence[FakeTweet] = ()
+    fail_account: bool = False
+    fail_topic: bool = False
+    queries: list[TwitterQuery] = field(default_factory=list)
+
+    async def __call__(self, query: TwitterQuery) -> Sequence[FakeTweet]:
+        self.queries.append(query)
+        if "from:" in query.query:
+            if self.fail_account:
+                raise RuntimeError("account lane unavailable")
+            return self.account_posts
+        if self.fail_topic:
+            raise RuntimeError("topic lane unavailable")
+        return self.topic_posts
+
+
+def _hook(
+    accounts: list[str] | None = None,
+    keywords: list[str] | None = None,
+) -> EventHook:
+    return EventHook(
+        id="hook-1",
+        name="Launch Watch",
+        twitter=HookTwitterConfig(accounts=accounts or [], keywords=keywords or []),
+        sources=HookSources(),
+        cadence_minutes=45,
+        materiality=60,
+        enabled=True,
+        created_at="2026-06-27T00:00:00Z",
+    )
+
+
+def test_query_builders_format_account_and_topic_lanes() -> None:
+    assert build_account_query(["@Alice", " bob "]) == "(from:alice OR from:bob)"
+    assert (
+        build_account_query(["axios"], ["Fable 5", "Fable5"])
+        == '(from:axios) ("Fable 5" OR Fable5)'
+    )
+    topic_query = build_topic_query(["Fable 5", "unlock"], 30)
+
+    assert topic_query == '("Fable 5" OR unlock) min_faves:30'
+
+
+@pytest.mark.asyncio
+async def test_retrieve_twitter_maps_lanes_matches_and_engagement() -> None:
+    fake = FakeSearch(
+        account_posts=(
+            FakeTweet(
+                author_handle="NewsDesk",
+                text="Account update",
+                likes=4,
+                retweets=6,
+                url="https://x.com/newsdesk/status/101",
+            ),
+        ),
+        topic_posts=(
+            FakeTweet(
+                author_handle="OtherDesk",
+                text="Fable 5 unlock window moved",
+                likes=30,
+                retweets=2,
+                url="https://x.com/other/status/102",
+            ),
+        ),
+    )
+
+    signals = await retrieve_twitter(
+        _hook(accounts=["newsdesk"], keywords=["Fable 5", "unlock"]),
+        fake,
+    )
+
+    assert [signal.lane for signal in signals] == ["account", "topic"]
+    assert fake.queries[0].query == '(from:newsdesk) ("Fable 5" OR unlock)'
+    assert fake.queries[1].query == '("Fable 5" OR unlock) min_faves:30'
+    assert signals[0].source == "twitter"
+    assert signals[0].author == "newsdesk"
+    assert signals[0].matched == ["newsdesk"]
+    assert signals[0].engagement == 10
+    assert signals[1].author == "otherdesk"
+    assert signals[1].matched == ["Fable 5", "unlock"]
+    assert signals[1].engagement == 32
+
+
+@pytest.mark.asyncio
+async def test_retrieve_twitter_dedupes_same_tweet_id_and_keeps_account_lane() -> None:
+    fake = FakeSearch(
+        account_posts=(
+            FakeTweet(
+                author_handle="NewsDesk",
+                text="Account first",
+                url="https://x.com/newsdesk/status/777",
+            ),
+        ),
+        topic_posts=(
+            FakeTweet(
+                author_handle="OtherDesk",
+                text="Fable 5 moved",
+                url="https://twitter.com/other/status/777?ref=feed",
+            ),
+        ),
+    )
+
+    signals = await retrieve_twitter(
+        _hook(accounts=["newsdesk"], keywords=["Fable 5"]),
+        fake,
+    )
+
+    assert len(signals) == 1
+    assert signals[0].lane == "account"
+    assert signals[0].text == "Account first"
+    assert signals[0].matched == ["newsdesk", "Fable 5"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_twitter_lane_failure_keeps_other_lane() -> None:
+    fake = FakeSearch(
+        topic_posts=(
+            FakeTweet(
+                author_handle="TopicDesk",
+                text="Fable 5 unlock",
+                likes=9,
+                retweets=1,
+                url="https://x.com/topic/status/303",
+            ),
+        ),
+        fail_account=True,
+    )
+
+    signals = await retrieve_twitter(
+        _hook(accounts=["newsdesk"], keywords=["Fable 5"]),
+        fake,
+    )
+
+    assert len(signals) == 1
+    assert signals[0].lane == "topic"
+    assert signals[0].matched == ["Fable 5"]
+    assert [query.max_results for query in fake.queries] == [25, 25]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_twitter_skips_empty_lanes() -> None:
+    topic_only = FakeSearch(topic_posts=(FakeTweet(url="https://x.com/a/status/1"),))
+    account_only = FakeSearch(account_posts=(FakeTweet(url="https://x.com/a/status/2"),))
+
+    await retrieve_twitter(_hook(accounts=[], keywords=["Fable 5"]), topic_only)
+    await retrieve_twitter(_hook(accounts=["newsdesk"], keywords=[]), account_only)
+
+    assert len(topic_only.queries) == 1
+    assert "from:" not in topic_only.queries[0].query
+    assert "min_faves:30" in topic_only.queries[0].query
+    assert len(account_only.queries) == 1
+    assert account_only.queries[0].query == "(from:newsdesk)"
+    assert "min_faves" not in account_only.queries[0].query

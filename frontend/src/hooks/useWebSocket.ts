@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { agentWs } from "@/lib/websocket";
 import { createReasoningTracker } from "@/hooks/ws-reasoning";
 import { useSessionStore } from "@/stores/sessionStore";
-import type { ToolCall, ToolResult, WsIncoming } from "@/types";
+import type { SubAgentProgress, ToolCall, ToolResult, WsIncoming } from "@/types";
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 const TOOL_RESULT_TIMEOUT_MS = 90_000;
@@ -211,6 +211,19 @@ export function useWebSocket(sessionId: string) {
       finishIfToolResultsComplete();
     };
 
+    const onSubAgentProgress = (payload: unknown) => {
+      const p = payload as SubAgentProgress;
+      const content = p.message || p.error || "";
+      if (!content) return;
+      if (waitingForToolResults.current) flushPendingMessage();
+      useSessionStore.getState().addMessage({
+        id: makeId(),
+        role: "assistant",
+        content,
+        timestamp: new Date().toISOString(),
+      });
+    };
+
     const onDone = () => {
       const state = useSessionStore.getState();
       if (waitingForToolResults.current) flushPendingMessage();
@@ -233,11 +246,19 @@ export function useWebSocket(sessionId: string) {
     const onError = (payload: unknown) => {
       const message = (payload as Extract<WsIncoming, { type: "error" }>).message;
       if (waitingForToolResults.current) flushPendingMessage();
-      useSessionStore.getState().setStatus("error");
+      const state = useSessionStore.getState();
+      state.clearStreamingText();
+      state.clearStreamingReasoning();
+      state.addMessage({
+        id: makeId(),
+        role: "assistant",
+        content: message || "请求失败，请稍后重试。",
+        timestamp: new Date().toISOString(),
+      });
+      state.setStatus("error");
       console.error("WebSocket error:", message);
     };
 
-    agentWs.connect(sessionId);
     agentWs.on("status", onStatus);
     agentWs.on("text", onText);
     agentWs.on("reasoning", onReasoning);
@@ -245,6 +266,9 @@ export function useWebSocket(sessionId: string) {
     agentWs.on("tool_call", onToolCall);
     agentWs.on("tool_result", onToolResult);
     agentWs.on("security_reject", onToolResult);
+    agentWs.on("sub_agent_spawned", onSubAgentProgress);
+    agentWs.on("sub_agent_completed", onSubAgentProgress);
+    agentWs.on("sub_agent_failed", onSubAgentProgress);
     agentWs.on("done", onDone);
     agentWs.on("error", onError);
     return () => {
@@ -256,6 +280,9 @@ export function useWebSocket(sessionId: string) {
       agentWs.off("tool_call", onToolCall);
       agentWs.off("tool_result", onToolResult);
       agentWs.off("security_reject", onToolResult);
+      agentWs.off("sub_agent_spawned", onSubAgentProgress);
+      agentWs.off("sub_agent_completed", onSubAgentProgress);
+      agentWs.off("sub_agent_failed", onSubAgentProgress);
       agentWs.off("done", onDone);
       agentWs.off("error", onError);
       pendingToolCalls.current = [];
@@ -265,7 +292,7 @@ export function useWebSocket(sessionId: string) {
       reasoning.current.reset();
       pendingCallsFromMessage.current = false;
       waitingForToolResults.current = false;
-      agentWs.close();
+      agentWs.close(sessionId);
     };
   }, [sessionId]);
 }

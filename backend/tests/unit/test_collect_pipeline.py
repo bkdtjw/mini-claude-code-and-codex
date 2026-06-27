@@ -7,15 +7,27 @@ import pytest
 from backend.core.s02_tools.builtin.collect_and_process_support import (
     PipelineConfig,
     RawTweet,
+    RawVideo,
     process_raw_data,
 )
 
 
 @pytest.mark.asyncio
-async def test_pipeline_keeps_short_spammy_tweet_with_soft_penalty() -> None:
+async def test_pipeline_drops_spammy_tweet_when_curated() -> None:
     tweet = _tweet("promo code", url="https://x.com/ad/status/1", retweets=20)
 
     result = await process_raw_data({"LLM": [tweet]}, [], PipelineConfig(), None)
+
+    assert "promo code" not in result.evidence_text
+    assert result.stats["evidence_cards"] == 0
+    assert result.stats["tweet_dropped_by_curation"] == 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_keeps_spammy_tweet_when_inclusive() -> None:
+    tweet = _tweet("promo code", url="https://x.com/ad/status/1", retweets=20)
+
+    result = await process_raw_data({"LLM": [tweet]}, [], PipelineConfig(curated=False), None)
 
     assert "promo code" in result.evidence_text
     assert result.stats["evidence_cards"] == 1
@@ -80,6 +92,52 @@ async def test_pipeline_avoids_chain_merge_between_different_events() -> None:
     result = await process_raw_data({"AI": tweets}, [], PipelineConfig(), None)
 
     assert result.stats["tweet_clusters"] == 2
+
+
+@pytest.mark.asyncio
+async def test_curation_drops_stale_tweet() -> None:
+    fresh = _tweet("OpenAI ships GPT-5 reasoning upgrade", "https://x.com/a/status/10")
+    stale = _tweet(
+        "Old DeepSeek release recap from last week",
+        "https://x.com/b/status/11",
+        created_at=datetime.now(UTC) - timedelta(hours=72),
+    )
+
+    result = await process_raw_data({"OpenAI": [fresh, stale]}, [], PipelineConfig(), None)
+
+    assert "https://x.com/a/status/10" in result.evidence_text
+    assert "https://x.com/b/status/11" not in result.evidence_text
+    assert result.stats["tweet_dropped_by_curation"] == 1
+
+
+@pytest.mark.asyncio
+async def test_youtube_kept_with_reserved_budget_and_recency_order() -> None:
+    tweets = [_tweet(f"OpenAI update number {idx} on reasoning", f"https://x.com/t/status/{idx}") for idx in range(8)]
+    newer = _video("https://youtu.be/new", upload_date="2026-06-24", view_count=10)
+    older = _video("https://youtu.be/old", upload_date="2026-06-20", view_count=9000)
+
+    config = PipelineConfig(max_output_chars=900, video_char_reserve_ratio=0.4)
+    result = await process_raw_data({"OpenAI": tweets}, [older, newer], config, None)
+
+    assert "https://youtu.be/new" in result.evidence_text  # not starved by tweets
+    assert "YouTube videos: 1" in result.evidence_text or "YouTube videos: 2" in result.evidence_text
+    # date beats view_count: the newer upload ranks ahead of the higher-viewed older one
+    assert result.evidence_text.index("https://youtu.be/new") < (
+        result.evidence_text.index("https://youtu.be/old")
+        if "https://youtu.be/old" in result.evidence_text
+        else len(result.evidence_text)
+    )
+
+
+def _video(url: str, upload_date: str, view_count: int) -> RawVideo:
+    return RawVideo(
+        title="AI weekly digest",
+        url=url,
+        channel="AI Channel",
+        view_count=view_count,
+        upload_date=upload_date,
+        subtitle_text="A concise recap of this week's AI news and model releases.",
+    )
 
 
 def _tweet(

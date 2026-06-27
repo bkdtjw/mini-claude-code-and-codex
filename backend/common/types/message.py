@@ -7,6 +7,14 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 Role = Literal["user", "assistant", "system", "tool"]
+MessageKind = Literal[
+    "user_request",
+    "summary",
+    "runtime_guard",
+    "runtime_context",
+    "skill_context",
+    "memory_context",
+]
 
 
 def generate_id() -> str:
@@ -46,6 +54,8 @@ class Message(BaseModel):
     id: str = Field(default_factory=generate_id)
     role: Role
     content: str
+    kind: MessageKind = "user_request"
+    ephemeral: bool = False
     tool_calls: list[ToolCall] | None = None
     tool_results: list[ToolResult] | None = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -59,6 +69,7 @@ class StreamChunk(BaseModel):
 
 __all__ = [
     "Role",
+    "MessageKind",
     "FileDiff",
     "ToolArtifact",
     "ToolCall",

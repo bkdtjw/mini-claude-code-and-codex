@@ -56,6 +56,11 @@ def _make_messages_with_tools(*tool_names: str) -> list[Message]:
     return msgs
 
 
+async def _empty_stream(_request: Any) -> Any:
+    if False:
+        yield None
+
+
 # ---------------------------------------------------------------------------
 # extract_tool_names
 # ---------------------------------------------------------------------------
@@ -255,6 +260,7 @@ class TestExecutorCardFlow:
         mock_response.tool_calls = None
         mock_response.provider_metadata = {}
         mock_adapter.complete.return_value = mock_response
+        mock_adapter.stream = _empty_stream
 
         mock_pm = AsyncMock()
         mock_pm.list_all.return_value = [MagicMock(id="p1", is_default=True)]
@@ -291,6 +297,7 @@ class TestExecutorCardFlow:
         mock_response.tool_calls = None
         mock_response.provider_metadata = {}
         mock_adapter.complete.return_value = mock_response
+        mock_adapter.stream = _empty_stream
 
         mock_pm = AsyncMock()
         mock_pm.list_all.return_value = [MagicMock(id="p1", is_default=True)]
@@ -326,6 +333,7 @@ class TestExecutorCardFlow:
         mock_response.tool_calls = None
         mock_response.provider_metadata = {}
         mock_adapter.complete.return_value = mock_response
+        mock_adapter.stream = _empty_stream
 
         mock_pm = AsyncMock()
         mock_pm.list_all.return_value = [MagicMock(id="p1", is_default=True)]

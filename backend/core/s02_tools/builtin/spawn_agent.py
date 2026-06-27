@@ -3,21 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from dataclasses import replace
 
-from backend.common.logging import get_logger, get_worker_id
+from backend.common.logging import get_logger
 from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
+from backend.core.s02_tools.builtin.spawn_agent_dag import run_prepared_tasks
+from backend.core.s02_tools.builtin.spawn_agent_reuse import with_reuse_notice
 
 from .spawn_agent_support import (
-    PreparedTask,
     SpawnAgentArgs,
     SpawnAgentDeps,
-    emit_event,
     format_result,
-    prepare_tasks,
 )
-from .spawn_agent_wait import wait_for_prepared_tasks
-from backend.core.task_queue import TaskPayload, TaskStatus
+from .spawn_agent_governance import validate_allowed_specs
+from .spawn_agent_final_review import run_final_review_if_needed
+from .spawn_agent_prepare import prepare_tasks
 
 logger = get_logger(component="spawn_agent")
 
@@ -61,12 +60,20 @@ def create_spawn_agent_tool(deps: SpawnAgentDeps) -> tuple[ToolDefinition, ToolE
                     "items": {
                         "type": "object",
                         "properties": {
+                            "id": {"type": "string", "description": "依赖编排时的唯一任务 ID，可被 depends_on 引用"},
                             "spec_id": {"type": "string", "description": "已注册的 skill spec ID。和 inline 定义二选一。"},
                             "role": {"type": "string", "description": "临时角色名（inline 模式）"},
-                            "system_prompt": {"type": "string", "description": "临时 system prompt（inline 模式）"},
+                            "template": {"type": "string", "description": "inline 模式必须绑定的固定模板，如 research-specialist/code-reader/synthesis-specialist"},
+                            "system_prompt": {"type": "string", "description": "模板下的补充约束，不能覆盖固定模板"},
                             "tools": {"type": "array", "items": {"type": "string"}, "description": "临时工具白名单（inline 模式）"},
                             "input": {"type": "string", "description": "子 agent 的输入文本（必填）"},
+                            "permission": {"type": "string", "description": "权限范围：readonly 或 writable，默认 readonly"},
+                            "no_cache": {"type": "boolean", "description": "是否跳过同会话历史结果复用，默认 false"},
+                            "required": {"type": "boolean", "description": "关键子任务，失败时 spawn_agent 返回 is_error=true"},
+                            "depends_on": {"type": "array", "items": {"type": "string"}, "description": "依赖的任务 ID 列表"},
+                            "on_dep_failure": {"type": "string", "description": "依赖失败策略：block 或 proceed"},
                             "timeout_seconds": {"type": "number", "description": "超时秒数（可选，默认用 spec 配置或 120）"},
+                            "max_iterations": {"type": "integer", "description": "本子任务迭代预算，最终不会超过平台 cap"},
                         },
                         "required": ["input"],
                     },
@@ -81,73 +88,25 @@ def create_spawn_agent_tool(deps: SpawnAgentDeps) -> tuple[ToolDefinition, ToolE
             payload = SpawnAgentArgs.model_validate(_normalize_args(args))
             if not payload.tasks:
                 return ToolResult(output="tasks 不能为空", is_error=True)
+            validate_allowed_specs(payload.tasks, deps.sub_agent_policy)
             prepared = prepare_tasks(payload.tasks, deps)
-            final_prepared, reused_statuses, to_submit = await _split_reused_tasks(prepared, deps)
-            for item in to_submit:
-                await deps.task_queue.submit(item.task_id, item.input_data, timeout_seconds=item.timeout_seconds)
-                logger.info(
-                    "sub_agent_task_submitted",
-                    task_id=item.task_id,
-                    spec_id=item.label,
-                    worker_id=get_worker_id(),
-                )
-            await emit_event(
-                deps.event_handler,
-                "sub_agent_spawned",
-                {
-                    "total": len(prepared),
-                    "submitted": len(to_submit),
-                    "reused": len(reused_statuses),
-                    "specs": [item.label for item in prepared],
-                    "message": f"正在派生 {len(to_submit)} 个子 agent 并行处理...",
-                },
+            run = await run_prepared_tasks(prepared, deps)
+            review_prepared, review_statuses = await run_final_review_if_needed(
+                run.prepared,
+                run.statuses,
+                deps,
             )
-            waited = await wait_for_prepared_tasks(to_submit, deps) if to_submit else []
-            return format_result(final_prepared, [*reused_statuses, *waited])
+            result = format_result(
+                [*run.prepared, *review_prepared],
+                [*run.statuses, *review_statuses],
+            )
+            return with_reuse_notice(result, run.reused_statuses)
         except asyncio.TimeoutError:
             return ToolResult(output="等待子 agent 结果超时", is_error=True)
         except Exception as exc:  # noqa: BLE001
             return ToolResult(output=str(exc), is_error=True)
 
     return definition, execute
-
-
-async def _split_reused_tasks(
-    prepared: list[PreparedTask],
-    deps: SpawnAgentDeps,
-) -> tuple[list[PreparedTask], list[TaskPayload], list[PreparedTask]]:
-    existing = await deps.task_queue.get_children(deps.parent_task_id)
-    reusable = _group_reusable(existing)
-    final_prepared: list[PreparedTask] = []
-    reused_statuses: list[TaskPayload] = []
-    to_submit: list[PreparedTask] = []
-    for item in prepared:
-        status = reusable.get(item.label, []).pop(0) if reusable.get(item.label) else None
-        if status is None:
-            final_prepared.append(item)
-            to_submit.append(item)
-            continue
-        final_prepared.append(replace(item, task_id=status.task_id))
-        reused_statuses.append(status)
-        logger.info(
-            "sub_agent_task_reused",
-            task_id=status.task_id,
-            spec_id=item.label,
-            parent_task_id=deps.parent_task_id,
-        )
-    return final_prepared, reused_statuses, to_submit
-
-
-def _group_reusable(statuses: list[TaskPayload]) -> dict[str, list[TaskPayload]]:
-    grouped: dict[str, list[TaskPayload]] = {}
-    for status in statuses:
-        if status.status != TaskStatus.SUCCEEDED:
-            continue
-        key = str(status.input_data.get("spec_id") or status.input_data.get("role") or "")
-        if not key:
-            continue
-        grouped.setdefault(key, []).append(status)
-    return grouped
 
 
 __all__ = ["create_spawn_agent_tool"]

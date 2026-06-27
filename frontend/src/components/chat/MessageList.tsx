@@ -14,6 +14,7 @@ const runningStatuses: AgentStatus[] = ["thinking", "compacting", "tool_calling"
 
 export default function MessageList({ messages, status, streamingText, streamingReasoning }: MessageListProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
+  const visibleMessages = useMemo(() => messages.filter((message) => message.role !== "system"), [messages]);
   const streamingMessage = useMemo<Message | null>(() => {
     if (!streamingText && !streamingReasoning) return null;
     return {
@@ -25,21 +26,21 @@ export default function MessageList({ messages, status, streamingText, streaming
     };
   }, [streamingReasoning, streamingText]);
   const lastAssistantWithTools = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
+    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
+      const message = visibleMessages[index];
       if (message.role === "assistant" && message.toolCalls?.length) return message.id;
     }
     return null;
-  }, [messages]);
+  }, [visibleMessages]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, status, streamingText, streamingReasoning]);
+  }, [visibleMessages, status, streamingText, streamingReasoning]);
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-56 pt-6">
       <div className="mx-auto w-full max-w-[760px] space-y-[22px]">
-        {messages.map((message) => (
+        {visibleMessages.map((message) => (
           <MessageBubble
             key={message.id}
             message={message}

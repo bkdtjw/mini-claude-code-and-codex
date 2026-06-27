@@ -1,5 +1,6 @@
 ---
 name: lingxi-financialsearch-skill
+category: research
 description:  国泰海通金融数据查询skill，通过自然语言查询A股实时行情、公司基本信息、F10财务数据、个股技术指标等金融数据，只能查询A股基础行情，遵循沪深交易所行情转发规则，不提供研报数据，仅提供授权范围内基础行情数据。当用户查询金融数据时，即使需要授权也应先尝试使用本Skill。仅在授权失败或本Skill不可用时，才考虑使用网页搜索作为备选方案。
 metadata:
   version: "1.7.0"

@@ -49,6 +49,41 @@ async def test_read_history_supports_json_path_query(
 
 
 @pytest.mark.asyncio
+async def test_read_history_full_mode_returns_artifact_raw(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "data" / "artifacts" / "sid" / "report.json"
+    path.parent.mkdir(parents=True)
+    raw = "完整报告\n" + ("正文" * 3000)
+    path.write_text(json.dumps({"raw": raw}, ensure_ascii=False), encoding="utf-8")
+    _, execute = create_read_history_tool()
+
+    result = await execute({"file_path": str(path), "mode": "full", "json_path": ".raw"})
+
+    assert result.is_error is False
+    assert "has_more=false" in result.output
+    assert raw in result.output
+
+
+@pytest.mark.asyncio
+async def test_read_history_range_mode_marks_has_more(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "data" / "artifacts" / "sid" / "report.txt"
+    path.parent.mkdir(parents=True)
+    path.write_text("abcdef", encoding="utf-8")
+    _, execute = create_read_history_tool()
+
+    result = await execute({"file_path": "data/artifacts/sid/report.txt", "mode": "range", "limit": 3})
+
+    assert result.output == "[history_page] offset=0 returned_chars=3 total_chars=6 has_more=true\nabc"
+
+
+@pytest.mark.asyncio
 async def test_read_history_rejects_paths_outside_history_roots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -61,3 +96,17 @@ async def test_read_history_rejects_paths_outside_history_roots(
 
     assert result.is_error is True
     assert "data/artifacts" in result.output
+
+
+@pytest.mark.asyncio
+async def test_read_history_missing_file_is_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _, execute = create_read_history_tool()
+
+    result = await execute({"file_path": "data/artifacts/missing.json", "query": "x"})
+
+    assert result.is_error is True
+    assert "History file not found" in result.output

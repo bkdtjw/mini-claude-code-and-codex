@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from typing import Annotated
 
@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     loki_query_timeout_seconds: float = Field(default=10.0, ge=1.0)
     loki_app_label: str = "agent-studio"
     sub_worker_concurrency: int = Field(default=2, ge=1)
+    sub_worker_max_concurrency: int = Field(default=6, ge=1)
+    sub_worker_scale_idle_seconds: float = Field(default=30.0, ge=0.0)
+    sub_worker_scale_poll_seconds: float = Field(default=2.0, ge=0.1)
     auth_secret: str = "change-me-in-production"
     server_base_url: str = ""
     feishu_webhook_url: str = ""
@@ -61,6 +64,8 @@ class Settings(BaseSettings):
     knowledge_upload_dir: str = "data/knowledge_uploads"
     youtube_api_key: str = ""
     youtube_proxy_url: str = ""
+    exa_api_key: str = ""
+    exa_proxy_url: str = ""
     twitter_username: str = ""
     twitter_email: str = ""
     twitter_password: str = ""

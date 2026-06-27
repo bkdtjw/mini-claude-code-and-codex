@@ -58,10 +58,24 @@ class ReuseQueue:
         self.child = TaskPayload(
             task_id="old-child",
             namespace="sub_agent",
-            input_data={"spec_id": "code-reviewer", "parent_task_id": "parent-1"},
+            input_data={
+                "spec_id": "code-reviewer",
+                "role": "",
+                "template": "",
+                "system_prompt": "",
+                "tools": ["Read", "Glob", "Grep", "read_history"],
+                "input": "first",
+                "permission": "readonly",
+                "max_iterations": 20,
+                "max_iterations_cap": 60,
+                "model": "",
+                "provider": "",
+                "workspace": "/workspace",
+                "parent_task_id": "parent-1",
+            },
             parent_task_id="parent-1",
             status=TaskStatus.SUCCEEDED,
-            created_at=0,
+            created_at=time(),
             result={"content": "old result"},
         )
         self.statuses = {"old-child": self.child}

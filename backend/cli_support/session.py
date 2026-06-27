@@ -119,6 +119,7 @@ async def create_session(
             spec_registry=spec_registry,
             task_queue=task_queue,
             event_handler=event_handler,
+            parent_task_id=f"cli:{os.getpid()}:{id(registry)}",
         )
         bridge = MCPToolBridge(resolved_mcp_manager, registry)
         await bridge.sync_all()
@@ -126,7 +127,8 @@ async def create_session(
             config=AgentConfig(
                 model=args.model or provider.default_model,
                 provider=provider.id,
-                system_prompt=build_system_prompt(workspace),
+                system_prompt=build_system_prompt(),
+                workspace=workspace,
             ),
             adapter=adapter,
             tool_registry=registry,

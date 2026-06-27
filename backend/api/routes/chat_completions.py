@@ -17,6 +17,7 @@ from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPToolBridge
+from backend.core.system_prompt import build_system_prompt
 from backend.schemas.completion import ChatCompletionChoice, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionUsage
 
 router = APIRouter(tags=["completions"])
@@ -63,11 +64,35 @@ def _openai_messages_to_internal(messages: list[dict]) -> list[Message]:
             out.append(Message(role=role if role in {"user", "system"} else "user", content=_to_text(item.get("content"))))
     return out
 
+
+def _chat_system_prompt(messages: list[Message]) -> str:
+    caller_system = "\n\n".join(
+        message.content.strip()
+        for message in messages
+        if message.role == "system" and message.content.strip()
+    )
+    base = build_system_prompt()
+    if not caller_system:
+        return base
+    return f"{base}\n\n调用方 system 消息：\n{caller_system}"
+
+
+def _without_system(messages: list[Message]) -> list[Message]:
+    return [message for message in messages if message.role != "system"]
+
 def _internal_message_to_openai(message: Message, model: str) -> ChatCompletionResponse:
     choice: dict[str, Any] = {"role": "assistant", "content": message.content}
     if message.tool_calls:
         choice["tool_calls"] = [{"id": c.id, "type": "function", "function": {"name": c.name, "arguments": json.dumps(c.arguments, ensure_ascii=False)}} for c in message.tool_calls]
     return ChatCompletionResponse(id=message.id, created=int(message.timestamp.timestamp()), model=model, choices=[ChatCompletionChoice(message=choice, finish_reason="tool_calls" if message.tool_calls else "stop")], usage=ChatCompletionUsage())
+
+
+def _completion_parent_task_id(raw_request: Request) -> str:
+    return (
+        raw_request.headers.get("x-agent-session-id")
+        or raw_request.headers.get("x-request-id")
+        or f"chat-completion:{int(time() * 1000)}"
+    )
 
 
 @router.post("/v1/chat/completions", response_model=None)
@@ -98,10 +123,21 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
             agent_runtime=getattr(raw_request.app.state, "agent_runtime", None),
             spec_registry=getattr(raw_request.app.state, "spec_registry", None),
             task_queue=getattr(raw_request.app.state, "task_queue", None),
+            parent_task_id=_completion_parent_task_id(raw_request),
         )
         await MCPToolBridge(mcp_server_manager, registry).sync_all()
-        loop = AgentLoop(config=AgentConfig(model=request.model, system_prompt=""), adapter=adapter, tool_registry=registry)
-        loop.message_history.restore(internal[:user_idx])
+        loop = AgentLoop(
+            config=AgentConfig(
+                model=request.model,
+                system_prompt=_chat_system_prompt(internal[:user_idx]),
+                workspace=request.workspace,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+            ),
+            adapter=adapter,
+            tool_registry=registry,
+        )
+        loop.message_history.restore(_without_system(internal[:user_idx]))
         user_message = internal[user_idx].content
         if not request.stream:
             return _internal_message_to_openai(await loop.run(user_message), request.model)

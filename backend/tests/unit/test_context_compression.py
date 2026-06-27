@@ -130,12 +130,14 @@ async def test_context_compressor_compact_returns_summary_and_recent_messages() 
     )
     compacted = await compressor.compact(_build_messages())
     assert [message.role for message in compacted] == ["system", "user", "assistant", "user"]
-    assert compacted[1].content == "[对话历史摘要]\nsummary body"
+    assert compacted[1].kind == "summary"
+    assert compacted[1].content == "<conversation_summary>\nsummary body\n</conversation_summary>"
     assert compacted[2].content == "Patched backend/core/s01_agent_loop/agent_loop.py"
     assert compacted[3].content == "Continue with tests"
     summary_prompt = adapter.requests[0].messages[1].content
     assert "Read[ok]=" in summary_prompt
     assert "A" * 201 not in summary_prompt
+    assert adapter.requests[0].max_tokens == 5000
 
 
 @pytest.mark.asyncio
@@ -148,6 +150,8 @@ async def test_context_compressor_falls_back_when_summary_call_fails() -> None:
     )
     compacted = await compressor.compact(_build_messages())
     assert [message.role for message in compacted] == ["system", "user", "assistant", "user"]
-    assert compacted[1].content.startswith("[对话历史摘要]\n以下为降级摘要")
+    assert compacted[1].kind == "summary"
+    assert compacted[1].content.startswith("<conversation_summary>\n<structured_summary>")
     assert "Need to inspect backend/core/s01_agent_loop/agent_loop.py" in compacted[1].content
+    assert "压缩降级原因: summary failed" in compacted[1].content
     assert compacted[3].content == "Continue with tests"

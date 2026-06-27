@@ -22,6 +22,8 @@ class LoopSettings(BaseModel):
     workspace: str | None = None
     permission_mode: str = "auto"
     thinking: bool = False
+    max_tokens: int = 16384
+    temperature: float = 0.7
     spec_id: str = ""
     mode: str = "direct"
     knowledge_base_id: str | None = None
@@ -53,10 +55,28 @@ def parse_loop_settings(data: dict[str, Any]) -> LoopSettings:
         workspace=str(data.get("workspace", "")).strip() or None,
         permission_mode=str(data.get("permission_mode", "auto")).strip() or "auto",
         thinking=bool(data.get("thinking", False)),
+        max_tokens=_positive_int(data.get("max_tokens"), 16384),
+        temperature=_temperature(data.get("temperature"), 0.7),
         spec_id=spec_id,
         mode=str(data.get("mode", "direct")).strip() or "direct",
         knowledge_base_id=str(data.get("knowledge_base_id", "")).strip() or None,
     )
+
+
+def _positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _temperature(value: object, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if 0 <= parsed <= 2 else default
 
 
 async def resolve_loop_settings(settings: LoopSettings, provider_manager: Any) -> LoopSettings:
@@ -92,7 +112,9 @@ def serialize_message_for_client(message: Message) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": message.id,
         "role": message.role,
+        "kind": message.kind,
         "content": message.content,
+        "ephemeral": message.ephemeral,
         "tool_calls": [call.model_dump(mode="json") for call in message.tool_calls or []],
         "tool_results": [result.model_dump(mode="json") for result in message.tool_results or []],
         "timestamp": message.timestamp.isoformat(),
@@ -107,8 +129,21 @@ def serialize_message_for_client(message: Message) -> dict[str, Any]:
 
 def serialize_session_for_client(session: Session, messages: list[Message]) -> dict[str, Any]:
     payload = session.model_dump(mode="json", exclude={"messages"})
-    payload["messages"] = [serialize_message_for_client(message) for message in messages]
+    config = payload.get("config")
+    if isinstance(config, dict):
+        config.pop("system_prompt", None)
+    payload["messages"] = [
+        serialize_message_for_client(message)
+        for message in messages
+        if is_client_visible_message(message)
+    ]
     return payload
+
+
+def is_client_visible_message(message: Message) -> bool:
+    if message.role == "system" or message.ephemeral:
+        return False
+    return message.kind == "user_request"
 
 
 def tool_result_payload(message_type: str, data: ToolResult) -> dict[str, Any]:
@@ -155,6 +190,8 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
         return {
             "type": "sub_agent_spawned",
             "total": data.get("total"),
+            "submitted": data.get("submitted"),
+            "reused": data.get("reused"),
             "specs": data.get("specs"),
             "message": data.get("message"),
         }
@@ -210,7 +247,11 @@ def _restore_display_message(payload: RunLoopInput, message_start: int) -> None:
     if not payload.display_message:
         return
     for message in payload.loop.message_history.raw_messages[message_start:]:
-        if message.role == "user" and message.content == payload.message:
+        if (
+            message.role == "user"
+            and message.kind == "user_request"
+            and message.content == payload.message
+        ):
             message.content = payload.display_message
             return
 

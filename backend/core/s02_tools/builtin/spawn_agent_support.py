@@ -1,24 +1,39 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from inspect import isawaitable
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from backend.common.types import AgentEvent, AgentEventHandler, ToolResult, generate_id
+from backend.common.types import AgentEvent, AgentEventHandler, ToolResult
+from backend.core.s05_skills.models import SubAgentPolicy
 from backend.core.s05_skills.registry import SpecRegistry
 from backend.core.task_queue import TaskPayload, TaskQueue, TaskStatus
 
+from .spawn_agent_result_format import result_content
+
 _TERMINAL_STATUSES = {TaskStatus.SUCCEEDED, TaskStatus.FAILED}
+OnDepFailure = Literal["block", "proceed"]
 
 
 class SpawnAgentTask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = ""
     spec_id: str = ""
     role: str = ""
+    template: str = ""
     system_prompt: str = ""
     tools: list[str] = Field(default_factory=list)
     input: str
+    permission: str = "readonly"
+    no_cache: bool = False
+    required: bool = False
+    depends_on: list[str] = Field(default_factory=list)
+    on_dep_failure: OnDepFailure = "block"
     timeout_seconds: float | None = None
+    max_iterations: int | None = Field(default=None, ge=1)
 
 
 class SpawnAgentArgs(BaseModel):
@@ -30,8 +45,11 @@ class SpawnAgentDeps:
     task_queue: TaskQueue
     spec_registry: SpecRegistry
     workspace: str
+    model: str = ""
+    provider: str = ""
     event_handler: AgentEventHandler | None = None
     parent_task_id: str = ""
+    sub_agent_policy: SubAgentPolicy = dataclass_field(default_factory=SubAgentPolicy)
 
 
 @dataclass
@@ -41,37 +59,10 @@ class PreparedTask:
     label: str
     timeout_seconds: float
     input_data: dict[str, object]
-
-
-def prepare_tasks(tasks: list[SpawnAgentTask], deps: SpawnAgentDeps) -> list[PreparedTask]:
-    prepared: list[PreparedTask] = []
-    for index, task in enumerate(tasks, start=1):
-        spec_id = task.spec_id.strip()
-        spec = deps.spec_registry.get(spec_id) if spec_id else None
-        if spec_id and (spec is None or not spec.enabled):
-            raise ValueError(f"未找到可用场景：{spec_id}")
-        timeout_seconds = float(
-            task.timeout_seconds or (spec.timeout_seconds if spec is not None else 120)
-        )
-        prepared.append(
-            PreparedTask(
-                index=index,
-                task_id=f"sub-agent-{generate_id()}",
-                label=spec_id or task.role.strip() or f"inline-task-{index}",
-                timeout_seconds=timeout_seconds,
-                input_data={
-                    "spec_id": spec_id,
-                    "role": task.role,
-                    "system_prompt": task.system_prompt,
-                    "tools": task.tools,
-                    "input": task.input,
-                    "timeout_seconds": timeout_seconds,
-                    "workspace": deps.workspace,
-                    "parent_task_id": deps.parent_task_id,
-                },
-            )
-        )
-    return prepared
+    dag_id: str = ""
+    depends_on: list[str] = dataclass_field(default_factory=list)
+    on_dep_failure: OnDepFailure = "block"
+    required: bool = False
 
 
 def format_result(prepared: list[PreparedTask], statuses: list[TaskPayload]) -> ToolResult:
@@ -83,12 +74,14 @@ def format_result(prepared: list[PreparedTask], statuses: list[TaskPayload]) -> 
         if status.status == TaskStatus.SUCCEEDED
     )
     lines = [f"子 agent 执行完成（{success_count}/{len(prepared)} 成功）", ""]
+    required_error = False
     for item in prepared:
         status = status_map.get(item.task_id)
         state = status.status.value if status is not None else "failed"
-        lines.extend([f"[{item.index}] {item.label} ({state})", _result_content(status), ""])
+        required_error = required_error or bool(item.required and state != TaskStatus.SUCCEEDED.value)
+        lines.extend([f"[{item.index}] {item.label} ({state})", result_content(status), ""])
     lines.append(f"[meta] sub_agent_tool_calls={total_sub_tool_calls}")
-    return ToolResult(output="\n".join(lines).strip(), is_error=success_count == 0)
+    return ToolResult(output="\n".join(lines).strip(), is_error=success_count == 0 or required_error)
 
 
 async def emit_event(
@@ -166,19 +159,4 @@ def _progress_message(label: str, completed: int, total: int, status: TaskPayloa
     return f"子 agent {label} 执行失败：{status.error}"
 
 
-def _result_content(status: TaskPayload | None) -> str:
-    if status is None:
-        return "子 agent 未返回结果"
-    if status.status == TaskStatus.SUCCEEDED:
-        return str((status.result or {}).get("content", ""))
-    return status.error or "子 agent 执行失败"
-
-
-__all__ = [
-    "SpawnAgentArgs",
-    "SpawnAgentDeps",
-    "SpawnAgentTask",
-    "emit_event",
-    "format_result",
-    "prepare_tasks",
-]
+__all__ = ["SpawnAgentArgs", "SpawnAgentDeps", "SpawnAgentTask", "emit_event", "format_result"]

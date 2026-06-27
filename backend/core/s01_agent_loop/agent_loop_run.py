@@ -57,23 +57,25 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                 loop._set_status("thinking")
                 tool_definitions = loop._executor.list_definitions()
                 messages = loop._history.raw_messages
-                messages[:] = await loop._layered_compressor.check_and_compact(
+                messages[:] = await loop._layered_compressor.compress(
                     messages,
                     tool_definitions,
                 )
-                messages[:] = await loop._layered_compressor.summarize_and_archive(
-                    messages,
-                    tool_definitions,
-                )
-                estimated_tokens = loop._token_counter.estimate_messages_tokens(messages)
-                estimated_tokens += loop._token_counter.estimate_tools_tokens(tool_definitions)
-                if loop._compressor.policy.should_compact(estimated_tokens):
-                    loop._set_status("compacting")
-                    messages[:] = await loop._compressor.compact(messages)
-                    loop._set_status("thinking")
                 guard_prompt = loop_guard.prompt_for_iteration(iteration_count)
                 if guard_prompt is not None:
-                    await loop._append_message(Message(role="user", content=guard_prompt.content))
+                    await loop._append_message(
+                        Message(
+                            role="user",
+                            kind="runtime_guard",
+                            ephemeral=True,
+                            content=(
+                                "<system_directive>\n"
+                                f"{guard_prompt.content}\n"
+                                "这是系统注入的运行时指令，不是用户的新任务。\n"
+                                "</system_directive>"
+                            ),
+                        )
+                    )
                     logger.info(
                         "agent_loop_guard_prompt",
                         iteration=iteration_count,

@@ -7,6 +7,7 @@ __all__ = [
     "CronScheduler",
     "OutputConfig",
     "ScheduledTask",
+    "TaskExecutionResult",
     "TaskExecutor",
     "TaskExecutorDeps",
     "TaskExecutionError",
@@ -21,6 +22,10 @@ def __getattr__(name: str) -> object:
         from .executor import TaskExecutor
 
         return TaskExecutor
+    if name == "TaskExecutionResult":
+        from .executor_models import TaskExecutionResult
+
+        return TaskExecutionResult
     if name == "CronScheduler":
         from .cron_scheduler import CronScheduler
 

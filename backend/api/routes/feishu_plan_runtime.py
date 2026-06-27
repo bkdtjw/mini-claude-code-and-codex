@@ -8,6 +8,10 @@ from pydantic import BaseModel, ConfigDict
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError
 from backend.core.s01_agent_loop import PlanCheckpointStore, PlanExecuteRunner, PlanRenderer
+from backend.core.s05_skills import AgentCategory, AgentSpec
+from backend.core.s05_skills.models import SubAgentPolicy
+
+from .feishu_multi_agent_policy import FEISHU_MULTI_AGENT_HINT, build_feishu_sub_agent_policy
 
 
 class FeishuPlanRunnerInput(BaseModel):
@@ -20,6 +24,7 @@ class FeishuPlanRunnerInput(BaseModel):
     spec_id: str = ""
     task_queue: Any | None = None
     owner_id: str = ""
+    sub_agent_policy: SubAgentPolicy | None = None
 
 
 async def create_feishu_plan_runner(payload: FeishuPlanRunnerInput) -> PlanExecuteRunner:
@@ -27,6 +32,7 @@ async def create_feishu_plan_runner(payload: FeishuPlanRunnerInput) -> PlanExecu
     if payload.agent_runtime is None:
         raise AgentError("FEISHU_PLAN_RUNTIME_MISSING", "agent runtime is not available")
     runner = await payload.agent_runtime.create_runner(
+        spec=_build_inline_feishu_plan_spec(payload),
         spec_id=payload.spec_id,
         mode="plan_execute",
         workspace=os.getcwd(),
@@ -38,6 +44,20 @@ async def create_feishu_plan_runner(payload: FeishuPlanRunnerInput) -> PlanExecu
     if not isinstance(runner, PlanExecuteRunner):
         raise AgentError("FEISHU_PLAN_RUNNER_TYPE_ERROR", "plan mode did not create runner")
     return runner
+
+
+def _build_inline_feishu_plan_spec(payload: FeishuPlanRunnerInput) -> AgentSpec | None:
+    if payload.spec_id.strip():
+        return None
+    return AgentSpec(
+        id="feishu-plan",
+        title="Feishu Plan",
+        category=AgentCategory.ASSISTANT,
+        system_prompt=FEISHU_MULTI_AGENT_HINT,
+        default_mode="plan_execute",
+        allow_modes=["plan_execute"],
+        sub_agents=payload.sub_agent_policy or build_feishu_sub_agent_policy(),
+    )
 
 
 async def create_feishu_resume_runner(

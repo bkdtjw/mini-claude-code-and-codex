@@ -15,7 +15,8 @@ from backend.common.metrics import close_metrics, init_metrics
 from backend.config import close_redis, init_redis
 from backend.config import settings as app_settings
 from backend.core import init_agent_runtime
-from backend.storage import SessionStore, init_db
+from backend.core.s07_task_system.event_hooks import HookStore
+from backend.storage import HookConfigStore, SessionStore, init_db
 
 from .feishu_startup import init_feishu_handler
 from .frontend import mount_frontend
@@ -36,6 +37,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         await init_redis()
         await init_metrics()
         app.state.session_store = SessionStore()
+        app.state.hook_store = HookStore(persistence=HookConfigStore())
         spec_registry, agent_runtime = await init_agent_runtime(
             provider_manager=provider_manager,
             mcp_manager=mcp_server_manager,
@@ -97,6 +99,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("morning_report_cron_start_failed")
+            try:
+                from backend.api.event_hooks_startup import start_event_hooks_engine
+                await start_event_hooks_engine(app, provider_manager)
+            except Exception:  # noqa: BLE001
+                logger.exception("event_hooks_engine_start_failed")
         except Exception:  # noqa: BLE001
             logger.exception("task_scheduler_start_failed")
         try:
@@ -117,6 +124,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             await stop_morning_report_cron()
         except Exception:  # noqa: BLE001
             logger.exception("morning_report_cron_stop_failed")
+        try:
+            from backend.api.event_hooks_startup import stop_event_hooks_engine
+            await stop_event_hooks_engine()
+        except Exception:  # noqa: BLE001
+            logger.exception("event_hooks_engine_stop_failed")
         close_metrics()
         await close_redis()
         try:
@@ -131,6 +143,7 @@ def create_app() -> FastAPI:
         chat_completions,
         cookie_sync,
         feishu_events,
+        hooks,
         knowledge,
         logs,
         mcp,
@@ -163,6 +176,7 @@ def create_app() -> FastAPI:
     app.include_router(prometheus.router)
     app.include_router(metrics.router)
     app.include_router(logs.router)
+    app.include_router(hooks.router)
     app.include_router(knowledge.router)
     app.include_router(cookie_sync.router)
     app.include_router(feishu_events.router)

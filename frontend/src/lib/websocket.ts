@@ -109,7 +109,11 @@ class AgentWebSocket {
 
       socket.onerror = (event) => {
         if (!this.isActiveSocket(socket, version)) return;
-        this.emit("error", event);
+        this.emit("error", {
+          type: "error",
+          message: "WebSocket 连接异常，消息可能没有发送到后端。请刷新页面后重试。",
+          event,
+        });
       };
 
       socket.onclose = (event) => {
@@ -166,7 +170,8 @@ class AgentWebSocket {
     this.handlers.set(type, list.filter((item) => item !== handler));
   }
 
-  close(): void {
+  close(sessionId?: string): void {
+    if (sessionId && this.sessionId !== sessionId && this.socketSessionId !== sessionId) return;
     this.manuallyClosed = true;
     this.reconnectAttempts = 0;
     this.connectVersion += 1;

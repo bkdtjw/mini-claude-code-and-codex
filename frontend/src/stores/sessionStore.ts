@@ -30,8 +30,10 @@ interface SessionState {
   updateSessionTitle: (id: string, title: string) => void;
 }
 const nextId = () => `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+const sendFailureMessage = "发送失败，消息没有进入后端运行。请刷新页面后重试。";
 const asRecord = (value: unknown): Record<string, unknown> => (typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {});
 const statuses = ["idle", "thinking", "compacting", "tool_calling", "waiting_approval", "done", "error"];
+const messageKinds = ["user_request", "summary", "runtime_guard", "runtime_context", "skill_context", "memory_context"];
 const asStatus = (value: unknown): AgentStatus => (typeof value === "string" && statuses.includes(value) ? (value as AgentStatus) : "idle");
 const patchSession = (sessions: Session[], id: string, patch: Partial<Pick<Session, "title" | "workspace">>): Session[] =>
   sessions.map((session) => (session.id === id ? { ...session, ...patch } : session));
@@ -55,6 +57,8 @@ const mapMessage = (value: unknown): Message => {
   return {
     id: String(item.id ?? nextId()),
     role: ["user", "assistant", "system", "tool"].includes(role) ? (role as Message["role"]) : "assistant",
+    kind: typeof item.kind === "string" && messageKinds.includes(item.kind) ? (item.kind as Message["kind"]) : undefined,
+    ephemeral: typeof item.ephemeral === "boolean" ? item.ephemeral : undefined,
     content: String(item.content ?? ""),
     reasoningContent: String(item.reasoningContent ?? item.reasoning_content ?? "") || undefined,
     reasoningDurationMs: Number(item.reasoningDurationMs ?? item.reasoning_duration_ms) || undefined,
@@ -62,6 +66,11 @@ const mapMessage = (value: unknown): Message => {
     toolResults: Array.isArray(item.toolResults) ? item.toolResults.map(mapToolResult) : Array.isArray(item.tool_results) ? item.tool_results.map(mapToolResult) : undefined,
     timestamp: String(item.timestamp ?? new Date().toISOString()),
   };
+};
+const appendErrorMessage = (messages: Message[], content: string): Message[] => {
+  const last = messages[messages.length - 1];
+  if (last?.role === "assistant" && last.content === content) return messages;
+  return [...messages, { id: nextId(), role: "assistant", content, timestamp: new Date().toISOString() }];
 };
 const validateWorkspaceForBrowser = async (workspace: string | null): Promise<string> => {
   const path = workspace?.trim() ?? "";
@@ -119,6 +128,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const nextWorkspace = String(detail.workspace ?? "").trim() || currentSession?.workspace || "";
         if (nextTitle || nextWorkspace) saveSessionMeta(id, { title: nextTitle, workspace: nextWorkspace });
         if (nextTitle && !backendTitle) get().updateSessionTitle(id, nextTitle);
+        if (get().currentSessionId !== id) return;
         set((state) => ({
           messages,
           status: asStatus(detail.status),
@@ -149,11 +159,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sendMessage: async (text: string, options?: ChatRunOptions) => {
     const content = text.trim();
     if (!content) return;
-    const { currentModel, currentProviderId, providers, workspace, permissionMode, thinkingLevel } = useAgentStore.getState();
+    const runOptions = options as (ChatRunOptions & { sessionId?: string }) | undefined;
+    let agentState = useAgentStore.getState();
+    if (!agentState.currentModel || !agentState.currentProviderId || !agentState.providers.length) {
+      await agentState.loadProviders();
+      agentState = useAgentStore.getState();
+    }
+    const { currentModel, currentProviderId, providers, workspace, permissionMode, thinkingLevel } = agentState;
     const knowledge = useKnowledgeStore.getState();
-    const sessionId = get().currentSessionId;
+    const sessionId = runOptions?.sessionId ?? get().currentSessionId;
     const provider = providers.find((item) => item.id === currentProviderId);
-    if (!sessionId || !provider || !currentModel) return;
+    if (!sessionId) return;
+    if (!provider || !currentModel) {
+      console.error("send skipped: provider or model is not ready");
+      set({ status: "error" });
+      return;
+    }
     const userMsg: Message = {
       id: nextId(),
       role: "user",
@@ -169,11 +190,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
     try {
       await agentWs.connect(sessionId);
-      const selectedThinking = options?.thinkingLevel ?? (options?.thinking ? "high" : thinkingLevel);
-      const selectedMode = options?.mode ?? knowledge.mode;
-      const selectedKbId = options?.knowledgeBaseId ?? knowledge.currentKbId;
+      const selectedThinking = runOptions?.thinkingLevel ?? (runOptions?.thinking ? "high" : thinkingLevel);
+      const selectedMode = runOptions?.mode ?? knowledge.mode;
+      const selectedKbId = runOptions?.knowledgeBaseId ?? knowledge.currentKbId;
       const knowledgeEnabled = selectedMode === "knowledge" && Boolean(selectedKbId);
-      agentWs.send({
+      const runPayload: { type: string; [key: string]: unknown } = {
         type: "run",
         message: content,
         model: currentModel,
@@ -183,10 +204,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         mode: knowledgeEnabled ? "knowledge" : "direct",
         knowledge_base_id: knowledgeEnabled ? selectedKbId : undefined,
         thinking: supportsThinking(provider, currentModel) && selectedThinking === "high",
-      });
+      };
+      if (!agentWs.send(runPayload)) {
+        await agentWs.connect(sessionId);
+        if (!agentWs.send(runPayload)) throw new Error("WebSocket is not connected");
+      }
     } catch (error) {
       console.error("send failed:", error);
-      set({ status: "error" });
+      set((state) => ({ messages: appendErrorMessage(state.messages, sendFailureMessage), status: "error" }));
     }
   },
   addMessage: (msg: Message) => set((state) => ({ messages: [...state.messages, msg] })),

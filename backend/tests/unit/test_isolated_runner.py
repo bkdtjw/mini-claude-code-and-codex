@@ -86,7 +86,8 @@ async def test_run_isolated_agent_returns_result_and_injects_dependencies() -> N
     assert result.stage_id == -1
     request = adapter.requests[0]
     assert "你只能读取文件和执行只读命令" in request.messages[0].content
-    assert "当前工作目录: workspace" in request.messages[0].content
+    runtime_context = next(message for message in request.messages if message.kind == "runtime_context")
+    assert "当前工作目录: workspace" in runtime_context.content
     assert "[来自 planner 的结果]" in request.messages[-1].content
     assert "先检查 service 层" in request.messages[-1].content
 

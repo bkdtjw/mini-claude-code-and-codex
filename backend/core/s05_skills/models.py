@@ -22,6 +22,16 @@ class SubAgentPolicy(BaseModel):
     allowed_specs: list[str] = Field(default_factory=list)
     max_concurrent: int = Field(default=5, ge=1)
     max_depth: int = Field(default=1, ge=0)
+    allow_inline_roles: bool = False
+    allowed_inline_templates: list[str] = Field(default_factory=list)
+    allowed_inline_tools: list[str] = Field(default_factory=list)
+    max_iterations_default: int = Field(default=20, ge=1)
+    max_iterations_cap: int = Field(default=60, ge=1)
+    role_name_max_length: int = Field(default=80, ge=1)
+    reuse_ttl_seconds: int = Field(default=86400, ge=0)
+    enable_final_review: bool = True
+    final_review_counts_toward_capacity: bool = False
+    enable_legacy_tools: bool = True
 
 
 class ToolConfig(BaseModel):
