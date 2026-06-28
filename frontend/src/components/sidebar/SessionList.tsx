@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, MessageSquare, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 
 import type { Session } from "@/types";
 
@@ -104,32 +104,38 @@ function TimeGroup({
       </button>
 
       {!collapsed ? (
-        <div className="ml-2.5 border-l border-white/10 pl-1.5">
+        <div className="mt-1 space-y-0.5">
           {group.sessions.map((session) => {
             const active = session.id === currentSessionId;
             return (
               <div
                 key={session.id}
-                className={`group relative flex w-full items-center rounded-lg border transition-colors ${
+                className={`group relative flex w-full items-center overflow-hidden rounded-xl border transition-colors duration-150 ${
                   active
-                    ? "border-white/10 bg-white/[0.07] text-[var(--as-text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                    : "border-transparent text-[var(--as-text-secondary)] hover:bg-white/[0.05] hover:text-[var(--as-text)]"
+                    ? "border-white/12 bg-white/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
+                    : "border-transparent hover:bg-white/[0.05]"
                 }`}
               >
                 {active ? (
-                  <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-[var(--as-accent)] shadow-[0_0_8px_var(--as-accent)]" />
+                  <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-[var(--as-accent)] shadow-[0_0_8px_var(--as-accent)]" />
                 ) : null}
                 <button
                   type="button"
                   onClick={() => onSelect(session.id)}
-                  className="flex min-w-0 flex-1 items-start gap-1.5 rounded-md px-2 py-1.5 text-left"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left"
                 >
-                  <MessageSquare size={13} className="mt-0.5 shrink-0 text-[var(--as-text-subtle)]" />
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      active ? "bg-[var(--as-accent)] shadow-[0_0_7px_var(--as-accent)]" : "bg-white/20"
+                    }`}
+                  />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] leading-[17px]">{getSessionTitle(session)}</div>
-                    <div className="flex min-w-0 items-center gap-1.5 truncate font-mono text-[10px] leading-3 text-[var(--as-text-subtle)]">
+                    <div className={`truncate text-[13px] leading-tight ${active ? "text-[var(--as-text-bright)]" : "text-[var(--as-text)]"}`}>
+                      {getSessionTitle(session)}
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 truncate font-mono text-[10px] leading-none text-[var(--as-text-subtle)]">
                       <span>{formatRelativeTime(session.createdAt)}</span>
-                      <span className="hidden min-w-0 truncate group-hover:inline">{formatModel(session.model)}</span>
+                      <span className="hidden min-w-0 truncate group-hover:inline">· {formatModel(session.model)}</span>
                     </div>
                   </div>
                 </button>
@@ -140,7 +146,7 @@ function TimeGroup({
                     event.stopPropagation();
                     onDelete(session.id);
                   }}
-                  className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--as-text-subtle)] opacity-0 hover:bg-[var(--as-surface)] hover:text-[var(--as-text)] group-hover:opacity-100"
+                  className="mr-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[var(--as-text-subtle)] opacity-0 transition-colors hover:bg-white/10 hover:text-rose-300 group-hover:opacity-100"
                 >
                   <Trash2 size={13} />
                 </button>
