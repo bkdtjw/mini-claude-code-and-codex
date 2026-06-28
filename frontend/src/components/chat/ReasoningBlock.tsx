@@ -33,14 +33,16 @@ export default function ReasoningBlock({ content, streaming = false, durationMs 
 
   return (
     <div
-      className={`mb-3 rounded-lg border bg-[var(--as-surface)] text-xs ${
-        streaming ? "border-[var(--as-thinking)] shadow-[0_0_0_1px_rgb(139_92_246_/_18%)]" : "border-[var(--as-border)]"
+      className={`mb-3 overflow-hidden rounded-xl border text-xs ${
+        streaming
+          ? "border-[var(--as-thinking)]/50 bg-[rgb(139_92_246_/_8%)] shadow-[0_0_0_1px_rgb(139_92_246_/_20%)]"
+          : "as-glass-inset"
       }`}
     >
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--as-text-secondary)] hover:bg-[var(--as-hover)]"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--as-text-secondary)] transition-colors hover:bg-white/[0.05]"
       >
         <span className={`text-[var(--as-thinking-soft)] ${streaming ? "as-spin-star" : ""}`}>✦</span>
         <span>{streaming ? "思考中…" : `已思考 · ${shownSeconds}s`}</span>

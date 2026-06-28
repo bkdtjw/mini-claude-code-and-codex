@@ -80,7 +80,7 @@ export default function ToolCallLine({ call, result, pending = false }: ToolCall
           </div>
         ) : null}
         {expanded && result.output ? (
-          <div className="mt-1 max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--as-code-bg)] p-2 text-xs leading-5 text-[var(--as-text-muted)]">
+          <div className="mt-1 max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-black/40 p-2.5 text-xs leading-5 text-[var(--as-text-muted)]">
             {result.output}
           </div>
         ) : null}

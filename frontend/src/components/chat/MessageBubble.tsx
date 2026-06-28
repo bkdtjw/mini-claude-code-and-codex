@@ -22,13 +22,13 @@ export default function MessageBubble({ message, isRunning = false, isStreaming 
   return (
     <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
       {isUser ? (
-        <div className="max-w-[380px] rounded-[13px] rounded-tr bg-[#1e3a6e] px-4 py-2.5 text-sm text-[var(--as-text)] shadow-[var(--as-user-shadow)] ring-1 ring-[#2a4a86]">
+        <div className="max-w-[420px] rounded-2xl rounded-tr-md border border-sky-400/25 bg-[linear-gradient(180deg,rgb(59_130_246_/_20%),rgb(37_99_235_/_13%))] px-4 py-2.5 text-sm text-[var(--as-text-bright)] shadow-[0_8px_22px_rgb(37_99_235_/_18%),inset_0_1px_0_rgb(255_255_255_/_14%)]">
           <MarkdownContent content={message.content} />
         </div>
       ) : (
-        <div className="grid max-w-[640px] grid-cols-[26px_minmax(0,1fr)] gap-3">
-          <div className="h-[26px] w-[26px] rounded-md bg-[linear-gradient(135deg,#3b82f6,#8b5cf6)]" />
-          <div className="max-w-[600px] border-l-2 border-[#1f1f26] pl-4">
+        <div className="grid w-full max-w-[680px] grid-cols-[28px_minmax(0,1fr)] gap-3">
+          <div className="h-7 w-7 rounded-xl bg-[linear-gradient(135deg,#3b82f6,#8b5cf6)] shadow-[0_4px_14px_rgb(99_102_241_/_40%),inset_0_1px_0_rgb(255_255_255_/_30%)]" />
+          <div className="min-w-0 border-l border-white/[0.08] pl-4">
             <ReasoningBlock
               content={message.reasoningContent ?? ""}
               durationMs={message.reasoningDurationMs}
