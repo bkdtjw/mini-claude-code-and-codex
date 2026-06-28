@@ -148,15 +148,15 @@ async def test_save_state_and_get_state_roundtrip(tmp_path: Path) -> None:
     assert loaded.confidence == 80
 
 
-async def test_append_timeline_head_inserts_truncates_and_counts(tmp_path: Path) -> None:
+async def test_append_timeline_sorts_newest_first_truncates_and_counts(tmp_path: Path) -> None:
     store = _store(tmp_path)
     created = await store.create(_draft())
-    await store.append_timeline(
-        created.hook.id,
-        [TimelineEntry(ts="old", text="old", is_new=False, source="twitter")],
-    )
+    await store.append_timeline(created.hook.id, [
+        TimelineEntry(ts="Sat Jun 27 02:00:00 +0000 2026", text="twitter-newer", source="twitter"),
+        TimelineEntry(ts="garbage", text="garbage", source="twitter"),
+    ])
     entries = [
-        TimelineEntry(ts=f"ts-{index}", text=str(index), is_new=False, source="exa")
+        TimelineEntry(ts=f"2026-06-27T{index // 60:02d}:{index % 60:02d}:00Z", text=str(index), source="exa")
         for index in range(105)
     ]
 
@@ -164,11 +164,12 @@ async def test_append_timeline_head_inserts_truncates_and_counts(tmp_path: Path)
 
     assert state is not None
     assert len(state.timeline) == 100
-    assert state.timeline[0].ts == "ts-0"
+    assert [entry.text for entry in state.timeline[:2]] == ["twitter-newer", "104"]
+    assert state.timeline[-1].ts == "2026-06-27T00:06:00Z"
     assert all(entry.is_new for entry in state.timeline)
-    assert state.unseen_count == 106
-    assert state.last_scanned == "ts-0"
-    assert all(entry.ts != "old" for entry in state.timeline)
+    assert state.unseen_count == 107
+    assert state.last_scanned == "2026-06-27T00:00:00Z"
+    assert all(entry.text != "garbage" for entry in state.timeline)
 
 
 async def test_blank_name_is_rejected() -> None:

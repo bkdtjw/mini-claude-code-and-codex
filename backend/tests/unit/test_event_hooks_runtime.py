@@ -9,9 +9,7 @@ from backend.config.settings import settings
 from backend.core.s02_tools.builtin.x_models import XClientConfig, XPost
 from backend.core.s07_task_system import event_hooks as eh
 from backend.core.s07_task_system import event_hooks_runtime as runtime_module
-from backend.core.s07_task_system.event_hooks_runtime import HookRuntime, build_hook_runtime
-from backend.core.s07_task_system.event_hooks_runtime import make_assess_fn, make_push_fn
-from backend.core.s07_task_system.event_hooks_runtime import make_twitter_search_fn
+from backend.core.s07_task_system.event_hooks_runtime import HookRuntime, build_hook_runtime, make_assess_fn, make_push_fn, make_twitter_search_fn
 from backend.core.s07_task_system.event_hooks_runtime import push as push_module
 from backend.core.s07_task_system.event_hooks_runtime import twitter as twitter_module
 
@@ -132,16 +130,14 @@ async def test_assess_fn_parses_json_fences_clamps_and_falls_back() -> None:
         '[{"text": "窗口已确认提前", "ts": "2026-06-27T00:01:00Z", "source": "twitter"}], "resolved": true}'
     )
     result = await make_assess_fn(adapter, "test-model")(
-        eh.AssessRequest(hook=_hook(), signals=[_signal()], prev_summary="旧摘要")
+        eh.AssessRequest(hook=_hook(), signals=[_signal()], prev_summary="旧摘要", recent_developments=["已报告旧进展"])
     )
     assert (result.materiality, result.summary, result.status_hint) == (88, "已确认收尾", "resolved")
     assert result.developments == [eh.Development(text="窗口已确认提前", ts="2026-06-27T00:01:00Z", source="twitter")]
     assert adapter.requests[0].model == "test-model"
     assert adapter.requests[0].temperature == 0.2
-    assert "Launch Watch" in adapter.requests[0].messages[0].content
-    assert "旧摘要" in adapter.requests[0].messages[0].content
-    assert "Confirmed launch movement" in adapter.requests[0].messages[0].content
-    assert '"developments"' in adapter.requests[0].messages[0].content
+    prompt = adapter.requests[0].messages[0].content
+    assert all(text in prompt for text in ("Launch Watch", "旧摘要", "Confirmed launch movement", '"developments"', "已报告过的进展", "已报告旧进展", "必须 ISO8601"))
 
     fenced = FakeAdapter('```json\n{"materiality": 120, "summary": "仍在发酵", "developments": [], "resolved": false}\n```')
     result = await make_assess_fn(fenced, "test-model")(

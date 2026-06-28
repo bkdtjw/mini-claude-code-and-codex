@@ -8,14 +8,14 @@ const DEFAULT_DRAFT: HookDraft = {
   name: "",
   twitter: { accounts: [], keywords: [] },
   sources: { exaWeb: true, zhipuSearch: true, youtube: false },
-  cadenceMinutes: 45,
+  cadenceMinutes: 40,
   materiality: 60,
   enabled: true,
 };
 
 const CADENCE_PRESETS = [
-  { label: "高频", hint: "8 分钟", value: 8 },
-  { label: "常规", hint: "45 分钟", value: 45 },
+  { label: "高频", hint: "10 分钟", value: 10 },
+  { label: "常规", hint: "40 分钟", value: 40 },
   { label: "低频", hint: "3 小时", value: 180 },
 ];
 
@@ -74,12 +74,16 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
       <form
         onClick={(event) => event.stopPropagation()}
         onSubmit={submit}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--as-border)] bg-[var(--as-surface-low)] p-5"
+        className="as-glass max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl p-5"
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-medium text-[var(--as-text-bright)]">{initial ? "编辑钩子" : "新建钩子"}</h2>
-          <button type="button" onClick={onClose} className="text-[var(--as-text-muted)] hover:text-[var(--as-text)]">
-            <X size={18} />
+          <h2 className="text-base font-semibold text-[var(--as-text-bright)]">{initial ? "编辑钩子" : "新建钩子"}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-7 w-7 place-items-center rounded-lg text-[var(--as-text-muted)] transition-colors hover:bg-white/10 hover:text-[var(--as-text)]"
+          >
+            <X size={16} />
           </button>
         </div>
 
@@ -87,8 +91,8 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
           <input
             value={draft.name}
             onChange={(event) => patch({ name: event.target.value })}
-            placeholder="例如：Fable5 政府解禁进展"
-            className="as-input h-9 w-full"
+            placeholder="例如：Fable 5 回归追踪"
+            className="as-glass-input h-10 w-full rounded-xl px-3 text-sm"
             autoFocus
           />
         </Field>
@@ -119,7 +123,9 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
                   key={key}
                   type="button"
                   onClick={() => patch({ sources: { ...draft.sources, [key]: !on } })}
-                  className={`rounded-lg border px-3 py-1.5 text-xs ${on ? "border-blue-400/40 bg-blue-500/15 text-blue-200" : "border-[var(--as-border)] text-[var(--as-text-muted)]"}`}
+                  className={`rounded-[10px] border px-3 py-1.5 text-xs transition-colors duration-150 ${
+                    on ? "border-sky-400/40 bg-sky-500/20 text-sky-100" : "border-white/10 bg-white/[0.03] text-[var(--as-text-muted)] hover:bg-white/[0.06]"
+                  }`}
                 >
                   {label}
                 </button>
@@ -128,7 +134,7 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
           </div>
         </Field>
 
-        <Field label="基础节奏" hint="引擎会按事态自适应加密/放缓">
+        <Field label="扫描节奏" hint="多久自动扫一次">
           <Choice options={CADENCE_PRESETS} value={draft.cadenceMinutes} onPick={(value) => patch({ cadenceMinutes: value })} />
         </Field>
 
@@ -136,18 +142,18 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
           <Choice options={MATERIALITY_PRESETS} value={draft.materiality} onPick={(value) => patch({ materiality: value })} />
         </Field>
 
-        <label className="mb-4 flex items-center gap-2 text-sm text-[var(--as-text-secondary)]">
-          <input type="checkbox" checked={draft.enabled} onChange={(event) => patch({ enabled: event.target.checked })} />
+        <label className="mb-4 flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 text-sm text-[var(--as-text-secondary)]">
+          <input type="checkbox" checked={draft.enabled} onChange={(event) => patch({ enabled: event.target.checked })} className="accent-sky-500" />
           启用（关闭则暂停扫描）
         </label>
 
-        {error ? <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div> : null}
+        {error ? <div className="mb-3 rounded-xl border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div> : null}
 
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="as-select h-9 px-4 text-sm">
+          <button type="button" onClick={onClose} className="as-glass-btn h-9 rounded-[10px] px-4 text-sm">
             取消
           </button>
-          <button type="submit" disabled={busy} className="as-primary-btn h-9 px-4 text-sm disabled:opacity-50">
+          <button type="submit" disabled={busy} className="as-glass-accent h-9 rounded-[10px] px-4 text-sm font-medium">
             {busy ? "保存中" : "保存"}
           </button>
         </div>
@@ -186,9 +192,11 @@ function Choice({
             key={option.value}
             type="button"
             onClick={() => onPick(option.value)}
-            className={`rounded-lg border px-2 py-2 text-center ${active ? "border-blue-400/40 bg-blue-500/15" : "border-[var(--as-border)] hover:bg-[var(--as-hover)]"}`}
+            className={`rounded-xl border px-2 py-2 text-center transition-colors duration-150 ${
+              active ? "border-sky-400/40 bg-sky-500/15" : "border-white/8 bg-white/[0.03] hover:bg-white/[0.06]"
+            }`}
           >
-            <div className={`text-xs ${active ? "text-blue-200" : "text-[var(--as-text)]"}`}>{option.label}</div>
+            <div className={`text-xs ${active ? "text-sky-100" : "text-[var(--as-text)]"}`}>{option.label}</div>
             <div className="text-[10px] text-[var(--as-text-muted)]">{option.hint}</div>
           </button>
         );

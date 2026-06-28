@@ -95,11 +95,11 @@ async def test_run_hook_pushes_and_persists_high_score(tmp_path: Path) -> None:
     await store.save_state(hook.id, previous.model_copy(update={"last_pushed_ts": "2026-06-27T00:00:00Z"}))
     outcome, state, push = await _execute(store, hook, FakeSearch(account_posts=_account_posts()), _assess(_assessment()))
     assert (outcome.decision, outcome.pushed, outcome.status) == ("push", True, "escalating")
-    assert (outcome.next_cadence_minutes, outcome.new_count, push.calls) == (8, 3, 1)
+    assert (outcome.next_cadence_minutes, outcome.new_count, push.calls) == (45, 3, 1)
     assert state is not None
     twitter = next(item for item in state.source_health if item.source == "twitter")
     assert (len(state.timeline), state.confidence, state.summary) == (3, outcome.turning_score, "Confirmed")
-    assert (state.timeline[0].text, state.last_pushed_ts) == ("Curated development 0", NOW)
+    assert (state.timeline[0].text, state.last_pushed_ts) == ("Curated development 2", NOW)
     assert (twitter.online, twitter.last_ok) == (True, NOW)
 
 
@@ -183,7 +183,7 @@ async def test_run_hook_push_cooldown_persists_entries_without_delivery(tmp_path
 
 @pytest.mark.parametrize(
     ("status", "expected"),
-    [("escalating", 8), ("developing", 45), ("stable", 180), ("resolved", 0)],
+    [("escalating", 45), ("developing", 45), ("stable", 45), ("resolved", 0)],
 )
 async def test_adaptive_cadence_branches(status: eh.HookStatus, expected: int) -> None:
     assert eh.adaptive_cadence(status, 45) == expected

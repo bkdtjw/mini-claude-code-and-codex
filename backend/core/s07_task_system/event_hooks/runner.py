@@ -36,13 +36,7 @@ class RunOutcome(BaseModel):
 
 
 def adaptive_cadence(status: HookStatus, base_minutes: int) -> int:
-    if status == "escalating":
-        return CADENCE_ESCALATING
-    if status == "developing":
-        return base_minutes
-    if status == "stable":
-        return CADENCE_STABLE
-    return CADENCE_RESOLVED
+    return CADENCE_RESOLVED if status == "resolved" else base_minutes
 
 
 def _utc_now() -> str:

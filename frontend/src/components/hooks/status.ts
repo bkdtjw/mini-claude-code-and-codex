@@ -1,4 +1,4 @@
-// 钩子状态 / 数据源的展示文案与配色（前端共享）。
+// 钩子状态 / 数据源的展示文案与配色（前端共享，玻璃风）。
 import type { HookStatus } from "@/types/hooks";
 
 export const STATUS_LABEL: Record<HookStatus, string> = {
@@ -9,17 +9,17 @@ export const STATUS_LABEL: Record<HookStatus, string> = {
 };
 
 export const STATUS_CLASS: Record<HookStatus, string> = {
-  escalating: "bg-red-500/15 text-red-300",
-  developing: "bg-blue-500/15 text-blue-300",
-  stable: "bg-slate-500/15 text-slate-300",
-  resolved: "bg-emerald-500/15 text-emerald-300",
+  escalating: "border border-rose-400/30 bg-rose-500/15 text-rose-200",
+  developing: "border border-sky-400/30 bg-sky-500/15 text-sky-200",
+  stable: "border border-slate-400/25 bg-slate-400/10 text-slate-200",
+  resolved: "border border-emerald-400/30 bg-emerald-500/15 text-emerald-200",
 };
 
 export const STATUS_DOT: Record<HookStatus, string> = {
-  escalating: "bg-red-400",
-  developing: "bg-blue-400",
+  escalating: "bg-rose-400 shadow-[0_0_9px_rgba(251,113,133,0.75)]",
+  developing: "bg-sky-400 shadow-[0_0_9px_rgba(56,189,248,0.6)]",
   stable: "bg-slate-400",
-  resolved: "bg-emerald-400",
+  resolved: "bg-emerald-400 shadow-[0_0_9px_rgba(52,211,153,0.6)]",
 };
 
 const SOURCE_LABEL: Record<string, string> = {

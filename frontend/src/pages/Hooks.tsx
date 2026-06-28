@@ -50,36 +50,46 @@ export default function Hooks() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-[var(--as-bg)] px-6 py-6">
+    <div className="as-hooks-bg h-full overflow-y-auto px-6 py-7">
       <div className="mx-auto max-w-6xl">
-        <header className="mb-4 flex items-center gap-2">
-          <Radar size={18} className="text-[var(--as-accent)]" />
-          <h1 className="text-lg font-medium text-[var(--as-text-bright)]">事件钩子</h1>
-          <span className="text-xs text-[var(--as-text-muted)]">盯住不确定性 · 重大才打扰</span>
-        </header>
-        {usingMock ? (
-          <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-200">
-            后端 /api/hooks 尚未就绪，当前为示例数据；接口上线后自动切换为实时。
+        <header className="mb-5 flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/15 bg-[linear-gradient(140deg,#3b82f6,#8b5cf6)] shadow-[0_8px_22px_rgba(59,130,246,0.35),inset_0_1px_0_rgba(255,255,255,0.3)]">
+            <Radar size={19} className="text-white" />
           </div>
-        ) : null}
-        {error ? (
-          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>
-        ) : null}
-        {scanNote ? (
-          <div className="mb-4 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-200">{scanNote}</div>
-        ) : null}
-        <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-[var(--as-text-bright)]">事件钩子</h1>
+            <p className="text-xs text-[var(--as-text-muted)]">盯住不确定性 · 重大才打扰</p>
+          </div>
+          <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[11px] text-[var(--as-text-secondary)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
+            实时监控
+          </span>
+        </header>
+
+        {usingMock ? <Banner tone="amber">后端 /api/hooks 尚未就绪，当前为示例数据；接口上线后自动切换为实时。</Banner> : null}
+        {error ? <Banner tone="rose">{error}</Banner> : null}
+        {scanNote ? <Banner tone="sky">{scanNote}</Banner> : null}
+
+        <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
           {loading && !summaries.length ? (
-            <div className="h-40 animate-pulse rounded-xl bg-[var(--as-surface)]" />
+            <div className="as-glass h-40 animate-pulse rounded-2xl" />
           ) : (
             <HookList summaries={summaries} currentId={currentId} onSelect={selectHook} onCreate={() => setForm({ mode: "new" })} />
           )}
           <HookDetail summary={current} usingMock={usingMock} scanningId={scanningId} onRun={runHook} onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
-      {form ? (
-        <HookForm initial={form.mode === "edit" ? form.summary : null} onClose={() => setForm(null)} onSubmit={onSubmit} />
-      ) : null}
+      {form ? <HookForm initial={form.mode === "edit" ? form.summary : null} onClose={() => setForm(null)} onSubmit={onSubmit} /> : null}
     </div>
   );
+}
+
+const TONES: Record<string, string> = {
+  amber: "border-amber-400/25 bg-amber-500/10 text-amber-200",
+  rose: "border-rose-400/25 bg-rose-500/10 text-rose-200",
+  sky: "border-sky-400/25 bg-sky-500/10 text-sky-200",
+};
+
+function Banner({ tone, children }: { tone: keyof typeof TONES; children: React.ReactNode }) {
+  return <div className={`mb-4 rounded-xl border px-3.5 py-2.5 text-xs ${TONES[tone]}`}>{children}</div>;
 }

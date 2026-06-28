@@ -45,18 +45,23 @@ def _build_prompt(request: AssessRequest) -> str:
     if not signal_lines:
         signal_lines = "（本轮没有新信号）"
     prev_summary = request.prev_summary or "（无）"
+    recent_lines = "\n".join(f"- {text.replace(chr(10), ' ')[:220]}" for text in request.recent_developments[:20])
+    if not recent_lines:
+        recent_lines = "（无）"
     return (
         "你是事件进展研判助手。请判断本轮信号相对旧局势是否重大、可信、值得推送。\n\n"
         f"Hook 名称：{request.hook.name}\n"
         f"旧局势摘要：{prev_summary}\n\n"
         f"本轮信号（最多 20 条）：\n{signal_lines}\n\n"
+        "已报告过的进展（这些是过去已记录的，绝不要重复，只输出相对它们真正新的）：\n"
+        f"{recent_lines}\n\n"
         "请只输出 JSON，不要 markdown、不要解释。格式必须是：\n"
         '{"materiality": <0-100 整数，这条进展有多重大/可信>, '
         '"summary": "<一句中文当前局势>", '
         '"developments": [{"text": "<一句中文进展，简洁、别照抄原文>", '
-        '"ts": "<该进展来源时间，ISO或原串>", "source": "twitter|exa"}], '
+        '"ts": "<必须 ISO8601（如 2026-06-27T15:00:00Z），取该进展来源时间>", "source": "twitter|exa"}], '
         '"resolved": <bool，事件是否已收尾>}\n'
-        "developments 必须是相比「旧局势摘要」的新增重大进展；每条一句话、提炼非照搬，"
+        "developments 必须是相比「旧局势摘要」和「已报告过的进展」的新增重大进展；每条一句话、提炼非照搬，"
         "按时间从新到旧排列（最新在前）。\n"
         "若相比旧摘要没有实质新进展，developments 必须返回空数组 []；"
         "没新东西就空，不要硬凑旧闻，这决定是否打扰用户。\n"

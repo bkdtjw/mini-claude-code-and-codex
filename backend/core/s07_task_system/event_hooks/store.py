@@ -115,11 +115,10 @@ class HookStore:
                 state = self._states.get(hook_id) or self._initial_state(self._hooks[hook_id])
                 marked = [entry.model_copy(update={"is_new": True}, deep=True) for entry in entries]
                 if marked:
-                    state = state.model_copy(
-                        update={"timeline": (marked + state.timeline)[:_MAX_TIMELINE],
-                                "unseen_count": state.unseen_count + len(marked),
-                                "last_scanned": marked[0].ts or _utc_now()}, deep=True,
-                    )
+                    combined = sorted(marked + state.timeline, key=lambda e: _parse_ts(e.ts), reverse=True)[:_MAX_TIMELINE]
+                    update = {"timeline": combined, "unseen_count": state.unseen_count + len(marked),
+                              "last_scanned": marked[0].ts or _utc_now()}
+                    state = state.model_copy(update=update, deep=True)
                     self._states[hook_id] = state
                     if self._persistence:
                         await self._persistence.save_state(hook_id, state)
@@ -176,20 +175,25 @@ def _normalize_accounts(accounts: list[str]) -> list[str]:
             normalized.append(value)
     return normalized
 
-
 def _source_health_for(hook: EventHook) -> list[SourceHealth]:
     enabled = (("exa", hook.sources.exa_web), ("zhipu", hook.sources.zhipu_search), ("youtube", hook.sources.youtube))
     return [SourceHealth(source=source) for source, is_enabled in enabled if is_enabled]
-
 
 def _parse_seed_item(item: dict[str, object]) -> HookSummary:
     if "hook" in item:
         return HookSummary.model_validate(item)
     return HookSummary(hook=EventHook.model_validate(item), state=None)
 
+def _parse_ts(ts: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        try:
+            parsed = datetime.strptime(ts, "%a %b %d %H:%M:%S %z %Y")
+        except Exception:
+            parsed = datetime.min
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
-
-
 __all__ = ["HookPersistence", "HookStore", "HookStoreError"]

@@ -14,16 +14,15 @@ from backend.core.s07_task_system.event_hooks import (
     HookSources,
     HookState,
     HookTwitterConfig,
+    TimelineEntry,
     assess_hook,
 )
 
 pytestmark = pytest.mark.asyncio
 
-
 @pytest.fixture(autouse=True)
 def bind_test_database() -> None:
     return None
-
 
 def _hook(materiality: int = 60) -> EventHook:
     return EventHook(
@@ -37,7 +36,6 @@ def _hook(materiality: int = 60) -> EventHook:
         created_at="2026-06-27T00:00:00Z",
     )
 
-
 def _signal(index: int, *, lane: str = "account", engagement: int = 10) -> HookSignal:
     return HookSignal(
         source="twitter",
@@ -48,7 +46,6 @@ def _signal(index: int, *, lane: str = "account", engagement: int = 10) -> HookS
         engagement=engagement,
     )
 
-
 def _development(index: int, *, source: str = "twitter") -> Development:
     return Development(
         text=f"Curated development {index}",
@@ -56,14 +53,12 @@ def _development(index: int, *, source: str = "twitter") -> Development:
         source=source,
     )
 
-
 def _assess_fn(assessment: Assessment) -> AssessFn:
     async def fake_assess(request: AssessRequest) -> Assessment:
         assert request.hook.id == "hook-1"
         return assessment
 
     return fake_assess
-
 
 async def test_high_materiality_and_score_pushes_escalating_with_entries() -> None:
     signals = [_signal(1, engagement=40), _signal(2, engagement=20), _signal(3)]
@@ -89,16 +84,25 @@ async def test_high_materiality_and_score_pushes_escalating_with_entries() -> No
         "Curated development 3",
     ]
 
-
 async def test_materiality_below_veto_drops_even_with_high_numeric() -> None:
     signals = [_signal(1), _signal(2), _signal(3), _signal(4), _signal(5)]
-    prev_state = HookState(hook_id="hook-1", status="developing", summary="Previous")
+    prev_state = HookState(
+        hook_id="hook-1",
+        status="developing",
+        summary="Previous",
+        timeline=[TimelineEntry(ts=str(index), text=f"Reported {index}", source="twitter") for index in range(22)],
+    )
+    captured: list[str] = []
+
+    async def fake_assess(request: AssessRequest) -> Assessment:
+        captured.extend(request.recent_developments)
+        return Assessment(materiality=19)
 
     verdict = await assess_hook(
         _hook(),
         signals,
         prev_state,
-        _assess_fn(Assessment(materiality=19)),
+        fake_assess,
     )
 
     assert verdict.decision == "drop"
@@ -106,7 +110,7 @@ async def test_materiality_below_veto_drops_even_with_high_numeric() -> None:
     assert verdict.turning_score == 60
     assert verdict.summary == "Previous"
     assert verdict.new_entries == []
-
+    assert captured == [f"Reported {index}" for index in range(20)]
 
 async def test_no_developments_drops_even_with_high_turning_score() -> None:
     prev_state = HookState(hook_id="hook-1", status="developing", summary="Previous")
@@ -122,7 +126,6 @@ async def test_no_developments_drops_even_with_high_turning_score() -> None:
     assert verdict.status == "stable"
     assert verdict.summary == "Current situation"
     assert verdict.new_entries == []
-
 
 async def test_middle_turning_score_returns_soft_and_developing() -> None:
     verdict = await assess_hook(
@@ -143,7 +146,6 @@ async def test_middle_turning_score_returns_soft_and_developing() -> None:
     assert verdict.turning_score == 42
     assert len(verdict.new_entries) == 1
 
-
 async def test_status_hint_resolved_overrides_decision_status() -> None:
     verdict = await assess_hook(
         _hook(),
@@ -161,7 +163,6 @@ async def test_status_hint_resolved_overrides_decision_status() -> None:
 
     assert verdict.decision == "push"
     assert verdict.status == "resolved"
-
 
 async def test_new_entries_follow_developments_order_and_truncate() -> None:
     signals = [
@@ -187,7 +188,6 @@ async def test_new_entries_follow_developments_order_and_truncate() -> None:
     assert [entry.text for entry in verdict.new_entries] == [
         f"Curated development {index}" for index in range(MAX_NEW_ENTRIES)
     ]
-
 
 async def test_assess_fn_errors_are_wrapped() -> None:
     async def failing_assess(request: AssessRequest) -> Assessment:

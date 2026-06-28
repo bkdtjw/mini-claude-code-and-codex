@@ -24,6 +24,7 @@ class AssessRequest(BaseModel):
     hook: EventHook
     signals: list[HookSignal]
     prev_summary: str = ""
+    recent_developments: list[str] = Field(default_factory=list)
 
 
 AssessFn = Callable[[AssessRequest], Awaitable[Assessment]]
@@ -53,8 +54,9 @@ async def assess_hook(
         breakdown = numeric_score(signals, hook, prev_state)
         numeric = breakdown.total
         prev_summary = prev_state.summary if prev_state else ""
+        recent = [entry.text for entry in prev_state.timeline[:20]] if prev_state else []
         assessment = await assess_fn(
-            AssessRequest(hook=hook, signals=signals, prev_summary=prev_summary)
+            AssessRequest(hook=hook, signals=signals, prev_summary=prev_summary, recent_developments=recent)
         )
         turning = round(0.5 * numeric + 0.5 * assessment.materiality)
         if assessment.materiality < VETO_MATERIALITY:

@@ -32,18 +32,18 @@ export default function TagInput({ values, onChange, placeholder, prefix }: TagI
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[var(--as-border)] bg-[var(--as-surface)] px-2 py-1.5">
+    <div className="as-glass-input flex min-h-[40px] flex-wrap items-center gap-1.5 rounded-xl px-2 py-1.5">
       {values.map((value) => (
         <span
           key={value}
-          className="inline-flex items-center gap-1 rounded-md bg-[var(--as-active)] px-2 py-0.5 text-xs text-[var(--as-text)]"
+          className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-0.5 text-xs text-[var(--as-text)]"
         >
           {prefix}
           {value}
           <button
             type="button"
             onClick={() => onChange(values.filter((item) => item !== value))}
-            className="text-[var(--as-text-muted)] hover:text-[var(--as-text)]"
+            className="text-[var(--as-text-muted)] transition-colors hover:text-[var(--as-text)]"
           >
             <X size={12} />
           </button>
