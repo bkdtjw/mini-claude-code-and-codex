@@ -18,24 +18,6 @@ interface SessionGroup {
 
 const clamp = (text: string, size: number): string => (text.length > size ? `${text.slice(0, size)}...` : text);
 
-const formatRelativeTime = (iso: string): string => {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const diffMinutes = Math.floor((Date.now() - date.getTime()) / 60000);
-  if (diffMinutes < 1) return "刚刚";
-  if (diffMinutes < 60) return `${diffMinutes} 分钟前`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours} 小时前`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays} 天前`;
-  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-};
-
-const formatModel = (model: string): string => {
-  const clean = model.split("/").pop() ?? model;
-  return clean || "默认模型";
-};
-
 const getSessionTitle = (session: Session): string => clamp(session.title.trim() || "新对话", 28);
 
 const DAY_MS = 86_400_000;
@@ -129,14 +111,8 @@ function TimeGroup({
                       active ? "bg-[var(--as-accent)] shadow-[0_0_7px_var(--as-accent)]" : "bg-white/20"
                     }`}
                   />
-                  <div className="min-w-0 flex-1">
-                    <div className={`truncate text-[13px] leading-tight ${active ? "text-[var(--as-text-bright)]" : "text-[var(--as-text)]"}`}>
-                      {getSessionTitle(session)}
-                    </div>
-                    <div className="mt-1 flex min-w-0 items-center gap-1.5 truncate font-mono text-[10px] leading-none text-[var(--as-text-subtle)]">
-                      <span>{formatRelativeTime(session.createdAt)}</span>
-                      <span className="hidden min-w-0 truncate group-hover:inline">· {formatModel(session.model)}</span>
-                    </div>
+                  <div className={`min-w-0 flex-1 truncate text-[13px] ${active ? "text-[var(--as-text-bright)]" : "text-[var(--as-text)]"}`}>
+                    {getSessionTitle(session)}
                   </div>
                 </button>
                 <button
