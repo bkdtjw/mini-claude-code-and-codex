@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
+from .dedupe import compact_state, filter_new_entries
 from .models import EventHook, HookDraft, HookState, HookSummary, SourceHealth, TimelineEntry
 
 _DEFAULT_PATH = Path(__file__).resolve().parents[3] / "config" / "event_hooks.json"
@@ -92,7 +93,7 @@ class HookStore:
             await self._ensure_initialized()
             async with self._lock:
                 state = self._states.get(hook_id)
-                return state.model_copy(deep=True) if state else None
+                return compact_state(state).model_copy(deep=True) if state else None
         except Exception as exc:
             raise HookStoreError(f"HOOK_STORE_GET_STATE_ERROR: {exc}") from exc
     async def save_state(self, hook_id: str, state: HookState) -> None:
@@ -112,8 +113,8 @@ class HookStore:
             async with self._lock:
                 if hook_id not in self._hooks:
                     return None
-                state = self._states.get(hook_id) or self._initial_state(self._hooks[hook_id])
-                marked = [entry.model_copy(update={"is_new": True}, deep=True) for entry in entries]
+                state = compact_state(self._states.get(hook_id) or self._initial_state(self._hooks[hook_id]))
+                marked = filter_new_entries([entry.model_copy(update={"is_new": True}, deep=True) for entry in entries], state)
                 if marked:
                     combined = sorted(marked + state.timeline, key=lambda e: _parse_ts(e.ts), reverse=True)[:_MAX_TIMELINE]
                     update = {"timeline": combined, "unseen_count": state.unseen_count + len(marked),
@@ -154,7 +155,7 @@ class HookStore:
     def _summary_for(self, hook_id: str) -> HookSummary:
         hook = self._hooks[hook_id].model_copy(deep=True)
         state = self._states.get(hook_id)
-        return HookSummary(hook=hook, state=state.model_copy(deep=True) if state else None)
+        return HookSummary(hook=hook, state=compact_state(state).model_copy(deep=True) if state else None)
     def _normalize_draft(self, draft: HookDraft) -> HookDraft:
         twitter = draft.twitter.model_copy(update={"accounts": _normalize_accounts(draft.twitter.accounts)}, deep=True)
         return draft.model_copy(update={"twitter": twitter}, deep=True)

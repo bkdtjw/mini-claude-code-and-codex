@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from .assess import AssessFn, HookVerdict, assess_hook
+from .dedupe import dedupe_signals, visible_verdict
 from .models import EventHook, HookState, HookStatus, SourceHealth
 from .retrieval_exa import ExaSearchFn, retrieve_exa
 from .retrieval import TwitterSearchFn, retrieve_twitter
@@ -65,10 +66,11 @@ async def run_hook(
                 next_cadence_minutes=CADENCE_RESOLVED,
             )
 
+        prev_state = await store.get_state(hook.id)
         signals = await retrieve_twitter(hook, twitter_search_fn)
         if exa_search_fn is not None and hook.sources.exa_web:
             signals = [*signals, *await retrieve_exa(hook, exa_search_fn)]
-        prev_state = await store.get_state(hook.id)
+        signals = dedupe_signals(signals)
         if not signals:
             now = now_fn()
             status = prev_state.status if prev_state else "stable"
@@ -82,7 +84,7 @@ async def run_hook(
                 pushed=False, new_count=0,
                 next_cadence_minutes=adaptive_cadence(status, hook.cadence_minutes),
             )
-        verdict = await assess_hook(hook, signals, prev_state, assess_fn)
+        verdict = visible_verdict(await assess_hook(hook, signals, prev_state, assess_fn), prev_state)
         entries = verdict.new_entries
         current_state = prev_state
         if entries:

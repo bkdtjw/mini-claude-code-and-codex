@@ -124,7 +124,7 @@ async def test_twitter_search_maps_options_and_keeps_rate_limit_partial(
     assert await search(eh.TwitterQuery(query="launch")) == partial
 
 
-async def test_assess_fn_parses_json_fences_clamps_and_falls_back() -> None:
+async def test_assess_fn_parses_json_fences_clamps_and_raises_on_invalid() -> None:
     adapter = FakeAdapter(
         '{"materiality": 88, "summary": "已确认收尾", "developments": '
         '[{"text": "窗口已确认提前", "ts": "2026-06-27T00:01:00Z", "source": "twitter"}], "resolved": true}'
@@ -145,10 +145,10 @@ async def test_assess_fn_parses_json_fences_clamps_and_falls_back() -> None:
     )
     assert (result.materiality, result.summary, result.status_hint) == (100, "仍在发酵", None)
     assert result.developments == []
-    fallback = await make_assess_fn(FakeAdapter("not json"), "test-model")(
-        eh.AssessRequest(hook=_hook(), signals=[])
-    )
-    assert fallback == eh.Assessment(materiality=0, summary="（LLM 解析失败）", developments=[])
+    with pytest.raises(runtime_module.HookRuntimeError):
+        await make_assess_fn(FakeAdapter("not json"), "test-model")(
+            eh.AssessRequest(hook=_hook(), signals=[])
+        )
 
 
 async def test_push_fn_feishu_webhook_and_missing_channel(

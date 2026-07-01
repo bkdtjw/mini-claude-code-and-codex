@@ -4,6 +4,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
+from backend.common.logging import get_logger
 from backend.common.types import LLMRequest, Message
 from backend.core.s07_task_system.event_hooks import (
     AssessFn,
@@ -17,27 +18,41 @@ from backend.core.s07_task_system.event_hooks_runtime import HookRuntimeError
 if TYPE_CHECKING:
     from backend.adapters.base import LLMAdapter
 
+ASSESS_MAX_TOKENS = 4096
+ASSESS_RETRY_MAX_TOKENS = 8192
+_ASSESS_TOKEN_LIMITS = (ASSESS_MAX_TOKENS, ASSESS_RETRY_MAX_TOKENS)
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.IGNORECASE | re.DOTALL)
-_PARSE_FALLBACK = Assessment(materiality=0, summary="（LLM 解析失败）", developments=[])
 
 
 def make_assess_fn(adapter: LLMAdapter, model: str) -> AssessFn:
     async def assess(request: AssessRequest) -> Assessment:
         try:
-            llm_request = LLMRequest(
-                model=model,
-                messages=[Message(role="user", content=_build_prompt(request))],
-                temperature=0.2,
-                max_tokens=600,
-            )
-            response = await adapter.complete(llm_request)
-            return _parse_assessment(response.content)
+            prompt = _build_prompt(request)
+            last_error = ""
+            for index, max_tokens in enumerate(_ASSESS_TOKEN_LIMITS):
+                response = await adapter.complete(_llm_request(model, prompt, max_tokens))
+                content = str(getattr(response, "content", "") or "")
+                try:
+                    return _parse_assessment(content)
+                except ValueError as exc:
+                    last_error = str(exc)
+                    _log_parse_failure(exc, max_tokens, index < len(_ASSESS_TOKEN_LIMITS) - 1)
+            raise HookRuntimeError(f"HOOK_RUNTIME_ASSESS_PARSE_ERROR: {last_error}")
         except HookRuntimeError:
             raise
         except Exception as exc:
             raise HookRuntimeError(f"HOOK_RUNTIME_ASSESS_ERROR: {exc}") from exc
 
     return assess
+
+
+def _llm_request(model: str, prompt: str, max_tokens: int) -> LLMRequest:
+    return LLMRequest(
+        model=model,
+        messages=[Message(role="user", content=prompt)],
+        temperature=0.2,
+        max_tokens=max_tokens,
+    )
 
 
 def _build_prompt(request: AssessRequest) -> str:
@@ -50,7 +65,7 @@ def _build_prompt(request: AssessRequest) -> str:
         recent_lines = "（无）"
     keywords = "、".join(request.hook.twitter.keywords) or request.hook.name
     return (
-        "你是事件进展研判助手。请判断本轮信号相对旧局势是否重大、可信、值得推送。\n\n"
+        "你是事件进展研判助手。请综合比较本轮信号、旧局势摘要和已报告进展，判断是否出现新的重要进展。\n\n"
         f"Hook 名称：{request.hook.name}\n"
         f"追踪主题（只关心与这些直接相关的实质进展）：{keywords}\n"
         f"旧局势摘要：{prev_summary}\n\n"
@@ -66,7 +81,8 @@ def _build_prompt(request: AssessRequest) -> str:
         "2) 重复旧状态、没有变化的陈述（含「仍」「依旧」「还是」「一如既往」等）。\n"
         "3) 传言、猜测、预测、个人观点、营销吹捧、情绪宣泄，且无权威/官方信源支撑。\n"
         "4) 与「旧局势摘要」或「已报告过的进展」实质重复的内容。\n"
-        "判断口径：先问『这条到底在讲什么』，主题不是追踪对象本身的实质进展就剔除；宁可漏报，不要骚扰用户。\n\n"
+        "判断口径：先问『这条到底在讲什么』，主题不是追踪对象本身的实质进展就剔除；宁可漏报，不要骚扰用户。\n"
+        "重大转机只能来自语义上的实质变化，不要因为来源数量、互动量、重复报道或模型分数高就判重大。\n\n"
         "请只输出 JSON，不要 markdown、不要解释。格式必须是：\n"
         '{"materiality": <0-100 整数，这条进展有多重大/可信>, '
         '"summary": "<一句中文当前局势>", '
@@ -75,7 +91,7 @@ def _build_prompt(request: AssessRequest) -> str:
         '"resolved": <bool，事件是否已收尾>}\n'
         "developments 必须是相比「旧局势摘要」和「已报告过的进展」的新增重大进展；每条一句话、提炼非照搬，"
         "按时间从新到旧排列（最新在前）。\n"
-        "若相比旧摘要没有实质新进展，或全部命中上面四类噪声，developments 必须返回空数组 []；"
+        "若相比旧摘要和已报告进展没有实质新进展，或全部命中上面四类噪声，developments 必须返回空数组 []；"
         "没新东西就空，不要硬凑旧闻或噪声，这决定是否打扰用户。\n"
         "首次（旧摘要为空或无）时，把当前最重要的几条「真正相关」的现状作为 developments 列出，同样剔除噪声。\n"
         "拿不准、像噪声、旧闻或重复内容时，materiality 给低分。"
@@ -93,9 +109,11 @@ def _signal_line(signal: HookSignal) -> str:
 
 def _parse_assessment(raw: str) -> Assessment:
     try:
+        if not raw.strip():
+            raise ValueError("empty LLM response")
         data = json.loads(_strip_json_fence(raw))
         if not isinstance(data, dict):
-            return _PARSE_FALLBACK
+            raise ValueError("LLM response JSON is not an object")
         materiality = _clamp_materiality(data.get("materiality", 0))
         status_hint = "resolved" if data.get("resolved") is True else None
         return Assessment(
@@ -104,8 +122,10 @@ def _parse_assessment(raw: str) -> Assessment:
             status_hint=status_hint,
             developments=_parse_developments(data.get("developments")),
         )
-    except Exception:
-        return _PARSE_FALLBACK
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"invalid LLM assessment JSON: {exc}") from exc
 
 
 def _parse_developments(value: Any) -> list[Development]:
@@ -144,4 +164,13 @@ def _clamp_materiality(value: Any) -> int:
     return max(0, min(100, numeric))
 
 
-__all__ = ["make_assess_fn"]
+def _log_parse_failure(exc: ValueError, max_tokens: int, will_retry: bool) -> None:
+    event = "event_hook_assess_parse_retry" if will_retry else "event_hook_assess_parse_failed"
+    _logger().warning(event, max_tokens=max_tokens, error=str(exc))
+
+
+def _logger() -> Any:
+    return get_logger(component="event_hooks_runtime_llm")
+
+
+__all__ = ["ASSESS_MAX_TOKENS", "ASSESS_RETRY_MAX_TOKENS", "make_assess_fn"]

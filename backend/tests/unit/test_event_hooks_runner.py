@@ -61,13 +61,17 @@ def _assess(result: eh.Assessment) -> eh.AssessFn:
         assert request.hook.id
         return result
     return fake
-def _draft(accounts: list[str] | None = None, keywords: list[str] | None = None) -> eh.HookDraft:
+def _draft(
+    accounts: list[str] | None = None,
+    keywords: list[str] | None = None,
+    materiality: int = 60,
+) -> eh.HookDraft:
     return eh.HookDraft(
         name="Launch Watch",
         twitter=eh.HookTwitterConfig(accounts=accounts or [], keywords=keywords or []),
         sources=eh.HookSources(),
         cadence_minutes=45,
-        materiality=60,
+        materiality=materiality,
         enabled=True,
     )
 async def _stored_hook(tmp_path: Path, draft: eh.HookDraft) -> tuple[eh.HookStore, eh.EventHook]:
@@ -106,10 +110,10 @@ async def test_run_hook_pushes_and_persists_high_score(tmp_path: Path) -> None:
 async def test_run_hook_soft_uses_default_none_exa_without_push(tmp_path: Path) -> None:
     store, hook = await _stored_hook(tmp_path, _draft(keywords=["launch"]))
     outcome, state, push = await _execute(store, hook, FakeSearch(topic_posts=(_tweet("topic"),)), _assess(_assessment(45, "Worth watching", 1)))
-    assert (outcome.decision, outcome.pushed, outcome.next_cadence_minutes) == ("soft", False, 45)
+    assert (outcome.decision, outcome.pushed, outcome.next_cadence_minutes) == ("drop", False, 45)
     assert push.calls == 0
     assert state is not None
-    assert (len(state.timeline), state.status) == (1, "developing")
+    assert (len(state.timeline), state.status) == (0, "stable")
 
 
 async def test_run_hook_drop_keeps_previous_summary_and_updates_scan(tmp_path: Path) -> None:

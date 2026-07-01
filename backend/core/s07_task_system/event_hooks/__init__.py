@@ -11,6 +11,14 @@ from .assess import (
     HookVerdict,
     assess_hook,
 )
+from .dedupe import (
+    IMPORTANT_MATERIALITY,
+    compact_state,
+    dedupe_signals,
+    filter_known_signals,
+    filter_new_entries,
+    visible_verdict,
+)
 from .models import (
     Development,
     EventHook,
@@ -81,6 +89,7 @@ __all__ = [
     "HookSummary",
     "HookTwitterConfig",
     "HookVerdict",
+    "IMPORTANT_MATERIALITY",
     "MAX_NEW_ENTRIES",
     "NowFn",
     "PUSH_COOLDOWN_MINUTES",
@@ -99,8 +108,13 @@ __all__ = [
     "build_account_query",
     "build_exa_query",
     "build_topic_query",
+    "compact_state",
+    "dedupe_signals",
+    "filter_known_signals",
+    "filter_new_entries",
     "numeric_score",
     "retrieve_exa",
     "retrieve_twitter",
     "run_hook",
+    "visible_verdict",
 ]
