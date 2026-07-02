@@ -17,6 +17,7 @@ interface TwitterWire {
   keywords: string[];
 }
 interface SourcesWire {
+  twitter?: boolean;
   exa_web: boolean;
   zhipu_search: boolean;
   youtube: boolean;
@@ -72,6 +73,7 @@ const toHook = (w: HookWire): EventHook => ({
   name: w.name,
   twitter: { accounts: w.twitter?.accounts ?? [], keywords: w.twitter?.keywords ?? [] },
   sources: {
+    twitter: w.sources?.twitter ?? true,
     exaWeb: w.sources?.exa_web ?? false,
     zhipuSearch: w.sources?.zhipu_search ?? false,
     youtube: w.sources?.youtube ?? false,
@@ -115,6 +117,7 @@ const draftToWire = (draft: HookDraft): Record<string, unknown> => ({
   name: draft.name,
   twitter: { accounts: draft.twitter.accounts, keywords: draft.twitter.keywords },
   sources: {
+    twitter: draft.sources.twitter,
     exa_web: draft.sources.exaWeb,
     zhipu_search: draft.sources.zhipuSearch,
     youtube: draft.sources.youtube,

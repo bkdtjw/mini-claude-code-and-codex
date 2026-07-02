@@ -23,7 +23,7 @@ export const STATUS_DOT: Record<HookStatus, string> = {
 };
 
 const SOURCE_LABEL: Record<string, string> = {
-  twitter: "推特",
+  twitter: "X",
   exa: "Exa",
   zhipu: "智谱",
   youtube: "油管",

@@ -67,7 +67,7 @@ async def run_hook(
             )
 
         prev_state = await store.get_state(hook.id)
-        signals = await retrieve_twitter(hook, twitter_search_fn)
+        signals = await retrieve_twitter(hook, twitter_search_fn) if hook.sources.twitter else []
         if exa_search_fn is not None and hook.sources.exa_web:
             signals = [*signals, *await retrieve_exa(hook, exa_search_fn)]
         signals = dedupe_signals(signals)
@@ -77,7 +77,7 @@ async def run_hook(
             score = prev_state.confidence if prev_state else 0
             base = prev_state or HookState(hook_id=hook.id)
             update = {"hook_id": hook.id, "last_scanned": now,
-                      "source_health": _mark_health(base.source_health, "twitter", True, now)}
+                      "source_health": _scan_health(hook, base.source_health, now)}
             await store.save_state(hook.id, base.model_copy(update=update, deep=True))
             return RunOutcome(
                 hook_id=hook.id, decision="drop", turning_score=score, status=status,
@@ -91,7 +91,7 @@ async def run_hook(
             current_state = await store.append_timeline(hook.id, entries)
 
         now = now_fn()
-        state = _next_state(hook.id, prev_state, current_state, verdict, now)
+        state = _next_state(hook, prev_state, current_state, verdict, now)
         pushed = False
         if _should_push(verdict, prev_state, now):
             try:
@@ -119,25 +119,32 @@ async def run_hook(
 
 
 def _next_state(
-    hook_id: str,
+    hook: EventHook,
     prev_state: HookState | None,
     current_state: HookState | None,
     verdict: HookVerdict,
     now: str,
 ) -> HookState:
-    base = current_state or prev_state or HookState(hook_id=hook_id)
+    base = current_state or prev_state or HookState(hook_id=hook.id)
     prev_summary = prev_state.summary if prev_state else ""
     return base.model_copy(
         update={
-            "hook_id": hook_id,
+            "hook_id": hook.id,
             "confidence": verdict.turning_score,
             "status": verdict.status,
             "summary": verdict.summary or prev_summary or "尚未扫描",
-            "source_health": _mark_health(base.source_health, "twitter", True, now),
+            "source_health": _scan_health(hook, base.source_health, now),
             "last_scanned": now,
         },
         deep=True,
     )
+
+
+def _scan_health(hook: EventHook, health: list[SourceHealth], now: str) -> list[SourceHealth]:
+    # 关闭的源不该被标记为健康，否则面板会显示已停用的源"正常"
+    if not hook.sources.twitter:
+        return [item.model_copy(deep=True) for item in health]
+    return _mark_health(health, "twitter", True, now)
 
 
 def _mark_health(

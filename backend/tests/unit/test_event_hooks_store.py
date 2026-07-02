@@ -74,7 +74,7 @@ async def test_create_normalizes_accounts_and_initializes_state(tmp_path: Path) 
     assert summary.state.hook_id == summary.hook.id
     assert summary.state.status == "developing"
     assert summary.state.summary == "尚未扫描"
-    assert [health.source for health in summary.state.source_health] == ["exa", "zhipu"]
+    assert [health.source for health in summary.state.source_health] == ["twitter", "exa", "zhipu"]
 
 
 async def test_list_summaries_returns_created_hooks(tmp_path: Path) -> None:

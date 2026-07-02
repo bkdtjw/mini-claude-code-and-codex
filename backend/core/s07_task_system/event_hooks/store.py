@@ -177,7 +177,7 @@ def _normalize_accounts(accounts: list[str]) -> list[str]:
     return normalized
 
 def _source_health_for(hook: EventHook) -> list[SourceHealth]:
-    enabled = (("exa", hook.sources.exa_web), ("zhipu", hook.sources.zhipu_search), ("youtube", hook.sources.youtube))
+    enabled = (("twitter", hook.sources.twitter), ("exa", hook.sources.exa_web), ("zhipu", hook.sources.zhipu_search), ("youtube", hook.sources.youtube))
     return [SourceHealth(source=source) for source, is_enabled in enabled if is_enabled]
 
 def _parse_seed_item(item: dict[str, object]) -> HookSummary:

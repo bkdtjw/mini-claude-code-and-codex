@@ -20,6 +20,7 @@ class HookTwitterConfig(BaseModel):
 
 
 class HookSources(BaseModel):
+    twitter: bool = True
     exa_web: bool = True
     zhipu_search: bool = True
     youtube: bool = False

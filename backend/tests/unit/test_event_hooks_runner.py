@@ -92,6 +92,22 @@ def _disabled_hook() -> eh.EventHook:
     return eh.EventHook(id="disabled", name="Disabled", twitter=eh.HookTwitterConfig(), sources=eh.HookSources(), cadence_minutes=45, materiality=60, enabled=False, created_at=NOW)
 
 
+async def test_run_hook_twitter_disabled_skips_twitter_retrieval(tmp_path: Path) -> None:
+    draft = _draft(accounts=["newsdesk"]).model_copy(
+        update={"sources": eh.HookSources(twitter=False, exa_web=False, zhipu_search=False)}
+    )
+    store, hook = await _stored_hook(tmp_path, draft)
+
+    class ExplodingSearch:
+        async def __call__(self, query: eh.TwitterQuery) -> Sequence[SimpleNamespace]:
+            raise AssertionError("twitter search should not run when source disabled")
+
+    outcome, state, _ = await _execute(store, hook, ExplodingSearch(), _assess(_assessment()))
+    assert outcome.decision == "drop"
+    assert state is not None
+    assert all(item.source != "twitter" for item in state.source_health)
+
+
 async def test_run_hook_pushes_and_persists_high_score(tmp_path: Path) -> None:
     store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"]))
     previous = await store.get_state(hook.id)

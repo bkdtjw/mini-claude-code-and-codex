@@ -7,7 +7,7 @@ import type { HookDraft, HookSources, HookSummary } from "@/types/hooks";
 const DEFAULT_DRAFT: HookDraft = {
   name: "",
   twitter: { accounts: [], keywords: [] },
-  sources: { exaWeb: true, zhipuSearch: true, youtube: false },
+  sources: { twitter: true, exaWeb: true, zhipuSearch: true, youtube: false },
   cadenceMinutes: 40,
   materiality: 60,
   enabled: true,
@@ -26,6 +26,7 @@ const MATERIALITY_PRESETS = [
 ];
 
 const SOURCE_KEYS: { key: keyof HookSources; label: string }[] = [
+  { key: "twitter", label: "X 推文" },
   { key: "exaWeb", label: "Exa 权威确认" },
   { key: "zhipuSearch", label: "智谱中文网搜" },
   { key: "youtube", label: "YouTube" },

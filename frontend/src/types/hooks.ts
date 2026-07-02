@@ -9,6 +9,7 @@ export interface HookTwitterConfig {
 }
 
 export interface HookSources {
+  twitter: boolean; // X 推文（账号+关键词的主源）
   exaWeb: boolean; // Exa 权威确认引擎
   zhipuSearch: boolean; // 智谱中文网搜
   youtube: boolean; // YouTube
