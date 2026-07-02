@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import math
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from backend.config import get_redis
 from backend.config.settings import settings
 from backend.common.prometheus_metrics import record_business_metric
+
+
+def bucket_today() -> date:
+    # 指标按业务时区分桶：容器多为 UTC，直接 date.today() 会把北京 0-8 点的量记进前一天
+    tz_name = getattr(settings, "metrics_timezone", "")
+    if not tz_name:
+        return date.today()
+    try:
+        return datetime.now(ZoneInfo(tz_name)).date()
+    except Exception:  # noqa: BLE001
+        return date.today()
 
 _SECONDS_PER_DAY = 86400
 _MAX_LATENCY_SAMPLES_PER_DAY = 2000
@@ -52,18 +64,18 @@ class MetricsCollector:
         self._ttl_seconds = max(ttl_days, 1) * _SECONDS_PER_DAY
 
     async def increment(self, metric: str, value: int = 1) -> None:
-        key = self._key(metric, date.today())
+        key = self._key(metric, bucket_today())
         total = await self._redis.incrby(key, value)
         if int(total) == value:
             await self._redis.expire(key, self._ttl_seconds)
 
     async def get(self, metric: str, bucket_date: str | None = None) -> int:
-        target = date.fromisoformat(bucket_date) if bucket_date else date.today()
+        target = date.fromisoformat(bucket_date) if bucket_date else bucket_today()
         raw = await self._redis.get(self._key(metric, target))
         return int(raw or 0)
 
     async def get_range(self, metric: str, days: int = 7) -> dict[str, int]:
-        today = date.today()
+        today = bucket_today()
         values: dict[str, int] = {}
         for offset in range(max(days, 1) - 1, -1, -1):
             bucket = today - timedelta(days=offset)
@@ -73,7 +85,7 @@ class MetricsCollector:
     async def record_latency(self, metric: str, duration_ms: float) -> None:
         if metric not in LATENCY_METRICS or duration_ms < 0:
             return
-        key = self._latency_key(metric, date.today())
+        key = self._latency_key(metric, bucket_today())
         total = await self._redis.lpush(key, str(round(duration_ms, 2)))
         if int(total) == 1:
             await self._redis.expire(key, self._ttl_seconds)
@@ -88,7 +100,7 @@ class MetricsCollector:
         return summary
 
     async def _latency_samples(self, metric: str, days: int) -> list[float]:
-        today = date.today()
+        today = bucket_today()
         samples: list[float] = []
         for offset in range(max(days, 1) - 1, -1, -1):
             bucket = today - timedelta(days=offset)

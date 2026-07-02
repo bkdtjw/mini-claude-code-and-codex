@@ -7,7 +7,7 @@ from backend.common import LLMError
 from backend.common.logging import get_logger
 from backend.common.metrics import incr, record_latency_sample_nowait
 from backend.common.prometheus_metrics import observe_llm_request
-from backend.common.types import LLMResponse
+from backend.common.types import LLMResponse, LLMUsage
 
 
 def adapter_logger(component: str) -> Any:
@@ -113,13 +113,17 @@ def log_llm_request_error(
 
 
 async def incr_llm_success(response: LLMResponse | None = None) -> None:
+    await incr_llm_success_usage(response.usage if response else None)
+
+
+async def incr_llm_success_usage(usage: LLMUsage | None) -> None:
     await incr("llm_calls")
-    if response is None:
+    if usage is None:
         return
-    await incr("llm_prompt_tokens", response.usage.prompt_tokens)
-    await incr("llm_completion_tokens", response.usage.completion_tokens)
-    if response.usage.cached_prompt_tokens:
-        await incr("llm_cached_prompt_tokens", response.usage.cached_prompt_tokens)
+    await incr("llm_prompt_tokens", usage.prompt_tokens)
+    await incr("llm_completion_tokens", usage.completion_tokens)
+    if usage.cached_prompt_tokens:
+        await incr("llm_cached_prompt_tokens", usage.cached_prompt_tokens)
 
 
 async def incr_llm_error() -> None:
@@ -130,6 +134,7 @@ __all__ = [
     "adapter_logger",
     "incr_llm_error",
     "incr_llm_success",
+    "incr_llm_success_usage",
     "log_llm_request_end",
     "log_llm_request_error",
     "log_llm_request_retry",

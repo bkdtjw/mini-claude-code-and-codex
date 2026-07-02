@@ -14,6 +14,7 @@ from .logging_support import (
     adapter_logger,
     incr_llm_error,
     incr_llm_success,
+    incr_llm_success_usage,
     log_llm_request_end,
     log_llm_request_error,
     log_llm_request_retry,
@@ -125,7 +126,13 @@ class OllamaAdapter(OpenAICompatAdapter):
                             function = tool_call.get("function", {})
                             yield StreamChunk(type="tool_call", data={"id": tool_call.get("id", ""), "name": function.get("name", ""), "arguments": function.get("arguments", {})})
                         if data.get("done"):
-                            await incr_llm_success()
+                            prompt_count = int(data.get("prompt_eval_count") or 0)
+                            completion_count = int(data.get("eval_count") or 0)
+                            await incr_llm_success_usage(
+                                LLMUsage(prompt_tokens=prompt_count, completion_tokens=completion_count)
+                                if prompt_count or completion_count
+                                else None
+                            )
                             log_llm_request_end(
                                 logger,
                                 model=model,

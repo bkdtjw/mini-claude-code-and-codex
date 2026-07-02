@@ -13,6 +13,8 @@ from backend.common.metrics import (
     record_latency_sample,
 )
 
+from backend.config.settings import settings
+
 from .redis_test_support import use_fake_redis
 
 
@@ -24,7 +26,7 @@ async def test_increment_sets_value_and_ttl(monkeypatch: pytest.MonkeyPatch) -> 
     await incr("llm_calls")
     key = f"metrics:llm_calls:{date.today().isoformat()}"
     assert fake.client.values[key] == "1"
-    assert await fake.client.ttl(key) == 30 * 86400
+    assert await fake.client.ttl(key) == settings.metrics_ttl_days * 86400
 
 
 @pytest.mark.asyncio
@@ -59,7 +61,7 @@ async def test_latency_summary_uses_redis_samples(monkeypatch: pytest.MonkeyPatc
     summary = await (await get_metrics()).get_latency_summary(days=1)
 
     key = f"metrics:latency:tool_call:{date.today().isoformat()}"
-    assert await fake.client.ttl(key) == 30 * 86400
+    assert await fake.client.ttl(key) == settings.metrics_ttl_days * 86400
     assert summary["tool_call"]["count"] == 2
     assert summary["tool_call"]["p95_ms"] == 300
     assert "sub_agent_task" not in summary

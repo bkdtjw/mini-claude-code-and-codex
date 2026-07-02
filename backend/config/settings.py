@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     database_pool_timeout: int = 30
     database_pool_recycle: int = 1800
     metrics_ttl_days: int = 400  # token 用量按月/年回看，日桶需长保留
+    metrics_timezone: str = "Asia/Shanghai"  # 指标分桶时区，空串则用系统本地时区
     log_search_backend: str = "file"
     log_search_fallback: str = "file"
     log_search_trace_minutes: int = Field(default=7 * 24 * 60, ge=60)

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+import json
 
 import httpx
 
 from backend.adapters.base import LLMAdapter
 from backend.common import LLMError
-from backend.common.types import LLMRequest, LLMResponse, Message, ProviderConfig, StreamChunk
+from backend.common.types import LLMRequest, LLMResponse, LLMUsage, Message, ProviderConfig, StreamChunk
 from backend.config.http_client import load_http_client_config
 
 from .anthropic_support import (
@@ -22,11 +23,39 @@ from .logging_support import (
     adapter_logger,
     incr_llm_error,
     incr_llm_success,
+    incr_llm_success_usage,
     log_llm_request_end,
     log_llm_request_error,
     log_llm_request_retry,
     log_llm_request_start,
 )
+
+
+def _capture_anthropic_usage(raw: str, holder: dict[str, int]) -> None:
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return
+    usage = data.get("usage") or (data.get("message") or {}).get("usage")
+    if not isinstance(usage, dict):
+        return
+    if isinstance(usage.get("input_tokens"), int):
+        holder["prompt"] = usage["input_tokens"]
+    if isinstance(usage.get("output_tokens"), int):
+        holder["completion"] = usage["output_tokens"]
+    cached = usage.get("cache_read_input_tokens")
+    if isinstance(cached, int) and cached > 0:
+        holder["cached"] = cached
+
+
+def _stream_usage(holder: dict[str, int]) -> LLMUsage | None:
+    if not holder:
+        return None
+    return LLMUsage(
+        prompt_tokens=holder.get("prompt", 0),
+        completion_tokens=holder.get("completion", 0),
+        cached_prompt_tokens=holder.get("cached", 0),
+    )
 
 logger = adapter_logger("anthropic_adapter")
 _REQUEST_TIMEOUT_SECONDS = 120.0
@@ -106,6 +135,7 @@ class AnthropicAdapter(LLMAdapter):
         model = request.model or self._default_model
         payload = build_payload(request, self._default_model, stream=True)
         tool_blocks: dict[int, dict[str, object]] = {}
+        usage_holder: dict[str, int] = {}
         started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="stream")
         try:
             for attempt in range(1, self._max_retries + 1):
@@ -123,9 +153,12 @@ class AnthropicAdapter(LLMAdapter):
                                 continue
                             if not line.startswith("data:"):
                                 continue
+                            raw = line.split(":", 1)[1].strip()
+                            if '"usage"' in raw:
+                                _capture_anthropic_usage(raw, usage_holder)
                             chunk = parse_stream_line(
                                 event_type,
-                                line.split(":", 1)[1].strip(),
+                                raw,
                                 self._provider,
                                 tool_blocks,
                             )
@@ -133,10 +166,10 @@ class AnthropicAdapter(LLMAdapter):
                                 continue
                             yield chunk
                             if chunk.type == "done":
-                                await incr_llm_success()
+                                await incr_llm_success_usage(_stream_usage(usage_holder))
                                 log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at)
                                 return
-                        await incr_llm_success()
+                        await incr_llm_success_usage(_stream_usage(usage_holder))
                         log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at)
                         yield StreamChunk(type="done")
                         return

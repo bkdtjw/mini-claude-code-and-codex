@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
 from typing import Any
 
 import httpx
 
 from backend.common import LLMError
-from backend.common.types import LLMRequest, StreamChunk
+from backend.common.types import LLMRequest, LLMUsage, StreamChunk
 from backend.config.http_client import load_http_client_config
 
 from .logging_support import (
     incr_llm_error,
-    incr_llm_success,
+    incr_llm_success_usage,
     log_llm_request_end,
     log_llm_request_error,
     log_llm_request_retry,
@@ -27,11 +28,33 @@ class StreamState:
     payload: dict[str, Any]
     model: str
     started_at: float
+    usage: dict[str, int] = field(default_factory=dict)
+
+
+def capture_stream_usage(raw: str, holder: dict[str, int]) -> None:
+    try:
+        usage = json.loads(raw).get("usage")
+    except ValueError:
+        return
+    if not isinstance(usage, dict):
+        return
+    for source, target in (("prompt_tokens", "prompt"), ("completion_tokens", "completion")):
+        value = usage.get(source)
+        if isinstance(value, (int, float)) and value >= 0:
+            holder[target] = int(value)
+    details = usage.get("prompt_tokens_details")
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    if cached is None:
+        cached = usage.get("cached_tokens")
+    if isinstance(cached, (int, float)) and cached > 0:
+        holder["cached"] = int(cached)
 
 
 async def stream_response(adapter: Any, request: LLMRequest) -> AsyncIterator[StreamChunk]:
     model = request.model or adapter._default_model  # noqa: SLF001
     payload = adapter._build_payload(request, stream=True)  # noqa: SLF001
+    # 让兼容端在最后一个 chunk 返回 usage，token 用量才有来源
+    payload.setdefault("stream_options", {"include_usage": True})
     started_at = log_llm_request_start(
         adapter._logger,  # noqa: SLF001
         model=model,
@@ -100,6 +123,8 @@ async def _handle_stream_response(
             await _finish_stream(state)
             yield StreamChunk(type="done")
             return
+        if '"usage"' in raw:
+            capture_stream_usage(raw, state.usage)
         for chunk in parse_stream_line(raw, tool_chunks):
             yield chunk
     for chunk in flush_tool_calls(tool_chunks):
@@ -110,7 +135,16 @@ async def _handle_stream_response(
 
 async def _finish_stream(state: StreamState) -> None:
     adapter = state.adapter
-    await incr_llm_success()
+    usage = state.usage
+    await incr_llm_success_usage(
+        LLMUsage(
+            prompt_tokens=usage.get("prompt", 0),
+            completion_tokens=usage.get("completion", 0),
+            cached_prompt_tokens=usage.get("cached", 0),
+        )
+        if usage
+        else None
+    )
     log_llm_request_end(
         adapter._logger,  # noqa: SLF001
         model=state.model,
@@ -132,4 +166,4 @@ async def _log_stream_error(adapter: Any, model: str, exc: Exception, started_at
     )
 
 
-__all__ = ["stream_response"]
+__all__ = ["capture_stream_usage", "stream_response"]
