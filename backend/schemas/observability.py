@@ -72,6 +72,25 @@ class TraceSpansResponse(BaseModel):
     spans: list[TraceSpanResponse] = Field(default_factory=list)
 
 
+class TokenUsageDayResponse(BaseModel):
+    date: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_prompt_tokens: int = 0
+    llm_calls: int = 0
+    total_tokens: int = 0
+
+
+class TokenUsageResponse(BaseModel):
+    period_days: int
+    total_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_prompt_tokens: int = 0
+    llm_calls: int = 0
+    daily: list[TokenUsageDayResponse] = Field(default_factory=list)
+
+
 __all__ = [
     "LatencyStatResponse",
     "LatencySummaryResponse",
@@ -80,6 +99,8 @@ __all__ = [
     "MetricDetailResponse",
     "MetricsSummaryResponse",
     "MetricSeriesResponse",
+    "TokenUsageDayResponse",
+    "TokenUsageResponse",
     "TraceResponse",
     "TraceSpanResponse",
     "TraceSpansResponse",

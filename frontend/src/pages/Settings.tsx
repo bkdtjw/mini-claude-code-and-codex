@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Modal from "@/components/common/Modal";
+import TokenUsagePanel from "@/components/settings/TokenUsagePanel";
 import { api } from "@/lib/api-client";
 import { useAgentStore } from "@/stores/agentStore";
 import type { Provider } from "@/types";
+
+type SettingsSection = "providers" | "tokens";
+const SECTIONS: { id: SettingsSection; label: string }[] = [{ id: "providers", label: "Providers" }, { id: "tokens", label: "Token 消耗" }];
 interface ProviderForm {
   providerType: string;
   name: string;
@@ -35,6 +39,7 @@ const toForm = (provider?: Provider): ProviderForm =>
       }
     : emptyForm;
 export default function Settings() {
+  const [section, setSection] = useState<SettingsSection>("providers");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -94,11 +99,30 @@ export default function Settings() {
   return (
     <div className="flex h-full min-h-0 bg-[var(--as-bg)] text-[var(--as-text)]">
       <aside className="w-56 shrink-0 border-r border-[var(--as-border)] bg-[var(--as-sidebar)] p-3">
-        <div className="rounded-md border-l-[2.5px] border-[var(--as-accent)] bg-[var(--as-surface)] px-3 py-2 text-sm">
-          Providers
+        <div className="space-y-1">
+          {SECTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setSection(item.id)}
+              className={`block w-full rounded-md px-3 py-2 text-left text-sm ${
+                section === item.id
+                  ? "border-l-[2.5px] border-[var(--as-accent)] bg-[var(--as-surface)]"
+                  : "text-[var(--as-text-secondary)] hover:bg-[var(--as-hover)]"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </aside>
       <section className="min-w-0 flex-1 overflow-y-auto p-6">
+        {section === "tokens" ? (
+          <div>
+            <h2 className="mb-5 text-2xl font-medium">Token 消耗</h2>
+            <TokenUsagePanel />
+          </div>
+        ) : (
           <div>
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-2xl font-medium">LLM Providers</h2>
@@ -134,6 +158,7 @@ export default function Settings() {
               })}
             </div>
           </div>
+        )}
       </section>
       <Modal
         isOpen={modalOpen}

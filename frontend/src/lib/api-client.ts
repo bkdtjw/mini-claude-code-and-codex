@@ -1,4 +1,4 @@
-import type { LogEntry, LogSearchParams, LogSearchResult, MetricDetail, MetricsSummary, Provider, Session, TraceResult, WorkspaceEntry, WorkspaceList, WorkspaceValidation } from "@/types";
+import type { LogEntry, LogSearchParams, LogSearchResult, MetricDetail, MetricsSummary, Provider, Session, TokenUsage, TraceResult, WorkspaceEntry, WorkspaceList, WorkspaceValidation } from "@/types";
 import { authorizedFetchJson, getApiErrorMessage } from "@/lib/api-auth";
 
 type JsonBody = Record<string, unknown> | unknown[];
@@ -72,6 +72,25 @@ interface MetricDetailResponse {
   name: string;
   total: number;
   daily: Record<string, number>;
+}
+
+interface TokenUsageDayResponse {
+  date: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_prompt_tokens: number;
+  llm_calls: number;
+  total_tokens: number;
+}
+
+interface TokenUsageResponse {
+  period_days: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_prompt_tokens: number;
+  llm_calls: number;
+  daily: TokenUsageDayResponse[];
 }
 
 interface LogEntryResponse {
@@ -215,6 +234,25 @@ export const api = {
   getMetricDetail: async (name: string, days = 30): Promise<MetricDetail> => {
     const res = await request<MetricDetailResponse>(`/api/metrics/metric/${encodeURIComponent(name)}?days=${days}`);
     return res;
+  },
+  getTokenUsage: async (days = 90): Promise<TokenUsage> => {
+    const res = await request<TokenUsageResponse>(`/api/metrics/tokens?days=${days}`);
+    return {
+      periodDays: res.period_days,
+      totalTokens: res.total_tokens,
+      promptTokens: res.prompt_tokens,
+      completionTokens: res.completion_tokens,
+      cachedPromptTokens: res.cached_prompt_tokens,
+      llmCalls: res.llm_calls,
+      daily: (res.daily ?? []).map((item) => ({
+        date: item.date,
+        promptTokens: item.prompt_tokens,
+        completionTokens: item.completion_tokens,
+        cachedPromptTokens: item.cached_prompt_tokens,
+        llmCalls: item.llm_calls,
+        totalTokens: item.total_tokens,
+      })),
+    };
   },
   searchLogs: async (params: LogSearchParams): Promise<LogSearchResult> => {
     const search = new URLSearchParams();

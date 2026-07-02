@@ -120,6 +120,25 @@ export interface MetricDetail {
   daily: Record<string, number>;
 }
 
+export interface TokenUsageDay {
+  date: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  llmCalls: number;
+  totalTokens: number;
+}
+
+export interface TokenUsage {
+  periodDays: number;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  llmCalls: number;
+  daily: TokenUsageDay[];
+}
+
 export interface LatencyStat {
   name: string;
   count: number;
