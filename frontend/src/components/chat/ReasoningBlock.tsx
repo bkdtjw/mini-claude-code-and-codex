@@ -10,12 +10,20 @@ const seconds = (ms: number): number => Math.max(1, Math.round(ms / 1000));
 
 export default function ReasoningBlock({ content, streaming = false, durationMs }: ReasoningBlockProps) {
   const startedAt = useRef<number>(Date.now());
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(streaming);
   const [elapsedMs, setElapsedMs] = useState(durationMs ?? 0);
 
   useEffect(() => {
     if (streaming) setOpen(true);
   }, [streaming]);
+
+  // 流式思考时窗口高度固定，在窗口内部跟随最新一行，不推动外层页面滚动
+  useEffect(() => {
+    if (!streaming || !open) return;
+    const node = bodyRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [content, streaming, open]);
 
   useEffect(() => {
     if (!streaming && durationMs) setElapsedMs(durationMs);
@@ -48,7 +56,14 @@ export default function ReasoningBlock({ content, streaming = false, durationMs 
         <span>{streaming ? "思考中…" : `已思考 · ${shownSeconds}s`}</span>
         <span className={`ml-auto transition ${open ? "rotate-180" : ""}`}>⌄</span>
       </button>
-      {open ? <div className="max-h-72 overflow-y-auto whitespace-pre-wrap px-3 pb-3 leading-6 text-[var(--as-text-muted)]">{content}</div> : null}
+      {open ? (
+        <div
+          ref={bodyRef}
+          className={`overflow-y-auto whitespace-pre-wrap px-3 pb-3 leading-6 text-[var(--as-text-muted)] ${streaming ? "max-h-40" : "max-h-72"}`}
+        >
+          {content}
+        </div>
+      ) : null}
     </div>
   );
 }
