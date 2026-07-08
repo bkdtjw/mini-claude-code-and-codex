@@ -28,6 +28,13 @@ if TYPE_CHECKING:
     from .agent_loop import AgentLoop
 
 
+async def _patch_and_checkpoint(loop: AgentLoop) -> None:
+    # 收尾自愈：为末尾“带 tool_calls 无 tool_results 的 assistant”补合成 tool 结果并落盘。
+    existing_count = len(loop._history)
+    patch_orphan_tool_calls(loop._history.raw_messages)
+    await loop._history.checkpoint_from(existing_count)
+
+
 async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
     failure_recovery = ToolFailureRecoveryTracker(
         loop._config.max_consecutive_tool_failures
@@ -41,10 +48,10 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
         {"session_id": _session_id, "model": loop._config.model, "provider": loop._config.provider},
     ) as run_span:
         try:
-            was_aborted = loop._aborted
+            # 清零残留中止标志但不抛错：上一轮被 task.cancel() 打断或空闲期 abort 会留下
+            # _aborted=True，在此重抛会让本轮消息未入历史就误报 LOOP_ABORTED（运行中的中止仍由
+            # 循环内 loop._aborted 判定 + websocket 的 task.cancel() 覆盖，语义不丢）。
             loop._aborted = False
-            if was_aborted:
-                raise AgentError(code="LOOP_ABORTED", message="Agent loop aborted")
             loop._ensure_system_message()
             await loop._append_message(Message(role="user", content=user_message))
             logger.info(
@@ -174,9 +181,12 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
             observe_agent_run("error", duration_seconds)
             await record_latency_sample("agent_run", int(duration_seconds * 1000))
             logger.exception("agent_run_error", iterations=iteration_count)
-            existing_count = len(loop._history)
-            patch_orphan_tool_calls(loop._history.raw_messages)
-            await loop._history.checkpoint_from(existing_count)
+            await _patch_and_checkpoint(loop)
+            raise
+        except BaseException:
+            # 取消/中断（CancelledError 等）：只做孤儿修补 + checkpoint 后原样重抛，
+            # 不重复 emit error/metrics（那是 Exception 分支的事），务必重抛不吞。
+            await _patch_and_checkpoint(loop)
             raise
 
 

@@ -235,6 +235,13 @@ def test_plan_approve_and_reject_messages_call_runner(monkeypatch: pytest.Monkey
         )
         websocket.send_json({"type": "plan_approve"})
         websocket.send_json({"type": "plan_reject", "reason": "no"})
+        # plan_approve/plan_reject 无回执；补一条消息并等待其回执作为同步屏障，
+        # 确保服务端已按序处理完上面两条后再关闭连接，规避 TestClient 竞态丢消息。
+        websocket.send_json({"type": "sync"})
+        assert websocket.receive_json() == {
+            "type": "error",
+            "message": "Unsupported message type",
+        }
 
     assert runner.approved is True
     assert runner.rejected_reason == "no"

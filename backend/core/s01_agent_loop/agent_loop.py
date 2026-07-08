@@ -5,6 +5,7 @@ import inspect
 from typing import TYPE_CHECKING, Any
 
 from backend.adapters.base import LLMAdapter
+from backend.common.logging import get_logger
 from backend.common.types import (
     AgentConfig,
     AgentEvent,
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from backend.core.s05_skills.models import AgentSpec
 else:
     AgentSpec = Any
+
+logger = get_logger(component="agent_loop")
 
 
 class AgentLoop(AgentLoopApprovalMixin):
@@ -96,6 +99,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         self._tool_approval_timeout_seconds = 300.0
         self._aborted = False
         self._run_lock = asyncio.Lock()
+        self._pending_events: set[asyncio.Task[Any]] = set()
 
     def on(self, handler: AgentEventHandler) -> None:
         self._handlers.append(handler)
@@ -105,7 +109,22 @@ class AgentLoop(AgentLoopApprovalMixin):
         for handler in self._handlers:
             result = handler(event)
             if inspect.isawaitable(result):
-                asyncio.ensure_future(result)
+                task = asyncio.ensure_future(result)
+                self._pending_events.add(task)
+                task.add_done_callback(self._on_event_done)
+
+    def _on_event_done(self, task: asyncio.Task[Any]) -> None:
+        # 回收 fire-and-forget 事件任务的强引用，并检索异常避免静默失败。
+        self._pending_events.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.warning(
+                "agent_event_handler_failed",
+                error=str(error),
+                error_type=type(error).__name__,
+            )
 
     def _set_status(self, status: AgentStatus) -> None:
         self._status = status
