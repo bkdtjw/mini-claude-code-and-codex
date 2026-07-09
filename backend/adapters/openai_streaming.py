@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from backend.common import LLMError
-from backend.common.types import LLMRequest, StreamChunk
+from backend.common.types import LLMRequest, LLMResponse, LLMUsage, StreamChunk
 from backend.config.http_client import load_http_client_config
 
 from .logging_support import (
@@ -88,8 +88,11 @@ async def _handle_stream_response(
     response: httpx.Response,
 ) -> AsyncIterator[StreamChunk]:
     adapter = state.adapter
+    if response.status_code >= 400:
+        await response.aread()
     adapter._raise_for_status(response)  # noqa: SLF001
     tool_chunks: dict[int, dict[str, str]] = {}
+    usage: dict[str, int] | None = None
     async for line in response.aiter_lines():
         if not line.startswith("data:"):
             continue
@@ -97,26 +100,30 @@ async def _handle_stream_response(
         if raw == "[DONE]":
             for chunk in flush_tool_calls(tool_chunks):
                 yield chunk
-            await _finish_stream(state)
+            await _finish_stream(state, usage)
             yield StreamChunk(type="done")
             return
         for chunk in parse_stream_line(raw, tool_chunks):
+            if chunk.type == "usage" and isinstance(chunk.data, dict):
+                usage = chunk.data
             yield chunk
     for chunk in flush_tool_calls(tool_chunks):
         yield chunk
-    await _finish_stream(state)
+    await _finish_stream(state, usage)
     yield StreamChunk(type="done")
 
 
-async def _finish_stream(state: StreamState) -> None:
+async def _finish_stream(state: StreamState, usage: dict[str, int] | None = None) -> None:
     adapter = state.adapter
-    await incr_llm_success()
+    response = LLMResponse(content="", usage=LLMUsage(**usage)) if usage else None
+    await incr_llm_success(response)
     log_llm_request_end(
         adapter._logger,  # noqa: SLF001
         model=state.model,
         provider=adapter._provider,  # noqa: SLF001
         request_type="stream",
         started_at=state.started_at,
+        response=response,
     )
 
 

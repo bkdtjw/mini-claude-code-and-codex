@@ -109,20 +109,19 @@ async def test_run_raises_on_max_iterations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_abort_interrupts_loop() -> None:
-    async def no_op(_: dict[str, object]) -> ToolResult:
-        return ToolResult(tool_call_id="tc_1", output="ok")
-
-    registry = ToolRegistry()
-    registry.register(_tool_def("echo"), no_op)
+async def test_residual_abort_flag_cleared_on_next_run() -> None:
+    # abort() 只置位 _aborted；下一轮 run() 应在入口清零该标志正常执行，
+    # 而非因残留标志让本轮消息未入历史就误报 LOOP_ABORTED。
     loop = AgentLoop(
-        AgentConfig(model="test-model", max_iterations=2),
-        MockAdapter([LLMResponse(content="", tool_calls=[ToolCall(id="tc_1", name="echo", arguments={})])]),
-        registry,
+        AgentConfig(model="test-model"),
+        MockAdapter([LLMResponse(content="hello")]),
+        ToolRegistry(),
     )
     loop.abort()
-    with pytest.raises(AgentError, match="LOOP_ABORTED"):
-        await loop.run("stop")
+    result = await loop.run("stop")
+    assert result.role == "assistant"
+    assert result.content == "hello"
+    assert any(msg.role == "user" and msg.content == "stop" for msg in loop.messages)
 
 
 @pytest.mark.asyncio
