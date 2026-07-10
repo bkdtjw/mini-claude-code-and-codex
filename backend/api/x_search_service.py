@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from backend.common.logging import get_logger
 from backend.common.metrics import incr
-from backend.common.x_budget import XBudgetError, acquire_x_call_slot
+from backend.common.x_budget import XBudgetError, acquire_x_call_slot, consume_daily_budget
 from backend.config.redis_client import get_redis
 from backend.config.settings import settings
 from backend.core.s02_tools.builtin.x_client import (
@@ -77,15 +77,26 @@ async def _write_cache(key: str, posts: list[XPost]) -> None:
         logger.warning("x_search_cache_write_failed", error=str(exc))
 
 
-async def run_x_search(config: XClientConfig, query: XSearchQuery) -> XSearchResult:
-    """缓存优先 → 过额度闸门 → 串行化打 X。仅在缓存未命中时消耗额度。"""
+async def run_x_search(
+    config: XClientConfig,
+    query: XSearchQuery,
+    *,
+    enforce_interval: bool = True,
+) -> XSearchResult:
+    """缓存优先 → 过额度闸门 → 串行化打 X。仅在缓存未命中时消耗额度。
+
+    enforce_interval=False 仅扣日额度、不过最小间隔（供 /compare 一次请求内多词连搜）。
+    """
     try:
         key = _cache_key(query)
         cached = await _read_cache(key)
         if cached is not None:
             await incr("x_search_cache_hit")
             return cached
-        await acquire_x_call_slot()
+        if enforce_interval:
+            await acquire_x_call_slot()
+        else:
+            await consume_daily_budget()
         async with _call_lock:
             result = await _do_search(config, query)
         if not result.rate_limited:

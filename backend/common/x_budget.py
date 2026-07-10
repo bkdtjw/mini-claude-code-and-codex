@@ -31,11 +31,19 @@ class _BudgetConfig:
 
 
 async def acquire_x_call_slot() -> None:
-    """打真实 X 之前调用：过"最小间隔 + 日额度"两道闸。
+    """单次搜索前调用：过"最小间隔 + 日额度"两道闸（默认路径）。"""
+    await _run_gates(interval=True, budget=True)
 
-    Redis 不可用则降级放行并告警（与飞书降级同策略），不因基础设施抖动而阻断搜索；
-    仅额度/限速命中时抛 XBudgetError。闸门自身异常同样放行（只记日志）。
-    """
+
+async def consume_daily_budget() -> None:
+    """仅扣日额度、不过最小间隔——供 /compare 的一次请求内 ≤4 次连续搜索使用
+    （这些调用天然被 twikit 时延与进程锁串行化，不应被 5s 间隔闸误杀）。"""
+    await _run_gates(interval=False, budget=True)
+
+
+async def _run_gates(*, interval: bool, budget: bool) -> None:
+    # Redis 不可用则降级放行并告警（与飞书降级同策略）；仅额度/限速命中才抛 XBudgetError，
+    # 闸门自身异常同样放行（只记日志），不因基础设施抖动阻断搜索。
     redis = get_redis()
     if redis is None:
         logger.warning("x_budget_degraded_open")
@@ -45,8 +53,10 @@ async def acquire_x_call_slot() -> None:
         settings.x_daily_call_budget,
     )
     try:
-        await _check_min_interval(redis, cfg)
-        await _check_daily_budget(redis, cfg)
+        if interval:
+            await _check_min_interval(redis, cfg)
+        if budget:
+            await _check_daily_budget(redis, cfg)
     except XBudgetError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -75,4 +85,4 @@ async def _check_daily_budget(redis: Any, cfg: _BudgetConfig) -> None:
         raise XBudgetError("今日 X 搜索额度已用尽，请明天再试", 3600)
 
 
-__all__ = ["XBudgetError", "acquire_x_call_slot"]
+__all__ = ["XBudgetError", "acquire_x_call_slot", "consume_daily_budget"]

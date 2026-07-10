@@ -52,11 +52,11 @@ def _prime(monkeypatch: pytest.MonkeyPatch, *, flag: bool) -> None:
     monkeypatch.setattr(mcp_routes, "mcp_server_manager", _FakeMCP())
 
 
-def _post() -> XPost:
+def _post(likes: int = 12, handle: str = "alice") -> XPost:
     return XPost(
-        author_name="Alice", author_handle="alice", text="claude is great",
-        likes=12, retweets=3, replies=1, views=900,
-        created_at="2026-01-01", url="https://x.com/alice/1",
+        author_name="Alice", author_handle=handle, text="claude is great",
+        likes=likes, retweets=3, replies=1, views=900,
+        created_at="2026-01-01", url=f"https://x.com/{handle}/1",
     )
 
 
@@ -122,3 +122,30 @@ def test_route_absent_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
     with TestClient(create_app()) as test_client:
         resp = test_client.get("/api/x/searches?q=claude", headers=_AUTH)
         assert resp.status_code == 404
+
+
+def test_sort_engagement_reorders_results(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake(config: XClientConfig, query: XSearchQuery) -> XSearchResult:
+        return XSearchResult(posts=[_post(likes=1, handle="low"), _post(likes=100, handle="high")])
+
+    monkeypatch.setattr("backend.api.routes.x_api.run_x_search", _fake)
+    resp = client.get("/api/x/searches?q=claude&sort=engagement", headers=_AUTH)
+    assert resp.status_code == 200
+    assert [r["author_handle"] for r in resp.json()["results"]] == ["high", "low"]
+
+
+def test_compare_returns_items(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.api.routes.x_api_models import XCompareItem
+
+    async def _fake_compare(config: XClientConfig, words: list[str], days: int, limit: int) -> list[XCompareItem]:
+        return [XCompareItem(query=w, count=1, total_engagement=10, weighted_score=5.0) for w in words]
+
+    monkeypatch.setattr("backend.api.routes.x_api.compare_queries", _fake_compare)
+    resp = client.get("/api/x/compare?q=claude,gpt&days=7", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["days"] == 7 and [item["query"] for item in body["items"]] == ["claude", "gpt"]
+
+
+def test_compare_empty_query_is_422(client: TestClient) -> None:
+    assert client.get("/api/x/compare?q=%20%2C%20", headers=_AUTH).status_code == 422

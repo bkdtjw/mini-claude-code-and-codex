@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     x_call_min_interval_seconds: float = Field(default=5.0, ge=0.0)
     # 每日真实 X 调用额度；打满后新接口返回 429，Agent 工具与 AI 早报不受影响。
     x_daily_call_budget: int = Field(default=200, ge=1)
+    # 热度加权分权重（P2 排行榜/对比）：score = 赞×w_likes + 转×w_retweets + 浏览×w_views。可按需调。
+    x_rank_weight_likes: float = Field(default=1.0, ge=0.0)
+    x_rank_weight_retweets: float = Field(default=2.0, ge=0.0)
+    x_rank_weight_views: float = Field(default=0.01, ge=0.0)
     workspace_roots: str = ""
     notion_api_key: str = ""
     llm_fallback_provider_ids: str = ""

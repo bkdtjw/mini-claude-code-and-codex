@@ -30,4 +30,18 @@ class XSearchResponse(BaseModel):
     results: list[XPostOut]
 
 
-__all__ = ["XPostOut", "XSearchResponse"]
+class XCompareItem(BaseModel):
+    query: str
+    count: int
+    total_engagement: int  # 原始互动总量（声量）
+    weighted_score: float  # 热度加权分
+    unavailable: bool = False  # 该词本轮未取到（限流/额度/上游故障）
+    top_post: XPostOut | None = None  # 该词最火一条
+
+
+class XCompareResponse(BaseModel):
+    days: int
+    items: list[XCompareItem]
+
+
+__all__ = ["XCompareItem", "XCompareResponse", "XPostOut", "XSearchResponse"]
