@@ -149,3 +149,67 @@ def test_compare_returns_items(client: TestClient, monkeypatch: pytest.MonkeyPat
 
 def test_compare_empty_query_is_422(client: TestClient) -> None:
     assert client.get("/api/x/compare?q=%20%2C%20", headers=_AUTH).status_code == 422
+
+
+class _FakeKnowledgeService:
+    def __init__(self, *, kb_exists: bool = True) -> None:
+        self._kb_exists = kb_exists
+
+    async def get_kb(self, kb_id: str) -> object | None:
+        return {"id": kb_id} if self._kb_exists else None
+
+
+def _prime_exports(
+    monkeypatch: pytest.MonkeyPatch, *, kb_exists: bool = True, posts: list[XPost] | None = None
+) -> None:
+    from backend.core.s13_knowledge import IngestResult
+
+    async def _fake_search(config: XClientConfig, query: XSearchQuery) -> XSearchResult:
+        return XSearchResult(posts=list(posts or []))
+
+    async def _fake_ingest(kb_id: str, query: str, days: int, plist: list[XPost]) -> IngestResult:
+        return IngestResult(kb_id=kb_id, document_id="doc-9", status="ready", chunk_count=2)
+
+    monkeypatch.setattr(
+        "backend.api.routes.x_api.KnowledgeService", lambda: _FakeKnowledgeService(kb_exists=kb_exists)
+    )
+    monkeypatch.setattr("backend.api.routes.x_api.run_x_search", _fake_search)
+    monkeypatch.setattr("backend.api.routes.x_api.ingest_x_posts", _fake_ingest)
+
+
+def test_export_happy_path(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _prime_exports(monkeypatch, posts=[_post()])
+    resp = client.post(
+        "/api/x/exports", json={"query": "claude", "kb_id": "kb-x"}, headers=_AUTH
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["document_id"] == "doc-9" and body["status"] == "ready"
+    assert body["post_count"] == 1 and body["chunk_count"] == 2
+    assert body["filename"].startswith("x-sentiment-")
+
+
+def test_export_kb_not_found_is_404(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _prime_exports(monkeypatch, kb_exists=False)
+    resp = client.post(
+        "/api/x/exports", json={"query": "claude", "kb_id": "missing"}, headers=_AUTH
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "X_EXPORT_KB_NOT_FOUND"
+
+
+def test_export_empty_result_skips_ingest(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _prime_exports(monkeypatch, posts=[])
+    resp = client.post(
+        "/api/x/exports", json={"query": "nobody-tweets-this", "kb_id": "kb-x"}, headers=_AUTH
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "empty" and body["post_count"] == 0 and body["document_id"] == ""
+
+
+def test_export_limit_over_30_is_422(client: TestClient) -> None:
+    resp = client.post(
+        "/api/x/exports", json={"query": "claude", "kb_id": "kb-x", "limit": 31}, headers=_AUTH
+    )
+    assert resp.status_code == 422

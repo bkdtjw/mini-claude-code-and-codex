@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.s02_tools.builtin.x_client import XPost
 
@@ -44,4 +44,29 @@ class XCompareResponse(BaseModel):
     items: list[XCompareItem]
 
 
-__all__ = ["XCompareItem", "XCompareResponse", "XPostOut", "XSearchResponse"]
+class XExportRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    kb_id: str = Field(min_length=1)  # 必填：只写指定专库，防误导错库
+    days: int = Field(default=7, ge=1, le=365)
+    limit: int = Field(default=20, ge=1, le=30)  # 每次导出上限 30 条，控嵌入成本
+
+
+class XExportResponse(BaseModel):
+    kb_id: str
+    document_id: str
+    filename: str
+    status: str  # ready / partial / empty
+    post_count: int
+    chunk_count: int
+    rate_limited: bool = False
+    cached: bool = False
+
+
+__all__ = [
+    "XCompareItem",
+    "XCompareResponse",
+    "XExportRequest",
+    "XExportResponse",
+    "XPostOut",
+    "XSearchResponse",
+]

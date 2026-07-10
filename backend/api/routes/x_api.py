@@ -5,11 +5,19 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from backend.api.middleware.auth import verify_token
-from backend.api.routes.x_api_models import XCompareResponse, XPostOut, XSearchResponse
+from backend.api.routes.x_api_models import (
+    XCompareResponse,
+    XExportRequest,
+    XExportResponse,
+    XPostOut,
+    XSearchResponse,
+)
 from backend.api.x_api_compare import compare_queries, parse_words
 from backend.api.x_api_rank import rank_posts
+from backend.api.x_knowledge_bridge import XExportError, export_filename, ingest_x_posts
 from backend.api.x_search_service import XSearchQuery, XSearchServiceError, run_x_search
 from backend.common.logging import get_logger
+from backend.core.s13_knowledge import KnowledgeService
 from backend.common.x_budget import XBudgetError
 from backend.config.settings import settings
 from backend.core.s02_tools.builtin.x_client import XClientConfig, XClientError
@@ -72,6 +80,47 @@ async def compare_x(
         )
     items = await compare_queries(_x_config(), words, days, limit)
     return XCompareResponse(days=days, items=items)
+
+
+@router.post("/exports", response_model=XExportResponse)
+async def export_x_to_knowledge(body: XExportRequest) -> XExportResponse:
+    # 只写调用方指定的专库；库不存在直接 404，绝不隐式建库/写错库。
+    if await KnowledgeService().get_kb(body.kb_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "X_EXPORT_KB_NOT_FOUND", "message": f"知识库不存在：{body.kb_id}"},
+        )
+    query = XSearchQuery(
+        query=body.query.strip(), days=body.days, limit=body.limit, search_type="Latest"
+    )
+    result = await _run(query)
+    if not result.posts:
+        return XExportResponse(
+            kb_id=body.kb_id, document_id="", filename="", status="empty",
+            post_count=0, chunk_count=0,
+            rate_limited=result.rate_limited, cached=result.cached,
+        )
+    try:
+        ingest = await ingest_x_posts(body.kb_id, query.query, body.days, result.posts)
+    except XExportError as exc:
+        raise HTTPException(
+            status_code=502, detail={"code": "X_EXPORT_FAILED", "message": str(exc)}
+        ) from exc
+    if ingest.status == "failed":
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "X_EXPORT_INGEST_FAILED", "message": ingest.error or "入库失败"},
+        )
+    return XExportResponse(
+        kb_id=body.kb_id,
+        document_id=ingest.document_id,
+        filename=export_filename(query.query),
+        status=ingest.status,
+        post_count=len(result.posts),
+        chunk_count=ingest.chunk_count,
+        rate_limited=result.rate_limited,
+        cached=result.cached,
+    )
 
 
 async def _run(query: XSearchQuery):
