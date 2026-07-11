@@ -197,4 +197,3 @@ extension/    浏览器 Cookie 同步扩展
 | [docs/x-api.md](docs/x-api.md) | X 舆情雷达 API 手册 |
 | [DEPLOY.md](DEPLOY.md) | 部署、观测、排障 |
 | [tasks/ARCHITECTURE.md](tasks/ARCHITECTURE.md) | 架构文档 |
-| [AGENTS.md](AGENTS.md) | 仓库内 agent 协作约束 |
