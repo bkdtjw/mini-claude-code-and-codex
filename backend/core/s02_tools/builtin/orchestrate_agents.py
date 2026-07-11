@@ -37,7 +37,12 @@ def create_orchestrate_agents_tool(
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="orchestrate_agents",
-        description="执行简化的多子 Agent 协作任务列表，并自动推导并行阶段。",
+        description=(
+            "执行简化的多子 Agent 协作任务列表，并自动推导并行阶段。"
+            "硬性规则：每个任务的 role 必须全局唯一（不能有两个同名 role）；"
+            "depends_on 只能引用本次 tasks 里出现过的 role 名，禁止引用 _prev_0 之类的占位符；"
+            "无依赖的任务会并行执行，有依赖的自动排到其依赖之后。"
+        ),
         category="code-analysis",
         parameters=ToolParameterSchema(
             properties={
@@ -48,11 +53,18 @@ def create_orchestrate_agents_tool(
                         "type": "object",
                         "required": ["role", "task"],
                         "properties": {
-                            "role": {"type": "string"},
+                            "role": {
+                                "type": "string",
+                                "description": "子 agent 唯一标识，同一次编排内不可重复，如 reviewer_a",
+                            },
                             "task": {"type": "string"},
                             "permission": {"type": "string", "enum": ["readonly", "readwrite"]},
                             "allowed_tools": {"type": "array", "items": {"type": "string"}},
-                            "depends_on": {"type": "array", "items": {"type": "string"}},
+                            "depends_on": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "上游 role 名列表，必须精确匹配本列表中其他任务的 role",
+                            },
                         },
                     },
                 }
